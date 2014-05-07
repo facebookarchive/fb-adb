@@ -6,7 +6,7 @@
 
 enum channel_direction {
     CHANNEL_TO_FD,
-    CHANNEL_FROM_FD
+    CHANNEL_FROM_FD,
 };
 
 struct channel {
@@ -21,6 +21,8 @@ struct channel {
     unsigned always_buffer : 1;
     unsigned track_bytes_written : 1;
     unsigned track_window : 1;
+    unsigned adb_encoding_hack : 1;
+    unsigned leftover_escape : 2;
 };
 
 struct channel* channel_new(struct fdh* fdh,

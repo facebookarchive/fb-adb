@@ -1,0 +1,12 @@
+*.o
+configure
+config.log
+config.status
+.deps/
+autom4te.cache/
+adbx
+.gdb_history
+Makefile
+Makefile.in
+termnames.h
+build/
