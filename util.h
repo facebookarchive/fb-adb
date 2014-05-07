@@ -4,8 +4,6 @@
 #include <sys/stat.h>
 #include <fcntl.h>
 #include <sys/types.h>
-#include <sys/un.h>
-#include <sys/socket.h>
 #include <unistd.h>
 #include <stdbool.h>
 
@@ -54,6 +52,7 @@ char* xstrdup(const char* s);
 typedef struct errinfo {
     int err;
     const char* msg;
+    const char* prgname;
     unsigned want_msg : 1;
 } errinfo;
 
@@ -68,7 +67,13 @@ void die(int err, const char* fmt, ...);
 __attribute__((noreturn,format(printf, 1, 2)))
 void die_errno(const char* fmt, ...);
 
-extern char* prgname;
+__attribute__((format(printf, 1, 2)))
+void dbg(const char* fmt, ...);
+void dbglock(void);
+
+extern const char* orig_argv0;
+extern const char* prgname;
+void set_prgname(const char* s);
 extern int real_main(int argc, char** argv);
 
 size_t nextpow2sz(size_t sz);
@@ -107,14 +112,5 @@ enum blocking_mode { blocking, non_blocking };
 enum blocking_mode fd_get_blocking_mode(int fd);
 enum blocking_mode fd_set_blocing_mode(int fd, enum blocking_mode mode);
 
-int xsocket(int domain, int type, int protocol);
+void hack_reopen_tty(int fd);
 
-struct xsockaddr {
-    socklen_t addrlen; // size of addr below, not all
-    struct sockaddr addr;
-};
-
-struct xsockaddr* xsockaddr_unix(const char* path);
-void xconnect(int sockfd, struct xsockaddr* addr);
-void xbind(int sockfd, struct xsockaddr* addr);
-int xaccept(int sockfd);

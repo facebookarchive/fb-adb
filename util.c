@@ -7,8 +7,8 @@
 #include <unistd.h>
 #include <setjmp.h>
 #include <stdlib.h>
-#include <sys/socket.h>
-#include <sys/un.h>
+#include <signal.h>
+#include <sys/file.h>
 #include "util.h"
 #include "queue.h"
 
@@ -39,7 +39,8 @@ struct errhandler {
 static struct reslist* current_reslist;
 static struct errhandler* current_errh;
 __attribute__((noreturn)) static void die_oom(void);
-char* prgname;
+const char* prgname;
+const char* orig_argv0;
 
 struct reslist*
 reslist_push_new(void)
@@ -222,7 +223,10 @@ diev(int err, const char* fmt, va_list args)
     struct errinfo* ei = current_errh->ei;
     if (ei) {
         ei->err = err;
-        ei->msg = xavprintf(fmt, args);
+        if (ei->want_msg) {
+            ei->msg = xavprintf(fmt, args);
+            ei->prgname = xstrdup(prgname);
+        }
     }
 
     reslist_destroy(current_errh->rl);
@@ -250,7 +254,7 @@ int
 xopen(const char* pathname, int flags, mode_t mode)
 {
     struct cleanup* cl = cleanup_allocate();
-    int fd = open(pathname, flags, mode);
+    int fd = open(pathname, flags | O_CLOEXEC, mode);
     if (fd == -1)
         die_errno("open(\"%s\")", pathname);
 
@@ -324,18 +328,21 @@ main1(void* arg)
 int
 main(int argc, char** argv)
 {
+    signal(SIGPIPE, SIG_IGN);
     struct main_info mi;
-    prgname = xstrdup(basename(xstrdup(argv[0])));
     mi.argc = argc;
     mi.argv = argv;
     struct reslist dummy_top;
     memset(&dummy_top, 0, sizeof (dummy_top));
     current_reslist = &dummy_top;
+    prgname = argv[0];
     struct reslist* top_rl = reslist_push_new();
+    orig_argv0 = argv[0];
+    prgname = strdup(basename(xstrdup(argv[0])));
     struct errinfo ei = { .want_msg = true };
     if (catch_error(main1, &mi, &ei)) {
         mi.ret = 1;
-        fprintf(stderr, "%s: %s\n", prgname, ei.msg);
+        fprintf(stderr, "%s: %s\n", ei.prgname, ei.msg);
     }
 
     reslist_destroy(top_rl);
@@ -363,6 +370,20 @@ char*
 xstrdup(const char* s)
 {
     return xaprintf("%s", s);
+}
+
+static void
+cleanup_prgname(void* arg)
+{
+    prgname = arg;
+}
+
+void
+set_prgname(const char* s)
+{
+    struct cleanup* c = cleanup_allocate();
+    cleanup_commit(c, cleanup_prgname, (void*) prgname);
+    prgname = s;
 }
 
 size_t
@@ -406,77 +427,55 @@ fd_set_blocing_mode(int fd, enum blocking_mode mode)
     return old_mode;
 }
 
-int
-xsocket(int domain, int type, int protocol)
+void
+dbg(const char* fmt, ...)
 {
-    struct cleanup* cl = cleanup_allocate();
-    int fd = socket(domain, type | SOCK_CLOEXEC, protocol);
-    if (fd == -1)
-        die_errno("socket(%d,%d,%d)", domain, type, protocol);
-
-    cleanup_commit_close_fd(cl, fd);
-    return fd;
+    SCOPED_RESLIST(rl_dbg);
+    dbglock();
+    va_list args;
+    fprintf(stderr, "%s(%04d): ", prgname, getpid());
+    va_start(args, fmt);
+    vfprintf(stderr, fmt, args);
+    va_end(args);
+    fputc('\n', stderr);
+    fflush(stderr);
 }
 
-struct xsockaddr*
-xsockaddr_unix(const char* path)
+static int dbglock_fd = -1;
+static int dbglock_level = 0;
+
+static void
+cleanup_dbglock(void* ignored)
 {
-    struct xsockaddr* xa;
-    struct sockaddr_un* uaddr;
-    size_t pathsz = strlen(path) + 1;
-    size_t basesz = sizeof (struct sockaddr_un) - sizeof (uaddr->sun_path);
-    size_t totalsz;
-    size_t hdrsz = sizeof (*xa) - sizeof (xa->addr);
-
-    if (SATADD(&totalsz, pathsz, basesz) ||
-        totalsz > INT_MAX ||
-        SATADD(&totalsz, totalsz, hdrsz))
-    {
-        die(EINVAL, "unix socket path too long: \"%.40s\"...", path);
-    }
-
-    xa = xalloc(totalsz);
-    xa->addrlen = basesz + pathsz;
-    uaddr = (struct sockaddr_un*) &xa->addr;
-    uaddr->sun_family = AF_UNIX;
-    strcpy(uaddr->sun_path, path);
-    return xa;
-}
-
-char*
-describe_xsockaddr(struct xsockaddr* xa)
-{
-    if (xa->addr.sa_family == AF_UNIX) {
-        struct sockaddr_un* uaddr = (struct sockaddr_un*) &xa->addr;
-        return xaprintf("unix:\"%s\"", uaddr->sun_path);
-    }
-
-    return "unknown sockaddr";
+    if (--dbglock_level == 0)
+        flock(dbglock_fd, LOCK_UN);
 }
 
 void
-xconnect(int sockfd, struct xsockaddr* xa)
+dbglock(void)
 {
-    if (connect(sockfd, &xa->addr, xa->addrlen) < 0)
-        die_errno("connect(%s)", describe_xsockaddr(xa));
+    if (dbglock_fd == -1)
+        dbglock_fd = open("/tmp/adbx.lock",
+                          O_RDWR | O_CREAT | O_CLOEXEC,
+                          0644);
+
+    struct cleanup* cl = cleanup_allocate();
+    if (dbglock_level++ == 0)
+        flock(dbglock_fd, LOCK_EX);
+    cleanup_commit(cl, cleanup_dbglock, 0);
 }
 
 void
-xbind(int sockfd, struct xsockaddr* xa)
+hack_reopen_tty(int fd)
 {
-    if (bind(sockfd, &xa->addr, xa->addrlen) < 0)
-        die_errno("bind(%s)", describe_xsockaddr(xa));
-}
-
-int
-xaccept(int sockfd)
-{
-    struct cleanup* cl = cleanup_allocate();
-    int fd = accept4(sockfd, NULL, 0, SOCK_CLOEXEC);
-    if (fd == -1)
-        die_errno("accept4(%d)", sockfd);
-
-    cleanup_commit_close_fd(cl, fd);
-    return fd;
-
+    // We sometimes need O_NONBLOCK on our input and output streams,
+    // but O_NONBLOCK applies to the entire file object.  If the file
+    // object happens to be a tty we've inherited, everything that
+    // uses that tty will start getting EAGAIN and all hell will break
+    // loose.  Here, we reopen the tty so we can get a fresh file
+    // object and control the blocking mode separately.
+    SCOPED_RESLIST(rl_hack);
+    int nfd = xopen(ttyname(fd), O_RDWR, 0);
+    if (dup3(nfd, fd, O_CLOEXEC) < 0)
+        die_errno("dup3");
 }

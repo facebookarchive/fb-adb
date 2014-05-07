@@ -47,6 +47,8 @@ child_start(int flags,
     if (flags & CHILD_PTY_STDERR) {
         childfd[2] = xdup(pty_slave);
         parentfd[2] = xdup(pty_master);
+    } else if (flags & CHILD_INHERIT_STDERR) {
+        childfd[2] = xdup(2);
     } else {
         xpipe(&parentfd[2], &childfd[2]);
     }
@@ -60,8 +62,9 @@ child_start(int flags,
         if (setsid() == (pid_t) -1)
             die_errno("setsid");
 
-        if (ioctl(pty_slave, TIOCSCTTY, pty_slave) == -1)
-            die_errno("TIOCSCTTY");
+        if (flags & CHILD_NOCTTY)
+            if (ioctl(pty_slave, TIOCSCTTY, pty_slave) == -1)
+                die_errno("TIOCSCTTY");
 
         /* dup2 resets O_CLOEXEC */
         for (int i = 0; i < 3; ++i)
@@ -77,8 +80,10 @@ child_start(int flags,
     struct child* child = xcalloc(sizeof (*child));
     child->pid = child_pid;
     child->pty_master = fdh_dup(pty_master);
-    for (int i = 0; i < 3; ++i)
-        child->fd[i] = fdh_dup(parentfd[i]);
+    child->fd[0] = fdh_dup(parentfd[0]);
+    child->fd[1] = fdh_dup(parentfd[1]);
+    if ((flags & CHILD_INHERIT_STDERR) == 0)
+        child->fd[2] = fdh_dup(parentfd[2]);
 
     return child;
 }

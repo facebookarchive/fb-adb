@@ -16,19 +16,18 @@
 #include "core.h"
 #include "channel.h"
 
-struct adbx_stub {
-    struct adbx_sh sh;
-    struct child* child;
-};
-
 static int
 xwaitpid(pid_t child_pid)
 {
     int status;
-    for (;;) {
-        if (waitpid(child_pid, &status, 0) < 0 && errno != EINTR)
-            die_errno("waitpid(%lu)", (unsigned long) child_pid);
-    }
+    int ret;
+
+    do {
+        ret = waitpid(child_pid, &status, 0);
+    } while (ret < 0 && errno == EINTR);
+
+    if (ret < 0)
+        die_errno("waitpid(%lu)", (unsigned long) child_pid);
 
     return status;
 }
@@ -49,42 +48,34 @@ send_exit_message(int status, struct adbx_sh* sh)
 }
 
 static void
-stdio_from_unix_peer(const char* path)
-{
-    SCOPED_RESLIST(rl_unixconn);
-    struct xsockaddr* xa = xsockaddr_unix(path);
-    int serverfd = xsocket(AF_UNIX, SOCK_STREAM, 0);
-    xbind(serverfd, xa);
-    if (listen(serverfd, 1) < 0)
-        die_errno("listen");
-
-    int clientfd = xaccept(serverfd);
-    if (dup2(clientfd, 0) < 0 || dup2(clientfd, 1) < 0)
-        die_errno("dup to stdin/stdout");
-}
-
-static void
 print_usage() {
-    printf("%s [-u peer] CMD ARGS...: shex stub\n", prgname);
+    printf("%s CMD ARGS...: shex stub\n", prgname);
 }
 
-int
-stub_main(int argc, char** argv)
+static struct child*
+start_command_child(int argc, char** argv)
 {
     for (int i = 0; i < 3; ++i)
         if (fcntl(i, F_GETFL) < 0)
             die(EINVAL, "fd %d not open", i);
 
     int c;
-    const char* unix_peer = NULL;
     static struct option opts[] = {
-        {"unix-peer", required_argument, 0, 'u' },
+        { 0 }
     };
 
-    while ((c = getopt_long(argc, argv, ":u:h?", opts, NULL)) != -1) {
+    int child_flags = 0;
+
+    while ((c = getopt_long(argc, argv, ":012h?", opts, NULL)) != -1) {
         switch (c) {
-            case 'u':
-                unix_peer = optarg;
+            case '0':
+                child_flags |= CHILD_PTY_STDIN;
+                break;
+            case '1':
+                child_flags |= CHILD_PTY_STDOUT;
+                break;
+            case '2':
+                child_flags |= CHILD_PTY_STDERR;
                 break;
             case 'h':
             case '?':
@@ -100,26 +91,35 @@ stub_main(int argc, char** argv)
     if (argc < 1)
         die(EINVAL, "no command given");
 
-    if (unix_peer)
-        stdio_from_unix_peer(unix_peer);
+    return child_start(child_flags, argv[0], (const char* const*) argv);
+}
 
-    struct child* child =
-        child_start((CHILD_PTY_STDIN |
-                     CHILD_PTY_STDOUT |
-                     CHILD_PTY_STDERR ),
-                    argv[0],
-                    (const char* const*) argv);
+struct stub {
+    struct adbx_sh sh;
+    struct child* child;
+};
 
-    if (isatty(0)) xmkraw(0);
-    if (isatty(1)) xmkraw(1);
+int
+stub_main(int argc, char** argv)
+{
+    struct child* child = start_command_child(argc, argv);
 
-    struct adbx_stub stub;
+    if (isatty(0)) {
+        hack_reopen_tty(0);
+        xmkraw(0);
+    }
+
+    if (isatty(1)) {
+        hack_reopen_tty(1);
+        xmkraw(1);
+    }
+
+    struct stub stub;
     memset(&stub, 0, sizeof (stub));
     struct adbx_sh* sh = &stub.sh;
     size_t child_bufsz = 4096;
     size_t proto_bufsz = 8192;
 
-    stub.child = child;
     sh->process_msg = adbx_sh_process_msg;
     sh->max_outgoing_msg = proto_bufsz;
     sh->nrch = 5;
@@ -129,7 +129,6 @@ stub_main(int argc, char** argv)
                                 proto_bufsz,
                                 CHANNEL_FROM_FD);
 
-    ch[FROM_PEER]->track_window = false;
     ch[FROM_PEER]->window = UINT32_MAX;
 
     ch[TO_PEER] = channel_new(fdh_dup(1), proto_bufsz, CHANNEL_TO_FD);
@@ -150,24 +149,16 @@ stub_main(int argc, char** argv)
     ch[CHILD_STDERR] =
         channel_new(child->fd[2], child_bufsz, CHANNEL_FROM_FD);
     ch[CHILD_STDERR]->track_window = true;
-
     sh->ch = ch;
 
-    bool peer_dead = false;
+    io_loop_init(sh);
 
-    while ((!channel_dead_p(ch[CHILD_STDOUT]) ||
-            !channel_dead_p(ch[CHILD_STDERR])))
-    {
-        peer_dead = (channel_dead_p(ch[FROM_PEER]) ||
-                     channel_dead_p(ch[TO_PEER]));
+    PUMP_WHILE(sh, (!channel_dead_p(ch[FROM_PEER]) &&
+                    !channel_dead_p(ch[TO_PEER]) &&
+                    (!channel_dead_p(ch[CHILD_STDOUT]) ||
+                     !channel_dead_p(ch[CHILD_STDERR]))));
 
-        if (peer_dead)
-            break;
-
-        io_loop_1(sh);
-    }
-
-    if (peer_dead) {
+    if (channel_dead_p(ch[FROM_PEER]) || channel_dead_p(ch[TO_PEER])) {
         //
         // If we lost our peer connection, make sure the child sees
         // SIGHUP instead of seeing its stdin close: just drain any
@@ -179,17 +170,13 @@ stub_main(int argc, char** argv)
 
         channel_close(ch[FROM_PEER]);
         channel_close(ch[TO_PEER]);
-        while (!channel_dead_p(ch[FROM_PEER]) ||
-               !channel_dead_p(ch[TO_PEER]))
-        {
-            io_loop_1(sh);
-        }
+
+        PUMP_WHILE(sh, (!channel_dead_p(ch[FROM_PEER]) ||
+                        !channel_dead_p(ch[TO_PEER])));
 
         // Drain output buffers
         channel_close(ch[CHILD_STDIN]);
-        while (!channel_dead_p(ch[CHILD_STDIN]))
-            io_loop_1(sh);
-
+        PUMP_WHILE(sh, !channel_dead_p(ch[CHILD_STDIN]));
         return 128 + SIGHUP;
     }
 
@@ -199,26 +186,21 @@ stub_main(int argc, char** argv)
     // peer, then cleanly shut down the peer connection.
     //
 
+    dbg("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!clean exit");
+
     channel_close(ch[CHILD_STDIN]);
     channel_close(ch[CHILD_STDOUT]);
     channel_close(ch[CHILD_STDERR]);
 
-    while (!channel_dead_p(ch[CHILD_STDIN]) ||
-           !channel_dead_p(ch[CHILD_STDOUT]) ||
-           !channel_dead_p(ch[CHILD_STDERR]))
-    {
-        io_loop_1(sh);
-    }
+    PUMP_WHILE (sh, (!channel_dead_p(ch[CHILD_STDIN]) ||
+                     !channel_dead_p(ch[CHILD_STDOUT]) ||
+                     !channel_dead_p(ch[CHILD_STDERR])));
 
     send_exit_message(xwaitpid(child->pid), sh);
     channel_close(ch[TO_PEER]);
 
-    while (!channel_dead_p(ch[TO_PEER]))
-        io_loop_1(sh);
-
+    PUMP_WHILE(sh, !channel_dead_p(ch[TO_PEER]));
     channel_close(ch[FROM_PEER]);
-    while (!channel_dead_p(ch[FROM_PEER]))
-        io_loop_1(sh);
-
+    PUMP_WHILE(sh, !channel_dead_p(ch[FROM_PEER]));
     return 0;
 }

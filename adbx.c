@@ -24,7 +24,8 @@ real_main(int argc, char** argv)
         sub_main = shex_main;
 
     if (sub_main) {
-        argv[1] = prgname = xaprintf("%s %s", argv[0], argv[1]);
+        argv[1] = xaprintf("%s %s", prgname, argv[1]);
+        set_prgname(argv[1]);
         return sub_main(argc - 1, argv + 1);
     }
 

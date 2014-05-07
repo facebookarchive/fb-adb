@@ -43,13 +43,11 @@ channel_wanted_writesz(struct channel* c)
 struct pollfd
 channel_request_poll(struct channel* c)
 {
-    if (channel_wanted_readsz(c)) {
+    if (channel_wanted_readsz(c))
         return (struct pollfd){c->fdh->fd, POLLIN, 0};
-    }
 
-    if (channel_wanted_writesz(c)) {
+    if (channel_wanted_writesz(c))
         return (struct pollfd){c->fdh->fd, POLLOUT, 0};
-    }
 
     return (struct pollfd){-1, 0, 0};
 }
@@ -76,6 +74,8 @@ channel_write(struct channel* c, const struct iovec* iov, unsigned nio)
             try_direct = false;
         }
     }
+
+    try_direct = 0; // XXX
 
     if (try_direct) {
         // If writev fails, just fall back to buffering path
@@ -141,9 +141,9 @@ poll_channel_1(void* arg)
 bool
 channel_dead_p(struct channel* c)
 {
-    return c->fdh == NULL &&
-        ringbuf_size(c->rb) == 0 &&
-        c->sent_eof == true;
+    return (c->fdh == NULL &&
+            ringbuf_size(c->rb) == 0 &&
+            c->sent_eof == true);
 }
 
 void

@@ -4,6 +4,8 @@
 #define CHILD_PTY_STDIN  0x1
 #define CHILD_PTY_STDOUT 0x2
 #define CHILD_PTY_STDERR 0x4
+#define CHILD_INHERIT_STDERR 0x8
+#define CHILD_NOCTTY 0x10
 
 struct child {
     pid_t pid;
