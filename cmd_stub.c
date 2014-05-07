@@ -61,12 +61,13 @@ start_command_child(int argc, char** argv)
 
     int c;
     static struct option opts[] = {
+        { "--help", no_argument, NULL, 'h' },
         { 0 }
     };
 
     int child_flags = 0;
 
-    while ((c = getopt_long(argc, argv, ":012h?", opts, NULL)) != -1) {
+    while ((c = getopt_long(argc, argv, "+:012h", opts, NULL)) != -1) {
         switch (c) {
             case '0':
                 child_flags |= CHILD_PTY_STDIN;
@@ -77,12 +78,16 @@ start_command_child(int argc, char** argv)
             case '2':
                 child_flags |= CHILD_PTY_STDERR;
                 break;
-            case 'h':
+            case ':':
+                die(EINVAL, "missing option for -%c", optopt);
             case '?':
+                if (optopt != '?')
+                    die(EINVAL, "invalid option -%c", optopt);
+            case 'h':
                 print_usage();
                 return 0;
             default:
-                die(EINVAL, "invalid option %c", optopt);
+                abort();
         }
     }
 
@@ -103,6 +108,8 @@ int
 stub_main(int argc, char** argv)
 {
     struct child* child = start_command_child(argc, argv);
+    if (!child)
+        return 0;
 
     if (isatty(0)) {
         hack_reopen_tty(0);
@@ -186,7 +193,7 @@ stub_main(int argc, char** argv)
     // peer, then cleanly shut down the peer connection.
     //
 
-    dbg("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!clean exit");
+    dbg("clean exit");
 
     channel_close(ch[CHILD_STDIN]);
     channel_close(ch[CHILD_STDOUT]);

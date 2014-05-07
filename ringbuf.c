@@ -96,7 +96,7 @@ ringbuf_note_added(struct ringbuf* rb, size_t nr)
 size_t
 ringbuf_note_removed(struct ringbuf* rb, size_t nr)
 {
-    assert(nr <= ringbuf_room(rb));
+    assert(nr <= ringbuf_size(rb));
     rb->nr_removed += nr;
     return nr;
 }
@@ -146,12 +146,12 @@ ringbuf_copy_out(const struct ringbuf* rb, void* buf, size_t sz)
 }
 
 void
-ringbuf_iov(const struct ringbuf* rb,
-            struct iovec iov[2],
-            size_t sz)
+ringbuf_readable_iov(const struct ringbuf* rb,
+                     struct iovec iov[2],
+                     size_t sz)
 {
     assert(sz <= ringbuf_size(rb));
-    struct ringbuf_io rio = ringbuf_io_region(rb, rb->nr_added, sz);
+    struct ringbuf_io rio = ringbuf_io_region(rb, rb->nr_removed, sz);
     iov[0] = rio.v[0];
     iov[1] = rio.v[1];
 }

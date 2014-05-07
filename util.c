@@ -8,9 +8,8 @@
 #include <setjmp.h>
 #include <stdlib.h>
 #include <signal.h>
-#include <sys/file.h>
 #include "util.h"
-#include "queue.h"
+#include <sys/queue.h>
 
 struct resource {
     enum { RES_RESLIST, RES_CLEANUP } type;
@@ -337,6 +336,9 @@ main(int argc, char** argv)
     current_reslist = &dummy_top;
     prgname = argv[0];
     struct reslist* top_rl = reslist_push_new();
+#ifndef NDEBUG
+    dbglock_init();
+#endif
     orig_argv0 = argv[0];
     prgname = strdup(basename(xstrdup(argv[0])));
     struct errinfo ei = { .want_msg = true };
@@ -407,7 +409,7 @@ fd_get_blocking_mode(int fd)
 }
 
 enum blocking_mode
-fd_set_blocing_mode(int fd, enum blocking_mode mode)
+fd_set_blocking_mode(int fd, enum blocking_mode mode)
 {
     int flags = fcntl(fd, F_GETFL);
     enum blocking_mode old_mode;
@@ -428,44 +430,6 @@ fd_set_blocing_mode(int fd, enum blocking_mode mode)
 }
 
 void
-dbg(const char* fmt, ...)
-{
-    SCOPED_RESLIST(rl_dbg);
-    dbglock();
-    va_list args;
-    fprintf(stderr, "%s(%04d): ", prgname, getpid());
-    va_start(args, fmt);
-    vfprintf(stderr, fmt, args);
-    va_end(args);
-    fputc('\n', stderr);
-    fflush(stderr);
-}
-
-static int dbglock_fd = -1;
-static int dbglock_level = 0;
-
-static void
-cleanup_dbglock(void* ignored)
-{
-    if (--dbglock_level == 0)
-        flock(dbglock_fd, LOCK_UN);
-}
-
-void
-dbglock(void)
-{
-    if (dbglock_fd == -1)
-        dbglock_fd = open("/tmp/adbx.lock",
-                          O_RDWR | O_CREAT | O_CLOEXEC,
-                          0644);
-
-    struct cleanup* cl = cleanup_allocate();
-    if (dbglock_level++ == 0)
-        flock(dbglock_fd, LOCK_EX);
-    cleanup_commit(cl, cleanup_dbglock, 0);
-}
-
-void
 hack_reopen_tty(int fd)
 {
     // We sometimes need O_NONBLOCK on our input and output streams,
@@ -475,7 +439,7 @@ hack_reopen_tty(int fd)
     // loose.  Here, we reopen the tty so we can get a fresh file
     // object and control the blocking mode separately.
     SCOPED_RESLIST(rl_hack);
-    int nfd = xopen(ttyname(fd), O_RDWR, 0);
+    int nfd = xopen(ttyname(fd), O_RDWR | O_NOCTTY, 0);
     if (dup3(nfd, fd, O_CLOEXEC) < 0)
         die_errno("dup3");
 }

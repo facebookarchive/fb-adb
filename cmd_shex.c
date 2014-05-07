@@ -30,6 +30,23 @@ struct adbx_shex {
 
 #define SHEX_DEBUG 0x1
 
+static void
+replace_with_dev_null(int fd)
+{
+    int flags = fcntl(fd, F_GETFL);
+    if (flags < 0)
+        die_errno("fcntl(%d, F_GETFL)", fd);
+    int nfd = open("/dev/null", O_RDWR | O_CLOEXEC);
+    if (nfd == -1)
+        die_errno("open(\"/dev/null\")");
+    if (dup3(nfd, fd, flags & O_CLOEXEC) < 0)
+        die_errno("dup3");
+
+    close(nfd);
+    if (fcntl(fd, F_SETFL, flags) < 0)
+        die_errno("fcntl");
+}
+
 static struct child*
 start_stub(int argc, char** argv, int* out_flags)
 {
@@ -37,21 +54,26 @@ start_stub(int argc, char** argv, int* out_flags)
     int flags = 0;
 
     static struct option opts[] = {
+        { "help", no_argument, NULL, 'h' },
         { "debug", no_argument, NULL, 'd' },
         { 0 }
     };
 
-    while ((c = getopt_long(argc, argv, ":dh?", opts, NULL)) != -1) {
+    while ((c = getopt_long(argc, argv, "+:dh", opts, NULL)) != -1) {
         switch (c) {
             case 'd':
                 flags |= SHEX_DEBUG;
                 break;
-            case 'h':
+            case ':':
+                die(EINVAL, "missing option for -%c", optopt);
             case '?':
+                if (optopt != '?')
+                    die(EINVAL, "invalid option -%c", optopt);
+            case 'h':
                 print_usage();
                 return 0;
             default:
-                die(EINVAL, "invalid option %c", optopt);
+                abort();
         }
     }
 
@@ -98,6 +120,8 @@ shex_main(int argc, char** argv)
 {
     int flags;
     struct child* child = start_stub(argc, argv, &flags);
+    if (!child)
+        return 0;
 
     struct adbx_shex shex;
     memset(&shex, 0, sizeof (shex));
@@ -144,10 +168,10 @@ shex_main(int argc, char** argv)
 
     io_loop_init(sh);
 
-    close(0);
-    close(1);
+    replace_with_dev_null(0);
+    replace_with_dev_null(1);
     if ((flags & SHEX_DEBUG) == 0)
-        close(2);
+        replace_with_dev_null(2);
 
     dbg("XXX 0");
 

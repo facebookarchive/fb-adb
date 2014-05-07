@@ -6,6 +6,7 @@
 #include <sys/types.h>
 #include <unistd.h>
 #include <stdbool.h>
+#include "dbg.h"
 
 #define ARRAYSIZE(ar) (sizeof (ar) / sizeof (*(ar)))
 
@@ -67,10 +68,6 @@ void die(int err, const char* fmt, ...);
 __attribute__((noreturn,format(printf, 1, 2)))
 void die_errno(const char* fmt, ...);
 
-__attribute__((format(printf, 1, 2)))
-void dbg(const char* fmt, ...);
-void dbglock(void);
-
 extern const char* orig_argv0;
 extern const char* prgname;
 void set_prgname(const char* s);
@@ -110,7 +107,7 @@ size_t iovec_sum(const struct iovec* iov, unsigned niovec);
 
 enum blocking_mode { blocking, non_blocking };
 enum blocking_mode fd_get_blocking_mode(int fd);
-enum blocking_mode fd_set_blocing_mode(int fd, enum blocking_mode mode);
+enum blocking_mode fd_set_blocking_mode(int fd, enum blocking_mode mode);
 
 void hack_reopen_tty(int fd);
 

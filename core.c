@@ -55,7 +55,7 @@ adbx_sh_process_msg_channel_data(struct adbx_sh* sh,
         die_proto_error("window desync");
 
     struct iovec iov[2];
-    ringbuf_iov(cmdch->rb, iov, payloadsz);
+    ringbuf_readable_iov(cmdch->rb, iov, payloadsz);
     channel_write(c, iov, 2);
     ringbuf_note_removed(cmdch->rb, payloadsz);
 }
@@ -177,12 +177,11 @@ xmit_data(struct channel* c,
         size_t payloadsz = XMIN(avail, maxoutmsg - sizeof (m));
         dbg("payloadsz: %lu", payloadsz);
         struct iovec iov[3] = {{ &m, sizeof (m) }};
-        ringbuf_iov(c->rb, &iov[1], payloadsz);
+        ringbuf_readable_iov(c->rb, &iov[1], payloadsz);
         memset(&m, 0, sizeof (m));
         m.msg.type = MSG_CHANNEL_DATA;
         m.channel = chno;
         m.msg.size = iovec_sum(iov, ARRAYSIZE(iov));
-        dbg("writing data");
         channel_write(sh->ch[TO_PEER], iov, ARRAYSIZE(iov));
         ringbuf_note_removed(c->rb, payloadsz);
     }
@@ -287,7 +286,7 @@ io_loop_init(struct adbx_sh* sh)
     unsigned chno;
     for (chno = 0; chno < nrch; ++chno)
         if (ch[chno]->fdh != NULL)
-            fd_set_blocing_mode(ch[chno]->fdh->fd, non_blocking);
+            fd_set_blocking_mode(ch[chno]->fdh->fd, non_blocking);
 }
 
 void

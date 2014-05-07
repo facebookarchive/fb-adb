@@ -94,7 +94,8 @@ am__installdirs = "$(DESTDIR)$(bindir)"
 PROGRAMS = $(bin_PROGRAMS)
 am_adbx_OBJECTS = adbx.$(OBJEXT) util.$(OBJEXT) child.$(OBJEXT) \
 	xmkraw.$(OBJEXT) ringbuf.$(OBJEXT) core.$(OBJEXT) \
-	channel.$(OBJEXT) cmd_stub.$(OBJEXT) cmd_shex.$(OBJEXT)
+	channel.$(OBJEXT) cmd_stub.$(OBJEXT) cmd_shex.$(OBJEXT) \
+	dbg.$(OBJEXT)
 adbx_OBJECTS = $(am_adbx_OBJECTS)
 adbx_LDADD = $(LDADD)
 AM_V_P = $(am__v_P_@AM_V@)
@@ -255,7 +256,7 @@ top_build_prefix = @top_build_prefix@
 top_builddir = @top_builddir@
 top_srcdir = @top_srcdir@
 adbx_SOURCES = adbx.c util.c child.c xmkraw.c ringbuf.c core.c channel.c \
-	cmd_stub.c cmd_shex.c
+	cmd_stub.c cmd_shex.c dbg.c
 
 all: all-am
 
@@ -354,6 +355,7 @@ distclean-compile:
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/cmd_shex.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/cmd_stub.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/core.Po@am__quote@
+@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/dbg.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/ringbuf.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/util.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/xmkraw.Po@am__quote@
