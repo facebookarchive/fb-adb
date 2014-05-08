@@ -22,6 +22,7 @@ die_proto_error(const char* fmt, ...)
 static bool
 detect_msg(struct ringbuf* rb, struct msg* mhdr)
 {
+    memset(mhdr, 0, sizeof (*mhdr));
     size_t avail = ringbuf_size(rb);
     if (avail < sizeof (*mhdr))
         return false;
@@ -38,16 +39,19 @@ adbx_sh_process_msg_channel_data(struct adbx_sh* sh,
     struct channel* cmdch = sh->ch[FROM_PEER];
 
     if (m->channel <= NR_SPECIAL_CH || m->channel > nrch)
-            die_proto_error("invalid channel %d", m->channel);
+            die_proto_error("data: invalid channel %d", m->channel);
 
     struct channel* c = sh->ch[m->channel];
     if (c->dir == CHANNEL_FROM_FD)
         die_proto_error("wrong channel direction ch=%u", m->channel);
 
-    if (c->fdh == NULL)
-        return;         /* Channel already closed */
-
     size_t payloadsz = m->msg.size - sizeof (m);
+
+    if (c->fdh == NULL) {
+        /* Channel already closed.  Just drop the write. */
+        ringbuf_note_removed(cmdch->rb, payloadsz);
+        return;
+    }
 
     /* If we received more data than will fit in the receive
      * buffer, peer didn't respect window requirements.  */
@@ -65,9 +69,8 @@ adbx_sh_process_msg_channel_window(struct adbx_sh* sh,
                                    struct msg_channel_window* m)
 {
     unsigned nrch = sh->nrch;
-
     if (m->channel <= NR_SPECIAL_CH || m->channel > nrch)
-        die_proto_error("invalid channel %d", m->channel);
+        die_proto_error("window: invalid channel %d", m->channel);
 
     struct channel* c = sh->ch[m->channel];
     if (c->dir == CHANNEL_TO_FD)
@@ -86,7 +89,6 @@ adbx_sh_process_msg_channel_close(struct adbx_sh* sh,
                                   struct msg_channel_close* m)
 {
     unsigned nrch = sh->nrch;
-
     if (m->channel <= NR_SPECIAL_CH || m->channel > nrch)
         return;                 /* Ignore invalid close */
 
@@ -121,14 +123,17 @@ adbx_sh_process_msg(struct adbx_sh* sh, struct msg mhdr)
 
         ringbuf_copy_out(cmdch->rb, &m, sizeof (m));
         ringbuf_note_removed(cmdch->rb, sizeof (m));
+        dbgmsg(&m.msg, "recv");
         adbx_sh_process_msg_channel_data(sh, &m);
     } else if (mhdr.type == MSG_CHANNEL_WINDOW) {
         struct msg_channel_window m;
         read_cmdmsg(sh, mhdr, &m, sizeof (m));
+        dbgmsg(&m.msg, "recv");
         adbx_sh_process_msg_channel_window(sh, &m);
     } else if (mhdr.type == MSG_CHANNEL_CLOSE) {
         struct msg_channel_close m;
         read_cmdmsg(sh, mhdr, &m, sizeof (m));
+        dbgmsg(&m.msg, "recv");
         adbx_sh_process_msg_channel_close(sh, &m);
     } else {
         ringbuf_note_removed(cmdch->rb, mhdr.size);
@@ -156,6 +161,7 @@ xmit_acks(struct channel* c, unsigned chno, struct adbx_sh* sh)
         m.msg.size = sizeof (m);
         m.channel = chno;
         m.window_delta = c->bytes_written;
+        dbgmsg(&m.msg, "send");
         channel_write(sh->ch[TO_PEER], &(struct iovec){&m, sizeof (m)}, 1);
         c->bytes_written = 0;
     }
@@ -175,13 +181,14 @@ xmit_data(struct channel* c,
 
     if (maxoutmsg > sizeof (m) && avail > 0) {
         size_t payloadsz = XMIN(avail, maxoutmsg - sizeof (m));
-        dbg("payloadsz: %lu", payloadsz);
         struct iovec iov[3] = {{ &m, sizeof (m) }};
         ringbuf_readable_iov(c->rb, &iov[1], payloadsz);
         memset(&m, 0, sizeof (m));
         m.msg.type = MSG_CHANNEL_DATA;
         m.channel = chno;
         m.msg.size = iovec_sum(iov, ARRAYSIZE(iov));
+        assert(chno != 0);
+        dbgmsg(&m.msg, "send");
         channel_write(sh->ch[TO_PEER], iov, ARRAYSIZE(iov));
         ringbuf_note_removed(c->rb, payloadsz);
     }
@@ -203,6 +210,7 @@ xmit_eof(struct channel* c,
         m.msg.type = MSG_CHANNEL_CLOSE;
         m.msg.size = sizeof (m);
         m.channel = chno;
+        dbgmsg(&m.msg, "send");
         channel_write(sh->ch[TO_PEER], &(struct iovec){&m, sizeof (m)}, 1);
         c->sent_eof = true;
     }
@@ -220,64 +228,6 @@ do_pending_close(struct channel* c)
     }
 }
 
-static void
-dbgch(const char* label, struct adbx_sh* sh)
-{
-#ifndef NDEBUG
-    SCOPED_RESLIST(rl_dbgch);
-    struct channel** ch = sh->ch;
-    unsigned nrch = sh->nrch;
-    unsigned chno;
-
-    dbglock();
-
-    dbg("DBGCH[%s]", label);
-
-    static const char* chnames[] = {
-        "FROM_PEER",
-        "TO_PEER",
-        "CHILD_STDIN",
-        "CHILD_STDOUT",
-        "CHILD_STDERR"
-    };
-
-    for (chno = 0; chno < nrch; ++chno) {
-        struct channel* c = ch[chno];
-        struct pollfd p = channel_request_poll(ch[chno]);
-        const char* pev;
-        switch (p.events) {
-            case POLLIN | POLLOUT:
-                pev = "POLLIN,POLLOUT";
-                break;
-            case POLLIN:
-                pev = "POLLIN";
-                break;
-            case POLLOUT:
-                pev = "POLLOUT";
-                break;
-            case 0:
-                pev = "NONE";
-                break;
-            default:
-                pev = xaprintf("%xd", p.events);
-                break;
-        }
-
-        assert(p.fd == -1 || p.fd == c->fdh->fd);
-
-        dbg("  %-18s rb_size:%-4lu rb_room:%-4lu %s%-2s %s",
-            xaprintf("ch[%d=%s]", chno, chnames[chno]),
-            ringbuf_size(c->rb),
-            ringbuf_room(c->rb),
-            (c->dir == CHANNEL_FROM_FD ? "<" : ">"),
-            ((c->fdh != NULL)
-             ? xaprintf("%d", c->fdh->fd)
-             : (c->sent_eof ? "!!" : "!?")),
-            pev);
-    }
-#endif
-}
-
 void
 io_loop_init(struct adbx_sh* sh)
 {
@@ -292,7 +242,7 @@ io_loop_init(struct adbx_sh* sh)
 void
 io_loop_do_io(struct adbx_sh* sh)
 {
-    dbgch("before io_loop_do_io", sh);
+    dbgch("before io_loop_do_io", sh->ch, sh->nrch);
 
     struct channel** ch = sh->ch;
     unsigned nrch = sh->nrch;
@@ -325,16 +275,14 @@ io_loop_pump(struct adbx_sh* sh)
     assert(nrch >= NR_SPECIAL_CH);
 
     struct msg mhdr;
-    while (detect_msg(ch[FROM_PEER]->rb, &mhdr)) {
-        dbg("received msg %u", mhdr.type);
+    while (detect_msg(ch[FROM_PEER]->rb, &mhdr))
         sh->process_msg(sh, mhdr);
-    }
 
     for (chno = 0; chno < nrch; ++chno)
         xmit_acks(ch[chno], chno, sh);
 
     for (chno = 0; chno < nrch; ++chno) {
-        if (chno != TO_PEER)
+        if (chno > NR_SPECIAL_CH)
             xmit_data(ch[chno], chno, sh);
 
         do_pending_close(ch[chno]);

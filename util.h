@@ -102,6 +102,12 @@ size_t nextpow2sz(size_t sz);
         overflow;                               \
     })
 
+#define XPOW2P(v)                               \
+    ({                                          \
+        __typeof((v)) _v = (v);                 \
+        (_v & (_v-1)) == 0;                     \
+    })
+
 struct iovec;
 size_t iovec_sum(const struct iovec* iov, unsigned niovec);
 
@@ -110,4 +116,3 @@ enum blocking_mode fd_get_blocking_mode(int fd);
 enum blocking_mode fd_set_blocking_mode(int fd, enum blocking_mode mode);
 
 void hack_reopen_tty(int fd);
-

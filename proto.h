@@ -2,7 +2,7 @@
 #include <stdint.h>
 
 enum msg_type {
-    MSG_CHANNEL_DATA,
+    MSG_CHANNEL_DATA = 40,
     MSG_CHANNEL_WINDOW,
     MSG_CHANNEL_CLOSE,
     MSG_CHILD_EXIT,
@@ -44,3 +44,5 @@ struct msg_child_exit {
 static const unsigned CHILD_STDIN = 2;
 static const unsigned CHILD_STDOUT = 3;
 static const unsigned CHILD_STDERR = 4;
+
+#define XXX_BUFSZ 32

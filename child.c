@@ -44,7 +44,12 @@ child_start(int flags,
         xpipe(&parentfd[1], &childfd[1]);
     }
 
-    if (flags & CHILD_PTY_STDERR) {
+    if ((flags & CHILD_PTY_STDERR) && (flags & CHILD_PTY_STDOUT)) {
+        // If child has a pty for both stdout and stderr, from our
+        // POV, it writes only to stdout.
+        childfd[2] = xdup(childfd[1]);
+        parentfd[2] = xopen("/dev/null", O_RDONLY, 0);
+    } else if (flags & CHILD_PTY_STDERR) {
         childfd[2] = xdup(pty_slave);
         parentfd[2] = xdup(pty_master);
     } else if (flags & CHILD_INHERIT_STDERR) {

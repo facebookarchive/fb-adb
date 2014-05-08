@@ -12,6 +12,7 @@ xmkraw_cleanup(void* arg)
 {
     struct xmkraw_save* save = arg;
     tcsetattr(save->fd, TCSADRAIN, &save->attr);
+    close(save->fd);
 }
 
 void
@@ -23,7 +24,10 @@ xmkraw(int fd)
     if (tcgetattr(fd, &attr) < 0)
         die_errno("tcgetattr(%d)", fd);
 
-    save->fd = fd;
+    save->fd = dup(fd);
+    if (save->fd == -1)
+        die_errno("dup");
+
     save->attr = attr;
     cleanup_commit(cl, xmkraw_cleanup, save);
     cfmakeraw(&attr);

@@ -36,6 +36,7 @@ static size_t
 ringbuf_clip(const struct ringbuf* rb, size_t pos)
 {
     /* rb->capacity is always a nonzero power of two */
+    assert(XPOW2P(rb->capacity));
     return pos & (rb->capacity - 1);
 }
 

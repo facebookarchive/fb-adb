@@ -15,6 +15,7 @@
 #include "proto.h"
 #include "core.h"
 #include "channel.h"
+#include "xmkraw.h"
 
 static void
 print_usage(void)
@@ -28,7 +29,7 @@ struct adbx_shex {
     bool child_exited;
 };
 
-#define SHEX_DEBUG 0x1
+#define SHEX_LOCAL 0x1
 
 static void
 replace_with_dev_null(int fd)
@@ -47,22 +48,90 @@ replace_with_dev_null(int fd)
         die_errno("fcntl");
 }
 
+static size_t
+argv_length(char** argv)
+{
+    size_t len = 0;
+    while (*argv++)
+        len++;
+
+    return len;
+}
+
+static char**
+concat_argv(char** argv_a, char** argv_b)
+{
+    size_t len_a = argv_length(argv_a);
+    size_t len_b = argv_length(argv_b);
+    size_t len_total;
+
+    if (SATADD(&len_total, len_a, len_b) ||
+        SATADD(&len_total, len_total, 1) ||
+        (SIZE_MAX / sizeof (char*)) < len_total)
+    {
+        die(EINVAL, "arglist too long");
+    }
+
+    char** res = xalloc(len_total * sizeof (char*));
+    char** resptr = res;
+    while (*argv_a)
+        *resptr++ = *argv_a++;
+
+    while (*argv_b)
+        *resptr++ = *argv_b++;
+
+    *resptr = NULL;
+    return res;
+}
+
+static char**
+build_argv(const char* s0, ...)
+{
+    va_list args;
+    size_t nr = 0;
+    const char* s;
+
+    s = s0;
+    va_start(args, s0);
+    while (s) {
+        nr += 1;
+        s = va_arg(args, const char*);
+    }
+    va_end(args);
+
+    char** argv = xalloc(sizeof (*argv) * (nr + 1));
+    char** argvp = argv;
+    s = s0;
+    va_start(args, s0);
+    while (s) {
+        *argvp++ = (char*) s;
+        s = va_arg(args, const char*);
+    }
+    va_end(args);
+    *argvp = NULL;
+    return argv;
+}
+
 static struct child*
 start_stub(int argc, char** argv, int* out_flags)
 {
     int c;
     int flags = 0;
+    char stubargbuf[16];
+    char* stubarg = &stubargbuf[0];
+
+    *stubarg++ = '-';
 
     static struct option opts[] = {
         { "help", no_argument, NULL, 'h' },
-        { "debug", no_argument, NULL, 'd' },
+        { "local", no_argument, NULL, 'l' },
         { 0 }
     };
 
-    while ((c = getopt_long(argc, argv, "+:dh", opts, NULL)) != -1) {
+    while ((c = getopt_long(argc, argv, "+:lh", opts, NULL)) != -1) {
         switch (c) {
-            case 'd':
-                flags |= SHEX_DEBUG;
+            case 'l':
+                flags |= SHEX_LOCAL;
                 break;
             case ':':
                 die(EINVAL, "missing option for -%c", optopt);
@@ -77,6 +146,13 @@ start_stub(int argc, char** argv, int* out_flags)
         }
     }
 
+    for (int i = 0; i < 3; ++i)
+        if (isatty(i)) {
+            xmkraw(i);
+            *stubarg++ = '0' + i;
+        }
+
+    *stubarg++ = '\0';
     *out_flags = flags;
 
     argc -= optind;
@@ -85,16 +161,18 @@ start_stub(int argc, char** argv, int* out_flags)
     if (argc == 0)
         die(EINVAL, "no program given");
 
-    if (flags & SHEX_DEBUG) {
-        const char** args = xcalloc((2 + 1 + argc) * sizeof (*args));
-        args[0] = orig_argv0;
-        args[1] = "stub";
-        for (int i = 0; i <= argc; ++i)
-            args[2 + i] = argv[i];
+    if (flags & SHEX_LOCAL) {
+        char** our_argv;
 
+        if (strcmp(stubargbuf, "-") != 0) {
+            our_argv = build_argv(orig_argv0, "stub", stubargbuf, "--", NULL);
+        } else {
+            our_argv = build_argv(orig_argv0, "stub", "--", NULL);
+        }
+
+        char** stub_argv = concat_argv(our_argv, argv);
         return child_start((CHILD_INHERIT_STDERR | CHILD_NOCTTY),
-                           args[0],
-                           args);
+                           stub_argv[0], (const char* const*) stub_argv);
     }
 
     abort(); // XXX: impl actual remote adb support
@@ -118,6 +196,15 @@ shex_process_msg(struct adbx_sh* sh, struct msg mhdr)
 int
 shex_main(int argc, char** argv)
 {
+    if (isatty(0))
+        hack_reopen_tty(0);
+
+    if (isatty(1))
+        hack_reopen_tty(1);
+
+    if (isatty(2))
+        hack_reopen_tty(2);
+
     int flags;
     struct child* child = start_stub(argc, argv, &flags);
     if (!child)
@@ -127,22 +214,14 @@ shex_main(int argc, char** argv)
     memset(&shex, 0, sizeof (shex));
 
     struct adbx_sh* sh = &shex.sh;
-    size_t child_bufsz = 4096;
-    size_t proto_bufsz = 8192;
+    size_t child_bufsz = XXX_BUFSZ;
+    size_t proto_bufsz = XXX_BUFSZ;
 
     sh->process_msg = shex_process_msg;
     sh->max_outgoing_msg = proto_bufsz;
     sh->nrch = 5;
     struct channel** ch = xalloc(sh->nrch * sizeof (*ch));
 
-    if (isatty(0))
-        hack_reopen_tty(0);
-
-    if (isatty(1))
-        hack_reopen_tty(1);
-
-    if (isatty(2))
-        hack_reopen_tty(2);
 
     ch[FROM_PEER] = channel_new(child->fd[1], proto_bufsz, CHANNEL_FROM_FD);
     ch[FROM_PEER]->window = UINT32_MAX;
@@ -170,22 +249,19 @@ shex_main(int argc, char** argv)
 
     replace_with_dev_null(0);
     replace_with_dev_null(1);
-    if ((flags & SHEX_DEBUG) == 0)
-        replace_with_dev_null(2);
+    replace_with_dev_null(2);
 
-    dbg("XXX 0");
+    dbg("starting main loop");
 
     PUMP_WHILE(sh, (!shex.child_exited &&
                     !channel_dead_p(ch[FROM_PEER]) &&
                     !channel_dead_p(ch[TO_PEER])));
 
-    dbg("XXX 1");
+    dbg("closing standard streams");
 
     channel_close(ch[CHILD_STDIN]);
     channel_close(ch[CHILD_STDOUT]);
     channel_close(ch[CHILD_STDERR]);
-
-    dbg("XXX 2");
 
     PUMP_WHILE(sh, (!channel_dead_p(ch[CHILD_STDIN]) ||
                     !channel_dead_p(ch[CHILD_STDOUT]) ||

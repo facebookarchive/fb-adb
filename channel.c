@@ -1,5 +1,6 @@
 #include <assert.h>
 #include <errno.h>
+#include <ctype.h>
 #include "channel.h"
 #include "util.h"
 #include "ringbuf.h"
@@ -60,14 +61,14 @@ channel_write(struct channel* c, const struct iovec* iov, unsigned nio)
     if (c->fdh == NULL)
         return; // If the stream is closed, just discard
 
-    bool try_direct = !c->always_buffer;
+    bool try_direct = !c->always_buffer && ringbuf_size(c->rb) == 0;
     size_t directwrsz = 0;
     size_t totalsz;
 
+    // If writing directly, would make us overflow the write counter,
+    // fall back to buffered IO.
     if (try_direct) {
         totalsz = iovec_sum(iov, nio);
-        // If writing directly, would make us overflow the write
-        // counter, fall back to buffered IO.
         if (c->track_bytes_written &&
             UINT32_MAX - c->bytes_written < totalsz)
         {
@@ -75,20 +76,20 @@ channel_write(struct channel* c, const struct iovec* iov, unsigned nio)
         }
     }
 
-    try_direct = 0; // XXX
-
     if (try_direct) {
         // If writev fails, just fall back to buffering path
         directwrsz = XMAX(writev(c->fdh->fd, iov, nio), 0);
         if (c->track_bytes_written)
             c->bytes_written += directwrsz;
+
+        dbg("direct write: wrote %lu bytes", directwrsz);
     }
 
     for (unsigned i = 0; i < nio; ++i) {
         size_t skip = XMIN(iov[i].iov_len, directwrsz);
-        char* b = iov[i].iov_base + skip;
-        size_t blen = iov[i].iov_len - skip;
         directwrsz -= skip;
+        char* b = (char*)iov[i].iov_base + skip;
+        size_t blen = iov[i].iov_len - skip;
         ringbuf_copy_in(c->rb, b, blen);
         ringbuf_note_added(c->rb, blen);
     }

@@ -124,8 +124,8 @@ stub_main(int argc, char** argv)
     struct stub stub;
     memset(&stub, 0, sizeof (stub));
     struct adbx_sh* sh = &stub.sh;
-    size_t child_bufsz = 4096;
-    size_t proto_bufsz = 8192;
+    size_t child_bufsz = XXX_BUFSZ;
+    size_t proto_bufsz = XXX_BUFSZ;
 
     sh->process_msg = adbx_sh_process_msg;
     sh->max_outgoing_msg = proto_bufsz;

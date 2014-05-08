@@ -337,6 +337,7 @@ main(int argc, char** argv)
     prgname = argv[0];
     struct reslist* top_rl = reslist_push_new();
 #ifndef NDEBUG
+    dbg_init();
     dbglock_init();
 #endif
     orig_argv0 = argv[0];
