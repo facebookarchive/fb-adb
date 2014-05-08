@@ -28,7 +28,14 @@ detect_msg(struct ringbuf* rb, struct msg* mhdr)
         return false;
 
     ringbuf_copy_out(rb, mhdr, sizeof (*mhdr));
-    return mhdr->size <= avail;
+    if (avail < mhdr->size) {
+        if (mhdr->size - avail > ringbuf_room(rb))
+            die_proto_error("impossibly large message");
+
+        return false;
+    }
+
+    return true;                /* Can now read msg */
 }
 
 static void
@@ -242,6 +249,7 @@ io_loop_init(struct adbx_sh* sh)
 void
 io_loop_do_io(struct adbx_sh* sh)
 {
+    SCOPED_RESLIST(rl);
     dbgch("before io_loop_do_io", sh->ch, sh->nrch);
 
     struct channel** ch = sh->ch;
@@ -267,7 +275,7 @@ io_loop_do_io(struct adbx_sh* sh)
 void
 io_loop_pump(struct adbx_sh* sh)
 {
-    SCOPED_RESLIST(rl_io_loop);
+    SCOPED_RESLIST(rl);
 
     struct channel** ch = sh->ch;
     unsigned chno;

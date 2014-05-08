@@ -18,7 +18,7 @@
 
 #ifndef NDEBUG
 
-static FILE* dbgout = NULL;
+FILE* dbgout = NULL;
 static int dbglock_fd = -1;
 static int dbglock_level = 0;
 
@@ -42,7 +42,7 @@ dbg_enabled_p(void)
 }
 
 void
-dbg(const char* fmt, ...)
+dbg_1(const char* fmt, ...)
 {
     if (dbg_enabled_p()) {
         SCOPED_RESLIST(rl_dbg);

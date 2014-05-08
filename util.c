@@ -129,6 +129,12 @@ cleanup_commit_close_fd(struct cleanup* cl, int fd)
     cleanup_commit(cl, fd_cleanup, (void*) (intptr_t) (fd));
 }
 
+static bool
+reslist_empty_p(struct reslist* rl)
+{
+    return LIST_EMPTY(&rl->contents);
+}
+
 bool
 catch_error(void (*fn)(void* fndata),
             void* fndata,
@@ -143,6 +149,9 @@ catch_error(void (*fn)(void* fndata),
     if (sigsetjmp(errh.where, 1) == 0) {
         fn(fndata);
         error = false;
+        current_reslist = errh.rl->parent;
+        if (reslist_empty_p(errh.rl))
+            reslist_destroy(errh.rl);
     }
 
     current_errh = old_errh;
@@ -336,10 +345,8 @@ main(int argc, char** argv)
     current_reslist = &dummy_top;
     prgname = argv[0];
     struct reslist* top_rl = reslist_push_new();
-#ifndef NDEBUG
     dbg_init();
     dbglock_init();
-#endif
     orig_argv0 = argv[0];
     prgname = strdup(basename(xstrdup(argv[0])));
     struct errinfo ei = { .want_msg = true };
