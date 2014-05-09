@@ -26,7 +26,9 @@ void
 dbg_init(void)
 {
     const char* dv = getenv("ADBX_DEBUG");
-    if (strcmp(dv, "1") == 0) {
+    if (dv == NULL) {
+        /* Noop */
+    } else if (strcmp(dv, "1") == 0) {
         dbgout = fdopen(fileno(stderr), "w");
     } else if (dv[0] == '>') {
         dbgout = fopen(dv+1, "a");
@@ -73,7 +75,7 @@ dbglock_init(void)
     const char envvar[] = "ADBX_DBGLOCK_NAME";
     /* No, we can't just inherit the file descriptor.  Without a
      * separate file open, taking the lock won't block.  */
-    
+
     const char* fn = getenv(envvar);
     if (fn == NULL) {
 #ifdef __ANDROID__

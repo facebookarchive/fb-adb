@@ -443,6 +443,23 @@ fd_set_blocking_mode(int fd, enum blocking_mode mode)
     return old_mode;
 }
 
+static const char*
+xttyname(int fd)
+{
+#ifndef __ANDROID__
+    return ttyname(fd);
+#else
+    char buf[512];
+    ssize_t nr = readlink(xaprintf("/proc/self/fd/%d", fd),
+                          buf, sizeof (buf) - 1);
+    if (nr < 0)
+        die_errno("readlink");
+
+    buf[nr] = '\0';
+    return xstrdup(buf);
+#endif    
+}
+
 void
 hack_reopen_tty(int fd)
 {
@@ -453,7 +470,7 @@ hack_reopen_tty(int fd)
     // loose.  Here, we reopen the tty so we can get a fresh file
     // object and control the blocking mode separately.
     SCOPED_RESLIST(rl_hack);
-    int nfd = xopen(ttyname(fd), O_RDWR | O_NOCTTY, 0);
+    int nfd = xopen(xttyname(fd), O_RDWR | O_NOCTTY, 0);
     if (dup3(nfd, fd, O_CLOEXEC) < 0)
         die_errno("dup3");
 }

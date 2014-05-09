@@ -174,14 +174,24 @@ start_stub(int argc, char** argv, int* out_flags)
             our_argv = build_argv(orig_argv0, "stub", "--", NULL);
         }
 
-        struct child_start_info csi = {
+        struct child_start_info xcsi = {
             .flags = (CHILD_INHERIT_STDERR | CHILD_NOCTTY),
             .exename = our_argv[0],
             .argv = (const char* const *) concat_argv(our_argv, argv),
         };
 
-        return child_start(&csi);
+        return child_start(&xcsi);
     }
+
+    static const char* const adb_shell_args[] = { "adb", "shell", NULL };
+    struct child_start_info csi = {
+        .flags = (CHILD_INHERIT_STDERR | CHILD_NOCTTY),
+        .exename = adb_shell_args[0],
+        .argv = adb_shell_args
+    };
+
+    struct child* adb_shell = child_start(&csi);
+    (void) adb_shell;
 
     abort(); // XXX: impl actual remote adb support
 }
