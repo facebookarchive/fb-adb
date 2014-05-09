@@ -3,6 +3,7 @@
 #include <sys/ioctl.h>
 #include <stdio.h>
 #include <string.h>
+#include <signal.h>
 #include <unistd.h>
 #include "child.h"
 
@@ -77,6 +78,8 @@ child_start(const struct child_start_info* csi)
                 die_errno("setsid");
             if (ioctl(pty_slave, TIOCSCTTY, pty_slave) == -1)
                 die_errno("TIOCSCTTY");
+            if (tcsetpgrp(pty_slave, getpid()) == -1)
+                die_errno("tcsetpgrp");
         }
 
         /* dup2 resets O_CLOEXEC */
@@ -84,6 +87,9 @@ child_start(const struct child_start_info* csi)
             if (dup2(childfd[i], i) == -1)
                 die_errno("dup2(%d->%d)", childfd[i], i);
 
+        sigset_t blocked;
+        sigemptyset(&blocked);
+        sigprocmask(SIG_SETMASK, &blocked, NULL);
         execvp(csi->exename, (char**) csi->argv);
         die_errno("execvp(\"%s\")", csi->exename);
     }
