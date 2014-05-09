@@ -206,12 +206,20 @@ shex_process_msg(struct adbx_sh* sh, struct msg mhdr)
 static bool
 fill_window_size(int fd, struct window_size* ws)
 {
-    assert(sizeof (struct window_size) == sizeof (struct winsize));
     int ret;
+    struct winsize wz;
 
     do {
-        ret = ioctl(fd, TIOCGWINSZ, &ws);
+        ret = ioctl(fd, TIOCGWINSZ, &wz);
     } while (ret == -1 && errno == EINTR);
+
+    if (ret != 0)
+        return false;
+
+    ws->row = wz.ws_row;
+    ws->col = wz.ws_col;
+    ws->xpixel = wz.ws_xpixel;
+    ws->ypixel = wz.ws_ypixel;
 
     return ret == 0;
 }
@@ -248,21 +256,27 @@ make_hello_msg(void)
         xtcgetattr(out_tty, &out_attr);
         m->ospeed = cfgetospeed(&out_attr);
         m->have_ws = fill_window_size(out_tty, &m->ws);
+        dbg("ws %ux%u (%ux%u)",
+            m->ws.row,
+            m->ws.col,
+            m->ws.xpixel,
+            m->ws.ypixel);
     }
 
     for (unsigned i = 0; i < nr_termbits; ++i) {
-        if (in_tty != -1 && termbits[i].thing == TERM_IFLAG)
-            tc->value = !!(in_attr.c_iflag & termbits[i].value);
-        else if (in_tty != -1 && termbits[i].thing == TERM_LFLAG)
-            tc->value = !!(in_attr.c_lflag & termbits[i].value);
-        else if (in_tty != -1 && termbits[i].thing == TERM_C_CC)
-            tc->value = in_attr.c_cc[termbits[i].value];
-        else if (out_tty != -1 && termbits[i].thing == TERM_OFLAG)
-            tc->value = !!(out_attr.c_oflag & termbits[i].value);
+        const struct termbit* tb = &termbits[i];
+        if (in_tty != -1 && tb->thing == TERM_IFLAG)
+            tc->value = !!(in_attr.c_iflag & tb->value);
+        else if (in_tty != -1 && tb->thing == TERM_LFLAG)
+            tc->value = !!(in_attr.c_lflag & tb->value);
+        else if (in_tty != -1 && tb->thing == TERM_C_CC)
+            tc->value = in_attr.c_cc[tb->value];
+        else if (out_tty != -1 && tb->thing == TERM_OFLAG)
+            tc->value = !!(out_attr.c_oflag & tb->value);
         else
             continue;
 
-        snprintf(tc->name, sizeof (tc->name), "%s", termbits[i].name);
+        snprintf(tc->name, sizeof (tc->name), "%s", tb->name);
         tc++;
     }
 
@@ -273,6 +287,8 @@ make_hello_msg(void)
 int
 shex_main(int argc, char** argv)
 {
+    struct msg_shex_hello* hello_msg = make_hello_msg();
+
     if (isatty(0))
         hack_reopen_tty(0);
 
@@ -287,8 +303,6 @@ shex_main(int argc, char** argv)
     if (!child)
         return 0;
 
-    struct msg_shex_hello* hello_msg = make_hello_msg();
-    dbg("hello sz=%u", hello_msg->msg.size);
     write_all_adb_encoded(child->fd[0]->fd, hello_msg, hello_msg->msg.size);
 
     struct adbx_shex shex;

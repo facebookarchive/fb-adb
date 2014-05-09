@@ -6,5 +6,5 @@ struct termbit {
     const char* name;
 };
 
-extern struct termbit termbits[];
-extern unsigned nr_termbits;
+extern const struct termbit termbits[];
+extern const unsigned nr_termbits;

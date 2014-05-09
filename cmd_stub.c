@@ -6,7 +6,9 @@
 #include <errno.h>
 #include <string.h>
 #include <sys/wait.h>
+#include <termios.h>
 #include <getopt.h>
+#include <sys/ioctl.h>
 #include "util.h"
 #include "child.h"
 #include "xmkraw.h"
@@ -16,6 +18,7 @@
 #include "core.h"
 #include "channel.h"
 #include "adbenc.h"
+#include "termbits.h"
 
 static int
 xwaitpid(pid_t child_pid)
@@ -54,8 +57,85 @@ print_usage() {
 }
 
 static void
+set_window_size(int fd, const struct window_size* ws)
+{
+    int ret;
+    struct winsize wz = {
+        .ws_row = ws->row,
+        .ws_col = ws->col,
+        .ws_xpixel = ws->xpixel,
+        .ws_ypixel = ws->ypixel,
+    };
+
+    do {
+        ret = ioctl(fd, TIOCSWINSZ, &wz);
+    } while (ret == -1 && errno == EINTR);
+}
+
+static void
 setup_pty(int master, int slave, void* arg)
-{}
+{
+    struct msg_shex_hello* shex_hello = arg;
+    char* hello_end = (char*) shex_hello + shex_hello->msg.size;
+    struct termios attr = { 0 };
+    xtcgetattr(slave, &attr);
+    if (shex_hello->ispeed)
+        cfsetispeed(&attr, shex_hello->ispeed);
+    if (shex_hello->ospeed)
+        cfsetospeed(&attr, shex_hello->ospeed);
+
+    const struct termbit* tb = &termbits[0];
+    const struct termbit* tb_end = tb + nr_termbits;
+    struct term_control* tc = &shex_hello->tctl[0];
+
+    while ((char*)(tc+1) <= hello_end && tb < tb_end) {
+        int cmp = strncmp(tc->name, tb->name, sizeof (tc->name));
+        if (cmp != 0) {
+            dbg("tc not present: %.*s", (int)sizeof (tc->name), tc->name);
+            if (cmp < 0) tc++; else tb++;
+            continue;
+        }
+
+        tcflag_t* flg = NULL;
+        if (tb->thing == TERM_IFLAG) {
+            flg = &attr.c_iflag;
+        } else if (tb->thing == TERM_OFLAG) {
+            flg = &attr.c_oflag;
+        } else if (tb->thing == TERM_LFLAG) {
+            flg = &attr.c_lflag;
+        } else if (tb->thing == TERM_C_CC) {
+            if (tc->value == shex_hello->posix_vdisable_value)
+                attr.c_cc[tb->value] = _POSIX_VDISABLE;
+            else
+                attr.c_cc[tb->value] = tc->value;
+
+            dbg("c_cc[%s] = %d", tb->name, tc->value);
+        }
+
+        if (flg) {
+            if (tc->value) {
+                dbg("pty %s: set", tb->name);
+                *flg |= tb->value;
+            } else {
+                dbg("pty %s: reset", tb->name);
+                *flg &= ~tb->value;
+            }
+        }
+
+        tc++;
+        tb++;
+    }
+
+    xtcsetattr(slave, &attr);
+    if (shex_hello->have_ws) {
+        dbg("ws %ux%u (%ux%u)",
+            shex_hello->ws.row,
+            shex_hello->ws.col,
+            shex_hello->ws.xpixel,
+            shex_hello->ws.ypixel);
+        set_window_size(slave, &shex_hello->ws);
+    }
+}
 
 static struct child*
 start_command_child(int argc,
@@ -153,7 +233,7 @@ stub_main(int argc, char** argv)
     size_t proto_bufsz = XXX_BUFSZ;
 
     sh->process_msg = adbx_sh_process_msg;
-    sh->max_outgoing_msg = proto_bufsz;
+    sh->max_outgoing_msg = shex_hello->maxmsg;
     sh->nrch = 5;
     struct channel** ch = xalloc(sh->nrch * sizeof (*ch));
 

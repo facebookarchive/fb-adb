@@ -3,7 +3,7 @@
 #include "termbits.h"
 #include "util.h"
 
-struct termbit termbits[] = {
+const struct termbit termbits[] = {
 #define IFLAG(x) { TERM_IFLAG, x, #x },
 #define OFLAG(x) { TERM_OFLAG, x, #x },
 #define LFLAG(x) { TERM_LFLAG, x, #x },
@@ -11,4 +11,4 @@ struct termbit termbits[] = {
 #include "termnames.h"
 };
 
-unsigned nr_termbits = ARRAYSIZE(termbits);
+const unsigned nr_termbits = ARRAYSIZE(termbits);
