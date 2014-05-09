@@ -116,3 +116,6 @@ enum blocking_mode fd_get_blocking_mode(int fd);
 enum blocking_mode fd_set_blocking_mode(int fd, enum blocking_mode mode);
 
 void hack_reopen_tty(int fd);
+size_t read_all(int fd, void* buf, size_t sz);
+void write_all(int fd, const void* buf, size_t sz);
+

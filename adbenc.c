@@ -1,5 +1,6 @@
 #include <errno.h>
 #include <stddef.h>
+#include <ctype.h>
 #include "adbenc.h"
 #include "util.h"
 
@@ -64,6 +65,7 @@ adb_decode(unsigned* inout_state,
 
     while (in < inend && dec < decend) {
         char c = *in++;
+        dbg("state=%u c = 0x%02x %c", state, c, isprint(c) ? c : '.');
         if (state == 0) {
             if (c == adb_escape1)
                 state = 1;
@@ -74,6 +76,8 @@ adb_decode(unsigned* inout_state,
                 *dec++ = adb_escape1;
             else
                 *dec++ = adb_forbidden;
+
+            state = 0;
         }
     }
 
@@ -110,6 +114,11 @@ read_all_adb_encoded(int fd, void* buf, size_t sz)
         nr_read += dec - cur_dec;
     }
 
+    for (dec = buf; dec < (char*)buf + nr_read; ++dec) {
+        char c = *dec;
+        dbg("dec: c = 0x%02x %c", c, isprint(c) ? c : '.');
+    }
+
     return nr_read;
 }
 
@@ -120,22 +129,13 @@ write_all_adb_encoded(int fd, const void* buf, size_t sz)
     unsigned state = 0;
     const char* in = buf;
     const char* inend = in + sz;
-    char* enc;
-    char* encend = encbuf + sizeof (encbuf);
-    ssize_t ret;
     size_t nr_written = 0;
 
     while (nr_written < sz) {
-        enc = encbuf;
+        char* enc = encbuf;
+        char* encend = enc + sizeof (encbuf);
         adb_encode(&state, &enc, encend, &in, inend);
-
-        do {
-            ret = write(fd, encbuf, enc - encbuf);
-        } while (ret == -1 && errno == EINTR);
-
-        if (ret < 0)
-            die_errno("write[adbenc]");
-
-        nr_written += ret;
+        write_all(fd, encbuf, enc - encbuf);
+        nr_written += enc - encbuf;
     }
 }

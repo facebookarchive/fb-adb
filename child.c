@@ -7,14 +7,14 @@
 #include "child.h"
 
 struct child*
-child_start(int flags,
-            const char* exename,
-            const char* const* argv)
+child_start(const struct child_start_info* csi)
 {
     SCOPED_RESLIST(rl_local);
 
     /* We need a tty to control the child even if the child doesn't
      * use the tty for its standard file descriptors.  */
+
+    int flags = csi->flags;
 
     int pty_master = xopen("/dev/ptmx", O_RDWR | O_NOCTTY | O_CLOEXEC, 0);
     if (grantpt(pty_master) || unlockpt(pty_master))
@@ -26,6 +26,9 @@ child_start(int flags,
 
     char* pty_slave_name = xaprintf("/dev/pts/%d", pty_slave_num);
     int pty_slave = xopen(pty_slave_name, O_RDWR | O_NOCTTY | O_CLOEXEC, 0);
+
+    if (csi->pty_setup)
+        csi->pty_setup(pty_master, pty_slave, csi->pty_setup_data);
 
     int childfd[3];
     int parentfd[3];
@@ -76,8 +79,8 @@ child_start(int flags,
             if (dup2(childfd[i], i) == -1)
                 die_errno("dup2(%d->%d)", childfd[i], i);
 
-        execvp(exename, (char**) argv);
-        die_errno("execvp(\"%s\")", exename);
+        execvp(csi->exename, (char**) csi->argv);
+        die_errno("execvp(\"%s\")", csi->exename);
     }
 
     reslist_pop_nodestroy();

@@ -8,3 +8,4 @@ adbx
 .gdb_history
 Makefile
 Makefile.in
+termnames.h

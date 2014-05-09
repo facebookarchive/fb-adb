@@ -39,3 +39,6 @@ void read_cmdmsg(struct adbx_sh* sh,
             io_loop_pump(_m);                   \
         }                                       \
     })
+
+typedef size_t (*reader)(int, void*,size_t);
+struct msg* read_msg(int fd, reader rdr);

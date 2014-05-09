@@ -15,6 +15,7 @@
 #include "proto.h"
 #include "core.h"
 #include "channel.h"
+#include "adbenc.h"
 
 static int
 xwaitpid(pid_t child_pid)
@@ -52,8 +53,14 @@ print_usage() {
     printf("%s CMD ARGS...: shex stub\n", prgname);
 }
 
+static void
+setup_pty(int master, int slave, void* arg)
+{}
+
 static struct child*
-start_command_child(int argc, char** argv)
+start_command_child(int argc,
+                    char** argv,
+                    struct msg_shex_hello* shex_hello)
 {
     for (int i = 0; i < 3; ++i)
         if (fcntl(i, F_GETFL) < 0)
@@ -96,7 +103,15 @@ start_command_child(int argc, char** argv)
     if (argc < 1)
         die(EINVAL, "no command given");
 
-    return child_start(child_flags, argv[0], (const char* const*) argv);
+    struct child_start_info csi = {
+        .flags = child_flags,
+        .exename = argv[0],
+        .argv = (const char* const *) argv,
+        .pty_setup = setup_pty,
+        .pty_setup_data = shex_hello
+    };
+
+    return child_start(&csi);
 }
 
 struct stub {
@@ -117,7 +132,17 @@ stub_main(int argc, char** argv)
         xmkraw(1);
     }
 
-    struct child* child = start_command_child(argc, argv);
+    struct msg_shex_hello* shex_hello;
+    struct msg* shex_hello_m = read_msg(0, read_all_adb_encoded);
+    if (shex_hello_m->type != MSG_SHEX_HELLO ||
+        shex_hello_m->size < sizeof (*shex_hello_m))
+    {
+        die(ECOMM, "bad hello");
+    }
+
+    shex_hello = (struct msg_shex_hello*) shex_hello_m;
+
+    struct child* child = start_command_child(argc, argv, shex_hello);
     if (!child)
         return 0;
 

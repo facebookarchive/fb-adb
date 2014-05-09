@@ -451,3 +451,46 @@ hack_reopen_tty(int fd)
     if (dup3(nfd, fd, O_CLOEXEC) < 0)
         die_errno("dup3");
 }
+
+size_t
+read_all(int fd, void* buf, size_t sz)
+{
+    size_t nr_read = 0;
+    int ret;
+    char* pos = buf;
+
+    while (nr_read < sz) {
+        do {
+            ret = read(fd, &pos[nr_read], sz - nr_read);
+        } while (ret == -1 && errno == EINTR);
+
+        if (ret < 0)
+            die_errno("read(%d)", fd);
+
+        if (ret < 1)
+            break;
+
+        nr_read += ret;
+    }
+
+    return nr_read;
+}
+
+void
+write_all(int fd, const void* buf, size_t sz)
+{
+    size_t nr_written = 0;
+    int ret;
+    const char* pos = buf;
+
+    while (nr_written < sz) {
+        do {
+            ret = write(fd, &pos[nr_written], sz - nr_written);
+        } while (ret == -1 && errno == EINTR);
+
+        if (ret < 0)
+            die_errno("write(%d)", fd);
+
+        nr_written += ret;
+    }
+}

@@ -19,6 +19,7 @@
 #include "channel.h"
 #include "xmkraw.h"
 #include "termbits.h"
+#include "adbenc.h"
 
 static void
 print_usage(void)
@@ -173,9 +174,13 @@ start_stub(int argc, char** argv, int* out_flags)
             our_argv = build_argv(orig_argv0, "stub", "--", NULL);
         }
 
-        char** stub_argv = concat_argv(our_argv, argv);
-        return child_start((CHILD_INHERIT_STDERR | CHILD_NOCTTY),
-                           stub_argv[0], (const char* const*) stub_argv);
+        struct child_start_info csi = {
+            .flags = (CHILD_INHERIT_STDERR | CHILD_NOCTTY),
+            .exename = our_argv[0],
+            .argv = (const char* const *) concat_argv(our_argv, argv),
+        };
+
+        return child_start(&csi);
     }
 
     abort(); // XXX: impl actual remote adb support
@@ -281,6 +286,10 @@ shex_main(int argc, char** argv)
     struct child* child = start_stub(argc, argv, &flags);
     if (!child)
         return 0;
+
+    struct msg_shex_hello* hello_msg = make_hello_msg();
+    dbg("hello sz=%u", hello_msg->msg.size);
+    write_all_adb_encoded(child->fd[0]->fd, hello_msg, hello_msg->msg.size);
 
     struct adbx_shex shex;
     memset(&shex, 0, sizeof (shex));

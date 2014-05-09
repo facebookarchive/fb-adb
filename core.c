@@ -304,3 +304,27 @@ queue_message_synch(struct adbx_sh* sh, struct msg* m)
     PUMP_WHILE(sh, adbx_maxoutmsg(sh) < m->size);
     channel_write(sh->ch[TO_PEER], &(struct iovec){m, m->size}, 1);
 }
+
+struct msg*
+read_msg(int fd, reader rdr)
+{
+    struct msg mhdr;
+    size_t nr_read = rdr(fd, &mhdr, sizeof (mhdr));
+    if (nr_read < sizeof (mhdr))
+        die_proto_error("truncated message");
+
+    if (mhdr.size < sizeof (mhdr))
+        die_proto_error("impossible message");
+
+    dbg("read msg header type:%u size:%u", mhdr.type, mhdr.size);
+
+    struct msg* m = xalloc(mhdr.size);
+    memcpy(m, &mhdr, sizeof (mhdr));
+    char* rest = (char*) m + sizeof (mhdr);
+    size_t restsz = mhdr.size - sizeof (mhdr);
+    nr_read = rdr(fd, rest, restsz);
+    if (nr_read < restsz)
+        die_proto_error("truncated message");
+
+    return m;
+}
