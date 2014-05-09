@@ -137,6 +137,7 @@ stub_main(int argc, char** argv)
                                 CHANNEL_FROM_FD);
 
     ch[FROM_PEER]->window = UINT32_MAX;
+    ch[FROM_PEER]->adb_encoding_hack = true;
 
     ch[TO_PEER] = channel_new(fdh_dup(1), proto_bufsz, CHANNEL_TO_FD);
 

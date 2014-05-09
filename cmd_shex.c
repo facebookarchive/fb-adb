@@ -225,7 +225,10 @@ shex_main(int argc, char** argv)
 
     ch[FROM_PEER] = channel_new(child->fd[1], proto_bufsz, CHANNEL_FROM_FD);
     ch[FROM_PEER]->window = UINT32_MAX;
+
     ch[TO_PEER] = channel_new(child->fd[0], proto_bufsz, CHANNEL_TO_FD);
+
+    ch[TO_PEER]->adb_encoding_hack = true;
 
     ch[CHILD_STDIN] = channel_new(fdh_dup(0),
                                   child_bufsz,

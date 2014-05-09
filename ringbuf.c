@@ -2,6 +2,7 @@
 #include <errno.h>
 #include <sys/uio.h>
 #include <string.h>
+#include <limits.h>
 #include "ringbuf.h"
 #include "util.h"
 
@@ -105,6 +106,7 @@ ringbuf_note_removed(struct ringbuf* rb, size_t nr)
 size_t
 ringbuf_read_in(struct ringbuf* rb, int fd, size_t sz)
 {
+    sz = XMIN(sz, SSIZE_MAX);
     assert(sz <= ringbuf_room(rb));
     struct ringbuf_io rio = ringbuf_io_region(rb, rb->nr_added, sz);
     ssize_t ret = readv(fd, rio.v, ARRAYSIZE(rio.v));
@@ -127,6 +129,7 @@ ringbuf_copy_in(struct ringbuf* rb, const void* buf, size_t sz)
 size_t
 ringbuf_write_out(const struct ringbuf* rb, int fd, size_t sz)
 {
+    sz = XMIN(sz, SSIZE_MAX);
     assert(sz <= ringbuf_size(rb));
     struct ringbuf_io rio = ringbuf_io_region(rb, rb->nr_removed, sz);
     ssize_t ret = writev(fd, rio.v, ARRAYSIZE(rio.v));
