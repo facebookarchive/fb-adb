@@ -501,12 +501,16 @@ write_all(int fd, const void* buf, size_t sz)
     }
 }
 
-#if !defined(HAVE_PPOLL) && defined(__linux__)
+#if !defined(HAVE_PPOLL)
 int
 ppoll(struct pollfd *fds, nfds_t nfds,
       const struct timespec *timeout_ts, const sigset_t *sigmask)
 {
+#ifdef __linux__
     return syscall(__NR_ppoll, fds, nfds, timeout_ts, sigmask);
+#else
+#error What is wrong with your operating system?
+#endif
 }
 #endif
 
