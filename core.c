@@ -304,6 +304,7 @@ void
 queue_message_synch(struct adbx_sh* sh, struct msg* m)
 {
     PUMP_WHILE(sh, adbx_maxoutmsg(sh) < m->size);
+    dbgmsg(m, "send[synch]");
     channel_write(sh->ch[TO_PEER], &(struct iovec){m, m->size}, 1);
 }
 
@@ -313,7 +314,7 @@ read_msg(int fd, reader rdr)
     struct msg mhdr;
     size_t nr_read = rdr(fd, &mhdr, sizeof (mhdr));
     if (nr_read < sizeof (mhdr))
-        die_proto_error("truncated message");
+        die_proto_error("peer disconnected");
 
     if (mhdr.size < sizeof (mhdr))
         die_proto_error("impossible message");

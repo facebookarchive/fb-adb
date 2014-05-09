@@ -5,7 +5,7 @@
 #define CHILD_PTY_STDOUT 0x2
 #define CHILD_PTY_STDERR 0x4
 #define CHILD_INHERIT_STDERR 0x8
-#define CHILD_NOCTTY 0x10
+#define CHILD_CTTY 0x10
 
 struct child_start_info {
     int flags;
@@ -22,4 +22,3 @@ struct child {
 };
 
 struct child* child_start(const struct child_start_info* csi);
-

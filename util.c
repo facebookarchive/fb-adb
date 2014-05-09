@@ -457,7 +457,7 @@ xttyname(int fd)
 
     buf[nr] = '\0';
     return xstrdup(buf);
-#endif    
+#endif
 }
 
 void
@@ -568,3 +568,20 @@ mkostemp(char *template, int flags)
     return newfd;
 }
 #endif
+
+void
+replace_with_dev_null(int fd)
+{
+    int flags = fcntl(fd, F_GETFL);
+    if (flags < 0)
+        die_errno("fcntl(%d, F_GETFL)", fd);
+    int nfd = open("/dev/null", O_RDWR | O_CLOEXEC);
+    if (nfd == -1)
+        die_errno("open(\"/dev/null\")");
+    if (dup3(nfd, fd, flags & O_CLOEXEC) < 0)
+        die_errno("dup3");
+
+    close(nfd);
+    if (fcntl(fd, F_SETFL, flags) < 0)
+        die_errno("fcntl");
+}

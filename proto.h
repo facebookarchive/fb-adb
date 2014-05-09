@@ -12,6 +12,9 @@ enum msg_type {
     MSG_WINDOW_SIZE,
     MSG_SHEX_HELLO,
     MSG_STUB_HELLO,
+    MSG_CMDLINE_ARGUMENT,
+    MSG_CMDLINE_DEFAULT_SH,
+    MSG_CMDLINE_DEFAULT_SH_LOGIN
 };
 
 struct msg {
@@ -63,16 +66,30 @@ struct term_control {
     char name[9];
 };
 
+struct stream_information {
+    uint32_t bufsz;
+    unsigned pty_p : 1;
+};
+
 struct msg_shex_hello {
     struct msg msg;
     uint8_t version;
     uint32_t maxmsg;
+    uint32_t stub_recv_bufsz;
+    uint32_t stub_send_bufsz;
+    uint32_t nr_argv;
     uint8_t have_ws;
     struct window_size ws;
     uint32_t ispeed;
     uint32_t ospeed;
     uint8_t posix_vdisable_value;
+    struct stream_information si[3];
     struct term_control tctl[0];
+};
+
+struct msg_cmdline_argument {
+    struct msg msg;
+    char value[0];
 };
 
 struct msg_stub_hello {

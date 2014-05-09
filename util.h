@@ -137,3 +137,5 @@ int mkostemp(char *template, int flags);
 #ifndef _POSIX_VDISABLE
 #define _POSIX_VDISABLE 0
 #endif
+
+void replace_with_dev_null(int fd);

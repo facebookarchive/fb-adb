@@ -11,24 +11,29 @@ child_start(const struct child_start_info* csi)
 {
     SCOPED_RESLIST(rl_local);
 
-    /* We need a tty to control the child even if the child doesn't
-     * use the tty for its standard file descriptors.  */
-
     int flags = csi->flags;
+    int pty_master = -1;
+    int pty_slave = -1;
 
-    int pty_master = xopen("/dev/ptmx", O_RDWR | O_NOCTTY | O_CLOEXEC, 0);
-    if (grantpt(pty_master) || unlockpt(pty_master))
-        die_errno("grantpt/unlockpt");
+    if (flags & (CHILD_PTY_STDIN |
+                 CHILD_PTY_STDOUT |
+                 CHILD_PTY_STDERR |
+                 CHILD_CTTY))
+    {
+        pty_master = xopen("/dev/ptmx", O_RDWR | O_NOCTTY | O_CLOEXEC, 0);
+        if (grantpt(pty_master) || unlockpt(pty_master))
+            die_errno("grantpt/unlockpt");
 
-    int pty_slave_num;
-    if (ioctl(pty_master, TIOCGPTN, &pty_slave_num) != 0)
-        die_errno("TIOCGPTN");
+        int pty_slave_num;
+        if (ioctl(pty_master, TIOCGPTN, &pty_slave_num) != 0)
+            die_errno("TIOCGPTN");
 
-    char* pty_slave_name = xaprintf("/dev/pts/%d", pty_slave_num);
-    int pty_slave = xopen(pty_slave_name, O_RDWR | O_NOCTTY | O_CLOEXEC, 0);
+        char* pty_slave_name = xaprintf("/dev/pts/%d", pty_slave_num);
+        pty_slave = xopen(pty_slave_name, O_RDWR | O_NOCTTY | O_CLOEXEC, 0);
 
-    if (csi->pty_setup)
-        csi->pty_setup(pty_master, pty_slave, csi->pty_setup_data);
+        if (csi->pty_setup)
+            csi->pty_setup(pty_master, pty_slave, csi->pty_setup_data);
+    }
 
     int childfd[3];
     int parentfd[3];
@@ -67,12 +72,12 @@ child_start(const struct child_start_info* csi)
         die_errno("fork");
 
     if (child_pid == 0) {
-        if (setsid() == (pid_t) -1)
-            die_errno("setsid");
-
-        if (flags & CHILD_NOCTTY)
+        if (pty_slave != -1) {
+            if (setsid() == (pid_t) -1)
+                die_errno("setsid");
             if (ioctl(pty_slave, TIOCSCTTY, pty_slave) == -1)
                 die_errno("TIOCSCTTY");
+        }
 
         /* dup2 resets O_CLOEXEC */
         for (int i = 0; i < 3; ++i)
@@ -87,7 +92,8 @@ child_start(const struct child_start_info* csi)
 
     struct child* child = xcalloc(sizeof (*child));
     child->pid = child_pid;
-    child->pty_master = fdh_dup(pty_master);
+    if (pty_master != -1)
+        child->pty_master = fdh_dup(pty_master);
     child->fd[0] = fdh_dup(parentfd[0]);
     child->fd[1] = fdh_dup(parentfd[1]);
     if ((flags & CHILD_INHERIT_STDERR) == 0)

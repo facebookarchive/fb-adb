@@ -306,4 +306,3 @@ channel_poll(struct channel* c)
         c->err = ei.err;
     }
 }
-
