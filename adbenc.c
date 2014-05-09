@@ -1,6 +1,5 @@
 #include <errno.h>
 #include <stddef.h>
-#include <ctype.h>
 #include "adbenc.h"
 #include "util.h"
 
@@ -65,7 +64,6 @@ adb_decode(unsigned* inout_state,
 
     while (in < inend && dec < decend) {
         char c = *in++;
-        dbg("state=%u c = 0x%02x %c", state, c, isprint(c) ? c : '.');
         if (state == 0) {
             if (c == adb_escape1)
                 state = 1;
@@ -112,11 +110,6 @@ read_all_adb_encoded(int fd, void* buf, size_t sz)
         char* cur_dec = dec;
         adb_decode(&state, &dec, decend, &in, inend);
         nr_read += dec - cur_dec;
-    }
-
-    for (dec = buf; dec < (char*)buf + nr_read; ++dec) {
-        char c = *dec;
-        dbg("dec: c = 0x%02x %c", c, isprint(c) ? c : '.');
     }
 
     return nr_read;
