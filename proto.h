@@ -103,4 +103,3 @@ static const unsigned CHILD_STDOUT = 3;
 static const unsigned CHILD_STDERR = 4;
 static const unsigned PROTO_VERSION = 2;
 
-#define XXX_BUFSZ 32
