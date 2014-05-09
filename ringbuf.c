@@ -159,3 +159,14 @@ ringbuf_readable_iov(const struct ringbuf* rb,
     iov[0] = rio.v[0];
     iov[1] = rio.v[1];
 }
+
+void
+ringbuf_writable_iov(const struct ringbuf* rb,
+                     struct iovec iov[2],
+                     size_t sz)
+{
+    assert(sz <= ringbuf_room(rb));
+    struct ringbuf_io rio = ringbuf_io_region(rb, rb->nr_added, sz);
+    iov[0] = rio.v[0];
+    iov[1] = rio.v[1];
+}

@@ -17,5 +17,9 @@ void ringbuf_readable_iov(const struct ringbuf* rb,
                           struct iovec iov[2],
                           size_t sz);
 
+void ringbuf_writable_iov(const struct ringbuf* rb,
+                          struct iovec iov[2],
+                          size_t sz);
+
 size_t ringbuf_note_removed(struct ringbuf* rb, size_t nr);
 size_t ringbuf_note_added(struct ringbuf* rb, size_t nr);

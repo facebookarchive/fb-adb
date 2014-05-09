@@ -107,10 +107,6 @@ struct stub {
 int
 stub_main(int argc, char** argv)
 {
-    struct child* child = start_command_child(argc, argv);
-    if (!child)
-        return 0;
-
     if (isatty(0)) {
         hack_reopen_tty(0);
         xmkraw(0);
@@ -120,6 +116,10 @@ stub_main(int argc, char** argv)
         hack_reopen_tty(1);
         xmkraw(1);
     }
+
+    struct child* child = start_command_child(argc, argv);
+    if (!child)
+        return 0;
 
     struct stub stub;
     memset(&stub, 0, sizeof (stub));

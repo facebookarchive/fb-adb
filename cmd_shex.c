@@ -9,6 +9,8 @@
 #include <getopt.h>
 #include <sys/socket.h>
 #include <sys/un.h>
+#include <sys/ioctl.h>
+#include <termios.h>
 #include "util.h"
 #include "child.h"
 #include "ringbuf.h"
@@ -16,6 +18,7 @@
 #include "core.h"
 #include "channel.h"
 #include "xmkraw.h"
+#include "termbits.h"
 
 static void
 print_usage(void)
@@ -193,6 +196,75 @@ shex_process_msg(struct adbx_sh* sh, struct msg mhdr)
     adbx_sh_process_msg(sh, mhdr);
 }
 
+#define CMD_BUFSZ 4096
+
+static bool
+fill_window_size(int fd, struct window_size* ws)
+{
+    assert(sizeof (struct window_size) == sizeof (struct winsize));
+    int ret;
+
+    do {
+        ret = ioctl(fd, TIOCGWINSZ, &ws);
+    } while (ret == -1 && errno == EINTR);
+
+    return ret == 0;
+}
+
+struct msg_shex_hello*
+make_hello_msg(void)
+{
+    struct msg_shex_hello* m;
+    size_t sz = sizeof (*m) + nr_termbits * sizeof (m->tctl[0]);
+    m = xcalloc(sz);
+    m->msg.type = MSG_SHEX_HELLO;
+    m->version = PROTO_VERSION;
+    m->maxmsg = CMD_BUFSZ;
+    m->posix_vdisable_value = _POSIX_VDISABLE;
+
+    struct term_control* tc = &m->tctl[0];
+    struct termios in_attr;
+    struct termios out_attr;
+
+    int in_tty = -1;
+    if (isatty(0)) {
+        in_tty = 0;
+        xtcgetattr(in_tty, &in_attr);
+        m->ispeed = cfgetispeed(&in_attr);
+    }
+
+    int out_tty = -1;
+    if (isatty(1))
+        out_tty = 1;
+    else if (isatty(2))
+        out_tty = 2;
+
+    if (out_tty != -1) {
+        xtcgetattr(out_tty, &out_attr);
+        m->ospeed = cfgetospeed(&out_attr);
+        m->have_ws = fill_window_size(out_tty, &m->ws);
+    }
+
+    for (unsigned i = 0; i < nr_termbits; ++i) {
+        if (in_tty != -1 && termbits[i].thing == TERM_IFLAG)
+            tc->value = !!(in_attr.c_iflag & termbits[i].value);
+        else if (in_tty != -1 && termbits[i].thing == TERM_LFLAG)
+            tc->value = !!(in_attr.c_lflag & termbits[i].value);
+        else if (in_tty != -1 && termbits[i].thing == TERM_C_CC)
+            tc->value = in_attr.c_cc[termbits[i].value];
+        else if (out_tty != -1 && termbits[i].thing == TERM_OFLAG)
+            tc->value = !!(out_attr.c_oflag & termbits[i].value);
+        else
+            continue;
+
+        snprintf(tc->name, sizeof (tc->name), "%s", termbits[i].name);
+        tc++;
+    }
+
+    m->msg.size = (char*) tc - (char*) m;
+    return m;
+}
+
 int
 shex_main(int argc, char** argv)
 {
@@ -214,8 +286,8 @@ shex_main(int argc, char** argv)
     memset(&shex, 0, sizeof (shex));
 
     struct adbx_sh* sh = &shex.sh;
+    size_t proto_bufsz = CMD_BUFSZ;
     size_t child_bufsz = XXX_BUFSZ;
-    size_t proto_bufsz = XXX_BUFSZ;
 
     sh->process_msg = shex_process_msg;
     sh->max_outgoing_msg = proto_bufsz;

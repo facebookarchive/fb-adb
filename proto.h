@@ -1,12 +1,17 @@
 #pragma once
 #include <stdint.h>
 
+/* The world is little-endian */
+
 enum msg_type {
     MSG_CHANNEL_DATA = 40,
     MSG_CHANNEL_WINDOW,
     MSG_CHANNEL_CLOSE,
     MSG_CHILD_EXIT,
     MSG_ERROR,
+    MSG_WINDOW_SIZE,
+    MSG_SHEX_HELLO,
+    MSG_STUB_HELLO,
 };
 
 struct msg {
@@ -41,8 +46,44 @@ struct msg_child_exit {
     uint8_t exit_status;
 };
 
+struct window_size {
+    uint16_t row;
+    uint16_t col;
+    uint16_t xpixel;
+    uint16_t ypixel;
+};
+
+struct msg_window_size {
+    struct msg msg;
+    struct window_size ws;
+};
+
+struct term_control {
+    uint8_t value;
+    char name[9];
+};
+
+struct msg_shex_hello {
+    struct msg msg;
+    uint8_t version;
+    uint32_t maxmsg;
+    uint8_t have_ws;
+    struct window_size ws;
+    uint32_t ispeed;
+    uint32_t ospeed;
+    uint8_t posix_vdisable_value;
+    struct term_control tctl[0];
+};
+
+struct msg_stub_hello {
+    struct msg msg;
+    uint8_t version;
+    uint32_t maxmsg;
+};
+
 static const unsigned CHILD_STDIN = 2;
 static const unsigned CHILD_STDOUT = 3;
 static const unsigned CHILD_STDERR = 4;
+static const unsigned PROTO_VERSION = 2;
 
 #define XXX_BUFSZ 32

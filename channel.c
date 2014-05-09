@@ -5,6 +5,7 @@
 #include "channel.h"
 #include "util.h"
 #include "ringbuf.h"
+#include "adbenc.h"
 
 struct channel*
 channel_new(struct fdh* fdh,
@@ -58,48 +59,6 @@ channel_write_1(struct channel* c, size_t sz)
     return nr_written;
 }
 
-/* The sequences [\n ~ .] and [\r ~ .] typed into an adb pty act as an
- * emergency escape sequences and cause immediate disconnection.  Make
- * sure we never send these bytes.  The easiest way to do that is to
- * make sure we never send `~': adb_escape1 followed by adb_escape1 is
- * adb_escape1, and adb_escape1 followed by anything else is
- * adb_forbidden.  */
-static const char adb_forbidden = '~';
-static const char adb_escape1 = '!';
-static const char adb_escape2 = '@';
-
-static size_t
-copy_and_adb_decode(struct channel* c, const char* pos, size_t sz)
-{
-    size_t nr_added = 0;
-    const char* end = pos + sz;
-
-    while (pos < end) {
-        if (c->leftover_escape) {
-            char f = (*pos == adb_escape1) ? adb_escape1 : adb_forbidden;
-            ringbuf_copy_in(c->rb, &f, sizeof (f));
-            ringbuf_note_added(c->rb, sizeof (f));
-            nr_added += sizeof (f);
-            c->leftover_escape = false;
-            pos++;
-        } else if (*pos == adb_escape1) {
-            c->leftover_escape = true;
-            pos++;
-        } else {
-            const char* npos = pos + 1;
-            const char* rgnend =
-                memchr(npos, adb_escape1, end - npos) ?: npos;
-
-            ringbuf_copy_in(c->rb, pos, rgnend - pos);
-            ringbuf_note_added(c->rb, rgnend - pos);
-            nr_added += rgnend - pos;
-            pos = rgnend;
-        }
-    }
-
-    return nr_added;
-}
-
 static size_t
 channel_read_adb_hack(struct channel* c, size_t sz)
 {
@@ -113,48 +72,26 @@ channel_read_adb_hack(struct channel* c, size_t sz)
             die_errno("read");
         if (chunksz < 1)
             break;
-        nr_added += copy_and_adb_decode(c, buf, chunksz);
+
+        struct iovec iov[2];
+        ringbuf_writable_iov(c->rb, iov, chunksz);
+        unsigned state = c->leftover_escape;
+        const char* in = buf;
+        const char* inend = in + chunksz;
+        size_t np = 0;
+        for (int i = 0; i < ARRAYSIZE(iov); ++i) {
+            char* decstart = iov[i].iov_base;
+            char* dec = decstart;
+            char* decend = dec + iov[i].iov_len;
+            adb_decode(&state, &dec, decend, &in, inend);
+            np += (dec - decstart);
+        }
+
+        ringbuf_note_added(c->rb, np);
+        nr_added += np;
     }
 
     return nr_added;
-}
-
-static void
-adb_encode(unsigned* inout_state,
-           char** inout_enc,
-           char* encend,
-           const char** inout_in,
-           const char* inend)
-{
-    unsigned state = *inout_state;
-    char* enc = *inout_enc;
-    const char* in = *inout_in;
-
-    while (in < inend && enc < encend) {
-        if (state == 0) {
-             if (*in == adb_escape1) {
-                *enc++ = adb_escape1;
-                state = 1;
-            } else if (*in == adb_forbidden) {
-                *enc++ = adb_escape1;
-                state = 2;
-            } else {
-                *enc++ = *in++;
-            }
-        } else if (state == 1) {
-            *enc++ = adb_escape1;
-            in++;
-            state = 0;
-        } else if (state == 2) {
-            *enc++ = adb_escape2;
-            in++;
-            state = 0;
-        }
-    }
-
-    *inout_state = state;
-    *inout_enc = enc;
-    *inout_in = in;
 }
 
 static ssize_t
@@ -196,11 +133,8 @@ channel_write_adb_hack(struct channel* c, size_t sz)
         // its first half now (since we wrote it before), but pretend
         // we did.
         size_t skip = (c->leftover_escape != 0);
-        dbg("writing nr:%lu state:%u skip:%lu", (size_t) (enc - encbuf), state, skip);
         ssize_t nr_written =
             write_skip(c->fdh->fd, encbuf, enc - encbuf, skip);
-
-        dbg("  -> nr_written:%lu", nr_written);
 
         if (nr_written < 0 && nr_removed == 0)
             die_errno("write");
@@ -218,13 +152,10 @@ channel_write_adb_hack(struct channel* c, size_t sz)
             nr_encoded += (in - (char*) iov[i].iov_base);
         }
 
-        dbg("nr_encoded:%lu state:%u", nr_encoded, state);
-
         // If we wrote a partial encoded byte, leave the plain byte in
         // the ringbuf so that we know this channel still needs to
         // write.
         if (state != 0) {
-            dbg("!!!!!!!!!!!!!");
             assert(nr_encoded > 0);
             nr_encoded -= 1;
         }
@@ -280,8 +211,6 @@ channel_write(struct channel* c, const struct iovec* iov, unsigned nio)
         directwrsz = XMAX(writev(c->fdh->fd, iov, nio), 0);
         if (c->track_bytes_written)
             c->bytes_written += directwrsz;
-
-        dbg("direct write to %p: wrote %lu bytes", c, directwrsz);
     }
 
     for (unsigned i = 0; i < nio; ++i) {
@@ -377,3 +306,4 @@ channel_poll(struct channel* c)
         c->err = ei.err;
     }
 }
+
