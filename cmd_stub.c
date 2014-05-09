@@ -222,6 +222,14 @@ stub_main(int argc, char** argv)
 
     shex_hello = (struct msg_shex_hello*) shex_hello_m;
 
+    struct msg_stub_hello stub_hello;
+    memset(&stub_hello, 0, sizeof (stub_hello));
+    stub_hello.msg.type = MSG_STUB_HELLO;
+    stub_hello.msg.size = sizeof (stub_hello);
+    stub_hello.version = PROTO_VERSION;
+    stub_hello.maxmsg = 4096;
+    write_all(1, &stub_hello, sizeof (stub_hello));
+
     struct child* child = start_command_child(argc, argv, shex_hello);
     if (!child)
         return 0;
@@ -229,8 +237,8 @@ stub_main(int argc, char** argv)
     struct stub stub;
     memset(&stub, 0, sizeof (stub));
     struct adbx_sh* sh = &stub.sh;
+    size_t proto_bufsz = stub_hello.maxmsg;
     size_t child_bufsz = XXX_BUFSZ;
-    size_t proto_bufsz = XXX_BUFSZ;
 
     sh->process_msg = adbx_sh_process_msg;
     sh->max_outgoing_msg = shex_hello->maxmsg;

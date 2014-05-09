@@ -307,13 +307,23 @@ shex_main(int argc, char** argv)
 
     struct adbx_shex shex;
     memset(&shex, 0, sizeof (shex));
-
     struct adbx_sh* sh = &shex.sh;
+
+    struct msg_stub_hello* stub_hello;
+    struct msg* stub_hello_m = read_msg(child->fd[1]->fd, read_all);
+    if (stub_hello_m->type != MSG_STUB_HELLO ||
+        stub_hello_m->size < sizeof (*stub_hello))
+    {
+        die(ECOMM, "bad hello");
+    }
+
+    stub_hello = (struct msg_stub_hello*) stub_hello_m;
+    sh->max_outgoing_msg = stub_hello->maxmsg;
+
     size_t proto_bufsz = CMD_BUFSZ;
     size_t child_bufsz = XXX_BUFSZ;
 
     sh->process_msg = shex_process_msg;
-    sh->max_outgoing_msg = proto_bufsz;
     sh->nrch = 5;
     struct channel** ch = xalloc(sh->nrch * sizeof (*ch));
 
