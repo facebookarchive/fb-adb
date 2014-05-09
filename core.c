@@ -262,7 +262,9 @@ io_loop_do_io(struct adbx_sh* sh)
     }
 
     if (work != 0) {
-        if (poll(polls, nrch, -1) < 0 && errno != EINTR) {
+        if (ppoll(polls, nrch, NULL, sh->poll_mask) < 0
+            && errno != EINTR)
+        {
             die_errno("poll");
         }
     }

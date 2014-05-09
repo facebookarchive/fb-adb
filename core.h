@@ -1,6 +1,7 @@
 #pragma once
 #include <stdint.h>
 #include <stdbool.h>
+#include <signal.h>
 #include "util.h"
 #include "proto.h"
 
@@ -13,6 +14,7 @@ enum channel_names {
 };
 
 struct adbx_sh {
+    sigset_t* poll_mask;
     size_t max_outgoing_msg;
     unsigned nrch;
     struct channel** ch;

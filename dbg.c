@@ -161,6 +161,12 @@ dbgmsg(struct msg* msg, const char* tag)
                 tag, chname(((struct msg_channel_close*)msg)->channel));
             break;
         }
+        case MSG_WINDOW_SIZE: {
+            struct msg_window_size* ws = (void*) msg;
+            dbg("%s MSG_WINDOW_SIZE row=%u col=%u xpixel=%u ypixel=%u",
+                tag, ws->ws.row, ws->ws.col, ws->ws.xpixel, ws->ws.ypixel);
+            break;
+        }
         default: {
             dbg("%s MSG_??? type=%d sz=%d", tag, msg->type, msg->size);
             break;

@@ -72,6 +72,27 @@ set_window_size(int fd, const struct window_size* ws)
     } while (ret == -1 && errno == EINTR);
 }
 
+struct stub {
+    struct adbx_sh sh;
+    struct child* child;
+};
+
+static void
+stub_process_msg(struct adbx_sh* sh, struct msg mhdr)
+{
+    if (mhdr.type == MSG_WINDOW_SIZE) {
+        struct msg_window_size m;
+        read_cmdmsg(sh, mhdr, &m, sizeof (m));
+        struct stub* stub = (struct stub*) sh;
+        if (stub->child->pty_master)
+            set_window_size(stub->child->pty_master->fd, &m.ws);
+
+        return;
+    }
+
+    adbx_sh_process_msg(sh, mhdr);
+}
+
 static void
 setup_pty(int master, int slave, void* arg)
 {
@@ -133,7 +154,7 @@ setup_pty(int master, int slave, void* arg)
             shex_hello->ws.col,
             shex_hello->ws.xpixel,
             shex_hello->ws.ypixel);
-        set_window_size(slave, &shex_hello->ws);
+        set_window_size(master, &shex_hello->ws);
     }
 }
 
@@ -194,11 +215,6 @@ start_command_child(int argc,
     return child_start(&csi);
 }
 
-struct stub {
-    struct adbx_sh sh;
-    struct child* child;
-};
-
 int
 stub_main(int argc, char** argv)
 {
@@ -236,11 +252,12 @@ stub_main(int argc, char** argv)
 
     struct stub stub;
     memset(&stub, 0, sizeof (stub));
+    stub.child = child;
     struct adbx_sh* sh = &stub.sh;
     size_t proto_bufsz = stub_hello.maxmsg;
     size_t child_bufsz = XXX_BUFSZ;
 
-    sh->process_msg = adbx_sh_process_msg;
+    sh->process_msg = stub_process_msg;
     sh->max_outgoing_msg = shex_hello->maxmsg;
     sh->nrch = 5;
     struct channel** ch = xalloc(sh->nrch * sizeof (*ch));

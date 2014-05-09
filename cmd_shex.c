@@ -284,9 +284,23 @@ make_hello_msg(void)
     return m;
 }
 
+static bool saw_sigwinch = false;
+static void
+handle_sigwinch(int signo)
+{
+    saw_sigwinch = true;
+}
+
 int
 shex_main(int argc, char** argv)
 {
+    sigset_t orig_sigmask;
+    sigset_t blocked_signals;
+    sigemptyset(&blocked_signals);
+    sigaddset(&blocked_signals, SIGWINCH);
+    sigprocmask(SIG_BLOCK, &blocked_signals, &orig_sigmask);
+    signal(SIGWINCH, handle_sigwinch);
+
     struct msg_shex_hello* hello_msg = make_hello_msg();
 
     if (isatty(0))
@@ -309,6 +323,8 @@ shex_main(int argc, char** argv)
     memset(&shex, 0, sizeof (shex));
     struct adbx_sh* sh = &shex.sh;
 
+    sh->poll_mask = &orig_sigmask;
+
     struct msg_stub_hello* stub_hello;
     struct msg* stub_hello_m = read_msg(child->fd[1]->fd, read_all);
     if (stub_hello_m->type != MSG_STUB_HELLO ||
@@ -326,7 +342,6 @@ shex_main(int argc, char** argv)
     sh->process_msg = shex_process_msg;
     sh->nrch = 5;
     struct channel** ch = xalloc(sh->nrch * sizeof (*ch));
-
 
     ch[FROM_PEER] = channel_new(child->fd[1], proto_bufsz, CHANNEL_FROM_FD);
     ch[FROM_PEER]->window = UINT32_MAX;
@@ -361,9 +376,31 @@ shex_main(int argc, char** argv)
 
     dbg("starting main loop");
 
-    PUMP_WHILE(sh, (!shex.child_exited &&
+    resume_loop:
+
+    PUMP_WHILE(sh, (!saw_sigwinch &&
+                    !shex.child_exited &&
                     !channel_dead_p(ch[FROM_PEER]) &&
                     !channel_dead_p(ch[TO_PEER])));
+
+    if (saw_sigwinch) {
+        dbg("SIGWINCH");
+        struct msg_window_size m;
+        memset(&m, 0, sizeof (m));
+        m.msg.type = MSG_WINDOW_SIZE;
+        m.msg.size = sizeof (m);
+        int out_tty = -1;
+        if (ch[CHILD_STDOUT]->fdh && isatty(ch[CHILD_STDOUT]->fdh->fd))
+            out_tty = ch[CHILD_STDOUT]->fdh->fd;
+        else if (ch[CHILD_STDERR]->fdh && isatty(ch[CHILD_STDERR]->fdh->fd))
+            out_tty = ch[CHILD_STDERR]->fdh->fd;
+
+        if (out_tty != -1 && fill_window_size(out_tty, &m.ws))
+            queue_message_synch(sh, &m.msg);
+
+        saw_sigwinch = false;
+        goto resume_loop;
+    }
 
     dbg("closing standard streams");
 
