@@ -1,8 +1,7 @@
 #include <stdint.h>
 #include <unistd.h>
+#include <sys/uio.h>
 #include "util.h"
-
-struct ringbuf;
 
 struct ringbuf* ringbuf_new(size_t capacity);
 size_t ringbuf_capacity(const struct ringbuf* rb);

@@ -8,8 +8,11 @@
 #include <setjmp.h>
 #include <stdlib.h>
 #include <signal.h>
+#include <sys/syscall.h>
+#include <sys/uio.h>
 #include "util.h"
 #include <sys/queue.h>
+#include <libgen.h>
 
 struct resource {
     enum { RES_RESLIST, RES_CLEANUP } type;
@@ -287,13 +290,15 @@ xpipe(int* read_end, int* write_end)
     *write_end = fd[1];
 }
 
-#define XF_DUPFD_CLOEXEC 1030
+#if !defined(F_DUPFD_CLOSEXEC) && defined(__linux__)
+#define F_DUPFD_CLOEXEC 1030
+#endif
 
 int
 xdup(int fd)
 {
     struct cleanup* cl = cleanup_allocate();
-    int newfd = fcntl(fd, XF_DUPFD_CLOEXEC, fd);
+    int newfd = fcntl(fd, F_DUPFD_CLOEXEC, fd);
     if (newfd == -1)
         die_errno("F_DUPFD_CLOEXEC");
 
@@ -370,8 +375,9 @@ nextpow2sz(size_t sz)
     sz |= sz >> 4;
     sz |= sz >> 8;
     sz |= sz >> 16;
-    if (sizeof (sz) == 8)
-        sz |= sz >> 32;
+#if UINT_MAX != SIZE_MAX
+    sz |= sz >> 32;
+#endif
 
     return 1 + sz;
 }
@@ -494,3 +500,50 @@ write_all(int fd, const void* buf, size_t sz)
         nr_written += ret;
     }
 }
+
+#if !defined(HAVE_PPOLL) && defined(__linux__)
+int
+ppoll(struct pollfd *fds, nfds_t nfds,
+      const struct timespec *timeout_ts, const sigset_t *sigmask)
+{
+    return syscall(__NR_ppoll, fds, nfds, timeout_ts, sigmask);
+}
+#endif
+
+#ifndef HAVE_DUP3
+int
+dup3(int oldfd, int newfd, int flags)
+{
+#ifdef __linux__
+    return syscall(__NR_dup3, oldfd, newfd, flags);
+#else
+    if (oldfd == newfd) {
+        errno = EINVAL;
+        return -1;
+    }
+
+    if (dup2(oldfd, newfd) < 0)
+        return -1;
+
+    int fd_flags = fcntl(newfd, F_GETFL);
+    fd_flags |= flags;
+    fcntl(newfd, F_SETFL, fd_flags);
+    return newfd;
+#endif
+}
+#endif
+
+#ifndef HAVE_MKOSTEMP
+int
+mkostemp(char *template, int flags)
+{
+    int newfd = mkstemp(template);
+    if (newfd == -1)
+        return -1;
+
+    int fd_flags = fcntl(newfd, F_GETFL);
+    fd_flags |= flags;
+    fcntl(newfd, F_SETFL, fd_flags);
+    return newfd;
+}
+#endif

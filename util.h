@@ -6,6 +6,7 @@
 #include <sys/types.h>
 #include <unistd.h>
 #include <stdbool.h>
+#include <poll.h>
 #include "dbg.h"
 
 #define ARRAYSIZE(ar) (sizeof (ar) / sizeof (*(ar)))
@@ -119,3 +120,20 @@ void hack_reopen_tty(int fd);
 size_t read_all(int fd, void* buf, size_t sz);
 void write_all(int fd, const void* buf, size_t sz);
 
+#ifndef HAVE_DUP3
+int dup3(int oldfd, int newfd, int flags);
+#endif
+
+#ifndef HAVE_PPOLL
+int ppoll(struct pollfd *fds, nfds_t nfds,
+          const struct timespec *timeout_ts,
+          const sigset_t *sigmask);
+#endif
+
+#ifndef HAVE_MKOSTEMP
+int mkostemp(char *template, int flags);
+#endif
+
+#ifndef _POSIX_VDISABLE
+#define _POSIX_VDISABLE 0
+#endif

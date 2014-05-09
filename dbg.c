@@ -146,7 +146,7 @@ dbgmsg(struct msg* msg, const char* tag)
     switch (msg->type) {
         case MSG_CHANNEL_DATA: {
             struct msg_channel_data* m = (void*) msg;
-            dbg("%s MSG_CHANNEL_DATA ch=%s sz=%u, payloadsz=%lu",
+            dbg("%s MSG_CHANNEL_DATA ch=%s sz=%u, payloadsz=%zu",
                 tag, chname(m->channel), m->msg.size, m->msg.size - sizeof (*m));
             break;
         }
@@ -225,7 +225,7 @@ dbgch(const char* label, struct channel** ch, unsigned nrch)
 
         assert(p.fd == -1 || p.fd == c->fdh->fd);
 
-        dbg("  %-18s size:%-4lu room:%-4lu window:%-4d %s%-2s %p %s",
+        dbg("  %-18s size:%-4zu room:%-4zu window:%-4d %s%-2s %p %s",
             xaprintf("ch[%d=%s]", chno, chname(chno)),
             ringbuf_size(c->rb),
             ringbuf_room(c->rb),
