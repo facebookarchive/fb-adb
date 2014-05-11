@@ -34,6 +34,22 @@ else
    CPPFLAGS="$CPPFLAGS -DBUILD_STUB=1"
    CFLAGS="$CFLAGS -Wno-format"
 fi
+
+AC_ARG_ENABLE([checking],
+        AS_HELP_STRING([--enable-checking],
+                       [Enable assertions]),
+                       [],
+                       [enable_checking=no])
+if test "$enable_checking" = "yes"; then
+   true
+elif test "$enable_checking" = "no"; then
+   CPPFLAGS="$CPPFLAGS -DNDEBUG=1"
+else
+   AC_MSG_ERROR([invalid value for --enable-checking: need yes or no])
+fi
+
+echo "Checking enabled?    ${enable_checking}"
+
 AM_CONDITIONAL([BUILD_STUB], [test -n "$BUILD_STUB"])
 AC_SUBST([STUB_SUBDIRS])
 AC_CONFIG_FILES([Makefile])
