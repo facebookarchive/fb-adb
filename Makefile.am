@@ -1,8 +1,24 @@
+# Link most objects in a library first so that timestamp.c can depend
+# on that library and get regenerated only when it changes.
 bin_PROGRAMS = adbx
-ADBX_NON_TIMESTAMP = adbx.c util.c child.c xmkraw.c ringbuf.c core.c channel.c \
-	cmd_stub.c cmd_shex.c dbg.c termbits.c adbenc.c adb.c chat.c
+noinst_LIBRARIES = libadbx.a
+libadbx_a_SOURCES = \
+	adb.c \
+	adbenc.c \
+	adbx.c \
+	chat.c \
+	child.c \
+	cmd_shex.c \
+	cmd_stub.c \
+	core.c channel.c \
+	dbg.c \
+	ringbuf.c \
+	termbits.c \
+	util.c \
+	xmkraw.c
 
-adbx_SOURCES = $(ADBX_NON_TIMESTAMP) timestamp.c
+adbx_SOURCES = timestamp.c
+adbx_LDADD = libadbx.a
 
 AM_CPPFLAGS = -I.
 BUILT_SOURCES = timestamp.c
@@ -12,13 +28,17 @@ $(srcdir)/termbits.c: termnames.h
 termnames.h: termnames.h.in termnames.sed
 	$(SED) -rf $(srcdir)/termnames.sed $< >$@
 
-timestamp.c: timestamp.c.in $(ADBX_NON_TIMESTAMP:.c=.o)
-	$(SED) -e "s/BUILD_TIME/`date +%s`/" $< > $@
-
 SUBDIRS = $(STUB_SUBDIRS)
 DIST_SUBDIRS = $(STUB_SUBDIRS)
 CLEANFILES = termnames.h timestamp.c timestamp.c.tmp
 
 if !BUILD_STUB
-  adbx_SOURCES += stubs.s
+adbx_SOURCES += stubs.s
+timestamp.c: timestamp.c.in libadbx.a
+	$(SED) -e "s/BUILD_TIME/`date +%s`/" $< > $@
+else
+dummy-update-timestamp:
+	$(MAKE) -C .. timestamp.c
+timestamp.c: dummy-update-timestamp
+	cp -fup ../timestamp.c $@
 endif
