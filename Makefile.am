@@ -6,7 +6,7 @@ if !BUILD_STUB
   adbx_SOURCES += stubs.s
 endif
 
-stubs.s: $(STUB_BINARIES)
+stubs.o: $(STUB_BINARIES)
 termbits.c: termnames.h
 termnames.h: termnames.h.in termnames.sed
 	$(SED) -rf termnames.sed $< >$@

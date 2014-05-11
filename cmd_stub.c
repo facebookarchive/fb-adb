@@ -94,9 +94,15 @@ setup_pty(int master, int slave, void* arg)
 
     while ((char*)(tc+1) <= hello_end && tb < tb_end) {
         int cmp = strncmp(tc->name, tb->name, sizeof (tc->name));
-        if (cmp != 0) {
-            dbg("tc not present: %.*s", (int)sizeof (tc->name), tc->name);
-            if (cmp < 0) tc++; else tb++;
+        if (cmp < 0) {
+            dbg("tc not present: %.*s", (int) sizeof (tc->name), tc->name);
+            tc++;
+            continue;
+        }
+
+        if (cmp > 0) {
+            dbg("tc not sent: %s", tb->name);
+            tb++;
             continue;
         }
 

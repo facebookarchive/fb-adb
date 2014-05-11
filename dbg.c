@@ -3,6 +3,7 @@
 #include <stdint.h>
 #include <limits.h>
 #include <errno.h>
+#include <termios.h>
 #include <string.h>
 #include <unistd.h>
 #include <setjmp.h>
@@ -166,6 +167,11 @@ dbgmsg(struct msg* msg, const char* tag)
             struct msg_window_size* ws = (void*) msg;
             dbg("%s MSG_WINDOW_SIZE row=%u col=%u xpixel=%u ypixel=%u",
                 tag, ws->ws.row, ws->ws.col, ws->ws.xpixel, ws->ws.ypixel);
+            break;
+        }
+        case MSG_CHILD_EXIT: {
+            struct msg_child_exit* m = (void*) msg;
+            dbg("%s MSG_CHILD_EXIT status=%u", tag, m->exit_status);
             break;
         }
         default: {

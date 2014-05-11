@@ -56,7 +56,7 @@ adbx_sh_process_msg_channel_data(struct adbx_sh* sh,
     if (c->dir == CHANNEL_FROM_FD)
         die_proto_error("wrong channel direction ch=%u", m->channel);
 
-    size_t payloadsz = m->msg.size - sizeof (m);
+    size_t payloadsz = m->msg.size - sizeof (*m);
 
     if (c->fdh == NULL) {
         /* Channel already closed.  Just drop the write. */

@@ -392,6 +392,7 @@ main(int argc, char** argv)
     struct errinfo ei = { .want_msg = true };
     if (catch_error(main1, &mi, &ei)) {
         mi.ret = 1;
+        dbg("ERROR: %s: %s", ei.prgname, ei.msg);
         fprintf(stderr, "%s: %s\n", ei.prgname, ei.msg);
     }
 

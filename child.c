@@ -7,6 +7,53 @@
 #include <unistd.h>
 #include "child.h"
 
+struct internal_child_info {
+    const struct child_start_info* csi;
+    int* childfd;
+    int pty_slave;
+};
+
+__attribute__((noreturn))
+static void
+child_child_1(void* arg)
+{
+    struct internal_child_info* ci = arg;
+    if (ci->pty_slave != -1) {
+        if (setsid() == (pid_t) -1)
+            die_errno("setsid");
+        if (ioctl(ci->pty_slave, TIOCSCTTY, ci->pty_slave) == -1)
+            die_errno("TIOCSCTTY");
+        if (tcsetpgrp(ci->pty_slave, getpid()) == -1)
+            die_errno("tcsetpgrp");
+    }
+
+    /* dup2 resets O_CLOEXEC */
+    for (int i = 0; i < 3; ++i)
+        if (dup2(ci->childfd[i], i) == -1)
+            die_errno("dup2(%d->%d)", ci->childfd[i], i);
+
+    sigset_t blocked;
+    sigemptyset(&blocked);
+    sigprocmask(SIG_SETMASK, &blocked, NULL);
+    execvp(ci->csi->exename, (char**) ci->csi->argv);
+    die_errno("execvp(\"%s\")", ci->csi->exename);
+}
+
+__attribute__((noreturn))
+static void
+child_child(struct internal_child_info* ci)
+{
+    struct errinfo ei = { 0 };
+    ei.want_msg = true;
+    if (!catch_error(child_child_1, ci, &ei))
+        abort();
+
+    fprintf(stderr, "%s: %s\n", ei.prgname, ei.msg);
+    fflush(stderr);
+    _exit(127); // Do not allow errors to propagate further
+}
+
+
 struct child*
 child_start(const struct child_start_info* csi)
 {
@@ -76,25 +123,13 @@ child_start(const struct child_start_info* csi)
         die_errno("fork");
 
     if (child_pid == 0) {
-        if (pty_slave != -1) {
-            if (setsid() == (pid_t) -1)
-                die_errno("setsid");
-            if (ioctl(pty_slave, TIOCSCTTY, pty_slave) == -1)
-                die_errno("TIOCSCTTY");
-            if (tcsetpgrp(pty_slave, getpid()) == -1)
-                die_errno("tcsetpgrp");
-        }
+        struct internal_child_info ci = {
+            .csi = csi,
+            .pty_slave = pty_slave,
+            .childfd = childfd,
+        };
 
-        /* dup2 resets O_CLOEXEC */
-        for (int i = 0; i < 3; ++i)
-            if (dup2(childfd[i], i) == -1)
-                die_errno("dup2(%d->%d)", childfd[i], i);
-
-        sigset_t blocked;
-        sigemptyset(&blocked);
-        sigprocmask(SIG_SETMASK, &blocked, NULL);
-        execvp(csi->exename, (char**) csi->argv);
-        die_errno("execvp(\"%s\")", csi->exename);
+        child_child(&ci);
     }
 
     reslist_pop_nodestroy(rl_local);

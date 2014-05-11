@@ -77,7 +77,17 @@ try_adb_stub(struct child_start_info* csi, char** err) {
     SCOPED_RESLIST(rl_local);
     struct chat* cc = chat_new(child->fd[0]->fd, child->fd[1]->fd);
     chat_swallow_prompt(cc);
-    chat_talk_at(cc, xaprintf("exec %s stub", ADBX_REMOTE_FILENAME));
+
+    char* cmd = xaprintf("exec %s stub", ADBX_REMOTE_FILENAME);
+    unsigned promptw = 40;
+    if (strlen(cmd) > promptw) {
+        // The extra round trip sucks, but if we don't do this, mksh's
+        // helpful line editing will screw up our echo detection.
+        chat_talk_at(cc, xaprintf("COLUMNS=%lu", promptw + strlen(cmd)));
+        chat_swallow_prompt(cc);
+    }
+
+    chat_talk_at(cc, cmd);
     char* resp = chat_read_line(cc);
     dbg("stub resp: [%s]", resp);
     if (strcmp(resp, ADBX_PROTO_START_LINE) == 0) {
