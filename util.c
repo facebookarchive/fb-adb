@@ -111,7 +111,7 @@ reslist_cleanup_local(struct reslist* rl_local)
 {
     if (rl_local->parent) {
         current_reslist = rl_local->parent;
-        reslist_destroy(rl_local);
+        reslist_destroy_guts(rl_local);
     }
 }
 

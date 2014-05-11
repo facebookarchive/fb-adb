@@ -13,7 +13,14 @@ AC_PROG_CC_C99
 AM_PROG_AS
 AC_PROG_SED
 AC_CHECK_FUNCS([ppoll dup3 mkostemp pselect])
+
 CPPFLAGS="$CPPFLAGS -Wall -Werror -D_GNU_SOURCE=1"
+
+dnl _FORTIFY_SOURCE produces too many false positives: read(fd, buf,
+dnl min(sizeof(buf), x)), unsigned x, tricks _FORTIFY_SOURCE into
+dnl thinking we might overflow the buffer, but we clearly can't.
+CPPFLAGS="$CPPFLAGS -U_FORTIFY_SOURCE -D_FORTIFY_SOURCE=0"
+
 AC_ARG_WITH([android-ndk],
             AS_HELP_STRING([--with-android-ndk=NDK],
             [Android NDK location]))
@@ -27,7 +34,7 @@ fi
 
 if test -z "$BUILD_STUB"; then
    STUB_SUBDIRS="stub-x86 stub-arm"
-   STUB_BINARIES="stub-x86/adbx stub-arm/adbx"
+   STUB_BINARIES="stub-x86/adbx.stripped stub-arm/adbx.stripped"
    AC_CONFIG_SUBDIRS([stub-x86 stub-arm])
    AC_SUBST([STUB_BINARIES])
 else
@@ -37,9 +44,9 @@ fi
 
 AC_ARG_ENABLE([checking],
         AS_HELP_STRING([--enable-checking],
-                       [Enable assertions]),
-                       [],
-                       [enable_checking=no])
+        [Enable assertions (default no)]),
+        [],
+        [enable_checking=no])
 if test "$enable_checking" = "yes"; then
    true
 elif test "$enable_checking" = "no"; then
@@ -48,9 +55,28 @@ else
    AC_MSG_ERROR([invalid value for --enable-checking: need yes or no])
 fi
 
-echo "Checking enabled?    ${enable_checking}"
+AC_ARG_ENABLE([strip-stubs],
+        AS_HELP_STRING([--enable-strip-stubs[=yes]],
+                       [Strip embedded stub programs (default yes)]),
+        [],
+        [enable_strip_stubs=yes])
+
+AC_CHECK_TOOL([STRIP_STUB], [strip], [true])
+if test "$enable_strip_stubs" = "yes"; then
+   true
+elif test "$enable_strip_stubs" = "no"; then
+   true
+else
+   AC_MSG_ERROR([invalid for --enable-strip-stubs: need yes or no])
+fi
+
+AC_SUBST([STRIP_STUB])
 
 AM_CONDITIONAL([BUILD_STUB], [test -n "$BUILD_STUB"])
+AM_CONDITIONAL([STRIP_STUB], [test "$enable_strip_stubs" = "yes"])
 AC_SUBST([STUB_SUBDIRS])
 AC_CONFIG_FILES([Makefile])
+echo "Checking enabled?    ${enable_checking}"
+echo "Strip subprograms?   ${enable_strip_stubs}"
 AC_OUTPUT
+
