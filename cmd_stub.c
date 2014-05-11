@@ -20,6 +20,7 @@
 #include "adbenc.h"
 #include "termbits.h"
 #include "constants.h"
+#include "timestamp.h"
 
 static void
 send_exit_message(int status, struct adbx_sh* sh)
@@ -257,7 +258,7 @@ stub_main(int argc, char** argv)
         xmkraw(1, XMKRAW_SKIP_CLEANUP);
     }
 
-    printf(ADBX_PROTO_START_LINE "\n", PROTO_VERSION);
+    printf(ADBX_PROTO_START_LINE "\n", build_time);
     fflush(stdout);
 
     struct msg_shex_hello* shex_hello = read_shex_hello();

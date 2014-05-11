@@ -1,0 +1,3 @@
+#include "timestamp.h"
+
+const uint64_t build_time = BUILD_TIMELLU;

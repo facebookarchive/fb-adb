@@ -34,7 +34,7 @@ fi
 
 if test -z "$BUILD_STUB"; then
    STUB_SUBDIRS="stub-x86 stub-arm"
-   STUB_BINARIES="stub-x86/adbx.stripped stub-arm/adbx.stripped"
+   STUB_BINARIES="stub-x86/adbx stub-arm/adbx"
    AC_CONFIG_SUBDIRS([stub-x86 stub-arm])
    AC_SUBST([STUB_BINARIES])
 else
@@ -55,28 +55,8 @@ else
    AC_MSG_ERROR([invalid value for --enable-checking: need yes or no])
 fi
 
-AC_ARG_ENABLE([strip-stubs],
-        AS_HELP_STRING([--enable-strip-stubs[=yes]],
-                       [Strip embedded stub programs (default yes)]),
-        [],
-        [enable_strip_stubs=yes])
-
-AC_CHECK_TOOL([STRIP_STUB], [strip], [true])
-if test "$enable_strip_stubs" = "yes"; then
-   true
-elif test "$enable_strip_stubs" = "no"; then
-   true
-else
-   AC_MSG_ERROR([invalid for --enable-strip-stubs: need yes or no])
-fi
-
-AC_SUBST([STRIP_STUB])
-
 AM_CONDITIONAL([BUILD_STUB], [test -n "$BUILD_STUB"])
-AM_CONDITIONAL([STRIP_STUB], [test "$enable_strip_stubs" = "yes"])
 AC_SUBST([STUB_SUBDIRS])
 AC_CONFIG_FILES([Makefile])
 echo "Checking enabled?    ${enable_checking}"
-echo "Strip subprograms?   ${enable_strip_stubs}"
 AC_OUTPUT
-

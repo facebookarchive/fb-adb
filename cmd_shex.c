@@ -24,6 +24,7 @@
 #include "adb.h"
 #include "chat.h"
 #include "stubs.h"
+#include "timestamp.h"
 
 static void
 print_usage(void)
@@ -71,7 +72,7 @@ send_stub(const void* data, size_t datasz)
 #endif
 
 static struct child*
-try_adb_stub(struct child_start_info* csi, char** err, unsigned* ver)
+try_adb_stub(struct child_start_info* csi, char** err)
 {
     struct reslist* rl_stub = reslist_push_new();
     struct child* child = child_start(csi);
@@ -92,10 +93,18 @@ try_adb_stub(struct child_start_info* csi, char** err, unsigned* ver)
     char* resp = chat_read_line(cc);
     dbg("stub resp: [%s]", resp);
     int n = -1;
-    sscanf(resp, ADBX_PROTO_START_LINE "%n", ver, &n);
+    uint64_t ver;
+    sscanf(resp, ADBX_PROTO_START_LINE "%n", &ver, &n);
     if (n == -1) {
         reslist_pop_nodestroy(rl_stub);
         *err = xstrdup(resp);
+        reslist_destroy(rl_stub);
+        return NULL;
+    }
+
+    if (ver < build_time) {
+        reslist_pop_nodestroy(rl_stub);
+        *err = xstrdup("build too old");
         reslist_destroy(rl_stub);
         return NULL;
     }
@@ -113,21 +122,20 @@ start_stub_adb(bool force_send_stub)
         .argv = (const char*[]){"adb", "shell", NULL}
     };
 
-    unsigned stub_ver;
     struct child* child = NULL;
     char* err = NULL;
     if (!force_send_stub)
-        child = try_adb_stub(&csi, &err, &stub_ver);
+        child = try_adb_stub(&csi, &err);
 
 #ifndef BUILD_STUB
     if (!child) {
         send_stub(arm_stub, arm_stubsz);
-        child = try_adb_stub(&csi, &err, &stub_ver);
+        child = try_adb_stub(&csi, &err);
     }
 
     if (!child) {
         send_stub(x86_stub, x86_stubsz);
-        child = try_adb_stub(&csi, &err, &stub_ver);
+        child = try_adb_stub(&csi, &err);
     }
 #endif
 
@@ -183,7 +191,7 @@ make_hello_msg(size_t cmd_bufsz,
     size_t sz = sizeof (*m) + nr_termbits * sizeof (m->tctl[0]);
     m = xcalloc(sz);
     m->msg.type = MSG_SHEX_HELLO;
-    m->version = PROTO_VERSION;
+    m->version = build_time;
     m->nr_argv = nr_argv;
     m->maxmsg = cmd_bufsz;
     m->stub_send_bufsz = cmd_bufsz;

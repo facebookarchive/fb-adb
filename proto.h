@@ -72,7 +72,7 @@ struct stream_information {
 
 struct msg_shex_hello {
     struct msg msg;
-    uint8_t version;
+    uint64_t version;
     uint32_t maxmsg;
     uint32_t stub_recv_bufsz;
     uint32_t stub_send_bufsz;
@@ -94,6 +94,5 @@ struct msg_cmdline_argument {
 static const unsigned CHILD_STDIN = 2;
 static const unsigned CHILD_STDOUT = 3;
 static const unsigned CHILD_STDERR = 4;
-static const unsigned PROTO_VERSION = 2;
 
-#define ADBX_PROTO_START_LINE "ADBX protocol %u follows"
+#define ADBX_PROTO_START_LINE "ADBX protocol %ju follows"

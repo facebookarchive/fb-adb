@@ -11,5 +11,5 @@
         .int \sym&_end - \sym
 .endm
 
-        bin_data arm_stub "stub-arm/adbx.stripped"
-        bin_data x86_stub "stub-x86/adbx.stripped"
+        bin_data arm_stub "stub-arm/adbx"
+        bin_data x86_stub "stub-x86/adbx"
