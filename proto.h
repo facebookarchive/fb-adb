@@ -11,7 +11,6 @@ enum msg_type {
     MSG_ERROR,
     MSG_WINDOW_SIZE,
     MSG_SHEX_HELLO,
-    MSG_STUB_HELLO,
     MSG_CMDLINE_ARGUMENT,
     MSG_CMDLINE_DEFAULT_SH,
     MSG_CMDLINE_DEFAULT_SH_LOGIN
@@ -92,14 +91,9 @@ struct msg_cmdline_argument {
     char value[0];
 };
 
-struct msg_stub_hello {
-    struct msg msg;
-    uint8_t version;
-};
-
 static const unsigned CHILD_STDIN = 2;
 static const unsigned CHILD_STDOUT = 3;
 static const unsigned CHILD_STDERR = 4;
 static const unsigned PROTO_VERSION = 2;
 
-#define ADBX_PROTO_START_LINE "ADBX protocol follows"
+#define ADBX_PROTO_START_LINE "ADBX protocol %u follows"

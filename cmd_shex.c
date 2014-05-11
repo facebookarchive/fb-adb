@@ -71,7 +71,8 @@ send_stub(const void* data, size_t datasz)
 #endif
 
 static struct child*
-try_adb_stub(struct child_start_info* csi, char** err) {
+try_adb_stub(struct child_start_info* csi, char** err, unsigned* ver)
+{
     struct reslist* rl_stub = reslist_push_new();
     struct child* child = child_start(csi);
     SCOPED_RESLIST(rl_local);
@@ -90,15 +91,17 @@ try_adb_stub(struct child_start_info* csi, char** err) {
     chat_talk_at(cc, cmd);
     char* resp = chat_read_line(cc);
     dbg("stub resp: [%s]", resp);
-    if (strcmp(resp, ADBX_PROTO_START_LINE) == 0) {
-        reslist_pop_nodestroy(rl_stub);
-        return child;
-    } else {
+    int n = -1;
+    sscanf(resp, ADBX_PROTO_START_LINE "%n", ver, &n);
+    if (n == -1) {
         reslist_pop_nodestroy(rl_stub);
         *err = xstrdup(resp);
         reslist_destroy(rl_stub);
         return NULL;
     }
+
+    reslist_pop_nodestroy(rl_stub);
+    return child;
 }
 
 static struct child*
@@ -110,20 +113,21 @@ start_stub_adb(bool force_send_stub)
         .argv = (const char*[]){"adb", "shell", NULL}
     };
 
+    unsigned stub_ver;
     struct child* child = NULL;
     char* err = NULL;
     if (!force_send_stub)
-        child = try_adb_stub(&csi, &err);
+        child = try_adb_stub(&csi, &err, &stub_ver);
 
 #ifndef BUILD_STUB
     if (!child) {
         send_stub(arm_stub, arm_stubsz);
-        child = try_adb_stub(&csi, &err);
+        child = try_adb_stub(&csi, &err, &stub_ver);
     }
 
     if (!child) {
         send_stub(x86_stub, x86_stubsz);
-        child = try_adb_stub(&csi, &err);
+        child = try_adb_stub(&csi, &err, &stub_ver);
     }
 #endif
 
@@ -248,19 +252,6 @@ handle_sigwinch(int signo)
     saw_sigwinch = true;
 }
 
-static struct msg_stub_hello*
-read_stub_hello(int fd)
-{
-    struct msg* mhdr = read_msg(fd, read_all);
-    if (mhdr->type != MSG_STUB_HELLO ||
-        mhdr->size < sizeof (struct msg_stub_hello))
-    {
-        die(ECOMM, "bad hello");
-    }
-
-    return (struct msg_stub_hello*) mhdr;
-}
-
 static void
 send_cmdline_argument(int fd, unsigned type, const void* val, size_t valsz)
 {
@@ -373,8 +364,6 @@ shex_main(int argc, char** argv)
         child = start_stub_adb(force_send_stub);
 
     write_all_adb_encoded(child->fd[0]->fd, hello_msg, hello_msg->msg.size);
-    read_stub_hello(child->fd[1]->fd);
-
     send_cmdline(child->fd[0]->fd, argc, argv, exename);
 
     struct adbx_shex shex;

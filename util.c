@@ -16,23 +16,6 @@
 #include "util.h"
 #include "constants.h"
 
-struct resource {
-    enum { RES_RESLIST, RES_CLEANUP } type;
-    LIST_ENTRY(resource) link;
-};
-
-struct reslist {
-    struct resource r;
-    struct reslist* parent;
-    LIST_HEAD(,resource) contents;
-};
-
-struct cleanup {
-    struct resource r;
-    cleanupfn fn;
-    void* fndata;
-};
-
 struct errhandler {
     sigjmp_buf where;
     struct reslist* rl;
@@ -46,6 +29,22 @@ __attribute__((noreturn)) static void die_oom(void);
 const char* prgname;
 const char* orig_argv0;
 
+static void
+reslist_init(struct reslist* rl, unsigned type)
+{
+    memset(rl, 0, sizeof (*rl));
+    rl->r.type = type;
+    rl->parent = current_reslist;
+    LIST_INSERT_HEAD(&current_reslist->contents, &rl->r, link);
+    current_reslist = rl;
+}
+
+void
+reslist_init_local(struct reslist* rl_local)
+{
+    reslist_init(rl_local, RES_RESLIST_ONSTACK);
+}
+
 struct reslist*
 reslist_push_new(void)
 {
@@ -53,11 +52,7 @@ reslist_push_new(void)
     if (rl == NULL)
         die_oom();
 
-    memset(rl, 0, sizeof (*rl));
-    rl->r.type = RES_RESLIST;
-    rl->parent = current_reslist;
-    LIST_INSERT_HEAD(&current_reslist->contents, &rl->r, link);
-    current_reslist = rl;
+    reslist_init(rl, RES_RESLIST);
     return rl;
 }
 
@@ -78,23 +73,19 @@ reslist_pop_nodestroy(struct reslist* rl)
     current_reslist = rl->parent;
 }
 
-void
-reslist_cleanup_local(struct reslist** rl_local)
-{
-    current_reslist = (*rl_local)->parent;
-    reslist_destroy(*rl_local);
-}
 
-void
-reslist_destroy(struct reslist* rl)
+static void
+reslist_destroy_guts(struct reslist* rl)
 {
-    if (rl->parent)
+    if (rl->parent) {
         LIST_REMOVE(&rl->r, link);
+        rl->parent = NULL;
+    }
 
     while (!LIST_EMPTY(&rl->contents)) {
         struct resource* r = LIST_FIRST(&rl->contents);
         LIST_REMOVE(r, link);
-        if (r->type == RES_RESLIST) {
+        if (r->type == RES_RESLIST || r->type == RES_RESLIST_ONSTACK) {
             struct reslist* sub_rl = (struct reslist*) r;
             sub_rl->parent = NULL;
             reslist_destroy(sub_rl);
@@ -105,8 +96,23 @@ reslist_destroy(struct reslist* rl)
             free(cl);
         }
     }
+}
 
-    free(rl);
+void
+reslist_destroy(struct reslist* rl)
+{
+    reslist_destroy_guts(rl);
+    if (rl->r.type == RES_RESLIST)
+        free(rl);
+}
+
+void
+reslist_cleanup_local(struct reslist* rl_local)
+{
+    if (rl_local->parent) {
+        current_reslist = rl_local->parent;
+        reslist_destroy(rl_local);
+    }
 }
 
 struct cleanup*
@@ -643,10 +649,10 @@ xnamed_tempfile_cleanup(void* arg)
 FILE*
 xnamed_tempfile(const char** out_name)
 {
-    struct cleanup* cl = cleanup_allocate();
     struct xnamed_tempfile_save* save = xcalloc(sizeof (*save));
-    cleanup_commit(cl, xnamed_tempfile_cleanup, save);
     char* name = xaprintf("%s/adbx-XXXXXX", DEFAULT_TEMP_DIR);
+    struct cleanup* cl = cleanup_allocate();
+    cleanup_commit(cl, xnamed_tempfile_cleanup, save);
     int fd = mkostemp(name, O_CLOEXEC);
     if (fd == -1)
         die_errno("mkostemp");

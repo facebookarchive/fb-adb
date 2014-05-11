@@ -8,23 +8,45 @@
 #include <unistd.h>
 #include <stdbool.h>
 #include <poll.h>
+#include <sys/queue.h>
 #include "dbg.h"
 
 #define ARRAYSIZE(ar) (sizeof (ar) / sizeof (*(ar)))
 
-struct reslist;
+typedef void (*cleanupfn)(void* data);
+
+struct resource {
+    enum { RES_RESLIST, RES_RESLIST_ONSTACK, RES_CLEANUP } type;
+    LIST_ENTRY(resource) link;
+};
+
+struct reslist {
+    struct resource r;
+    struct reslist* parent;
+    LIST_HEAD(,resource) contents;
+};
+
+struct cleanup {
+    struct resource r;
+    cleanupfn fn;
+    void* fndata;
+};
+
 struct reslist* reslist_push_new(void);
-void reslist_cleanup_local(struct reslist** rl_local);
+void reslist_init_local(struct reslist* rl_local);
+void reslist_cleanup_local(struct reslist* rl_local);
 void reslist_pop_nodestroy(struct reslist* rl);
 void reslist_destroy(struct reslist* rl);
 struct reslist* reslist_current(void);
 
+#define PASTE(a,b) a##b
+
 #define SCOPED_RESLIST(varname)                         \
     __attribute__((cleanup(reslist_cleanup_local)))     \
-    struct reslist* varname = reslist_push_new();
+    struct reslist PASTE(varname,__);                   \
+    struct reslist* varname = &PASTE(varname,__);       \
+    reslist_init_local(varname);
 
-typedef void (*cleanupfn)(void* data);
-struct cleanup;
 struct cleanup* cleanup_allocate(void);
 void cleanup_commit(struct cleanup* cl, cleanupfn fn, void* fndata);
 void cleanup_commit_close_fd(struct cleanup* cl, int fd);

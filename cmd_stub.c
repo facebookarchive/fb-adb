@@ -236,17 +236,6 @@ start_child(struct msg_shex_hello* shex_hello)
     return child_start(&csi);
 }
 
-static void
-send_stub_hello(void)
-{
-    struct msg_stub_hello stub_hello;
-    memset(&stub_hello, 0, sizeof (stub_hello));
-    stub_hello.msg.type = MSG_STUB_HELLO;
-    stub_hello.msg.size = sizeof (stub_hello);
-    stub_hello.version = PROTO_VERSION;
-    write_all(1, &stub_hello, sizeof (stub_hello));
-}
-
 int
 stub_main(int argc, char** argv)
 {
@@ -268,12 +257,10 @@ stub_main(int argc, char** argv)
         xmkraw(1, XMKRAW_SKIP_CLEANUP);
     }
 
-    printf("%s\n", ADBX_PROTO_START_LINE);
+    printf(ADBX_PROTO_START_LINE "\n", PROTO_VERSION);
     fflush(stdout);
 
     struct msg_shex_hello* shex_hello = read_shex_hello();
-    send_stub_hello();
-
     struct child* child = start_child(shex_hello);
     struct stub stub;
     memset(&stub, 0, sizeof (stub));
