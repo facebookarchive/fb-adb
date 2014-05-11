@@ -140,6 +140,7 @@ shex_process_msg(struct adbx_sh* sh, struct msg mhdr)
         struct adbx_shex* shex = (struct adbx_shex*) sh;
         struct msg_child_exit m;
         read_cmdmsg(sh, mhdr, &m, sizeof (m));
+        dbgmsg(&m.msg, "recv");
         shex->child_exited = true;
         shex->child_exit_status = m.exit_status;
         return;
@@ -416,7 +417,7 @@ shex_main(int argc, char** argv)
 
     for (int i = 0; i <3; ++i)
         if (isatty(i))
-            xmkraw(i);
+            xmkraw(i, 0);
 
     replace_with_dev_null(0);
     replace_with_dev_null(1);

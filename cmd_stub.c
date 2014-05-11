@@ -253,14 +253,19 @@ stub_main(int argc, char** argv)
     if (argc != 1)
         die(EINVAL, "this command is internal");
 
+    /* XMKRAW_SKIP_CLEANUP so we never change from raw back to cooked
+     * mode on exit.  The connection dies on exit anyway, and
+     * resetting the pty can send some extra bytes that can confuse
+     * our peer. */
+
     if (isatty(0)) {
         hack_reopen_tty(0);
-        xmkraw(0);
+        xmkraw(0, XMKRAW_SKIP_CLEANUP);
     }
 
     if (isatty(1)) {
         hack_reopen_tty(1);
-        xmkraw(1);
+        xmkraw(1, XMKRAW_SKIP_CLEANUP);
     }
 
     printf("%s\n", ADBX_PROTO_START_LINE);
