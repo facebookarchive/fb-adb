@@ -53,9 +53,12 @@ child_start(const struct child_start_info* csi)
         xpipe(&parentfd[1], &childfd[1]);
     }
 
-    if ((flags & CHILD_PTY_STDERR) && (flags & CHILD_PTY_STDOUT)) {
-        // If child has a pty for both stdout and stderr, from our
-        // POV, it writes only to stdout.
+    // If child has a pty for both stdout and stderr, from our POV, it
+    // writes only to stdout.
+    if ((flags & CHILD_PTY_STDERR) && (flags & CHILD_PTY_STDOUT))
+        flags |= CHILD_MERGE_STDERR;
+
+    if (flags & CHILD_MERGE_STDERR) {
         childfd[2] = xdup(childfd[1]);
         parentfd[2] = xopen("/dev/null", O_RDONLY, 0);
     } else if (flags & CHILD_PTY_STDERR) {
@@ -94,7 +97,7 @@ child_start(const struct child_start_info* csi)
         die_errno("execvp(\"%s\")", csi->exename);
     }
 
-    reslist_pop_nodestroy();
+    reslist_pop_nodestroy(rl_local);
 
     struct child* child = xcalloc(sizeof (*child));
     child->pid = child_pid;

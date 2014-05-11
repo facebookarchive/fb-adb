@@ -6,9 +6,9 @@
 /* The sequences [\n ~ .] and [\r ~ .] typed into an adb pty act as an
  * emergency escape sequences and cause immediate disconnection.  Make
  * sure we never send these bytes.  The easiest way to do that is to
- * make sure we never send `~': adb_escape1 followed by adb_escape1 is
- * adb_escape1, and adb_escape1 followed by anything else is
- * adb_forbidden.  */
+ * make sure we never send `~', a.k.a. adb_forbidden: adb_escape1
+ * followed by adb_escape1 is adb_escape1, and adb_escape1 followed by
+ * anything else is adb_forbidden.  */
 static const char adb_forbidden = '~';
 static const char adb_escape1 = '!';
 static const char adb_escape2 = '@';

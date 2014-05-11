@@ -21,6 +21,9 @@
 #include "termbits.h"
 #include "adbenc.h"
 #include "constants.h"
+#include "adb.h"
+#include "chat.h"
+#include "stubs.h"
 
 static void
 print_usage(void)
@@ -37,25 +40,87 @@ struct adbx_shex {
 static struct child*
 start_stub_local(void)
 {
-    const char* args[] = {
-        orig_argv0,
-        "stub",
-        NULL
-    };
-
     struct child_start_info csi = {
         .flags = CHILD_INHERIT_STDERR,
         .exename = orig_argv0,
-        .argv = args,
+        .argv = (const char*[]){orig_argv0, "stub", NULL},
     };
 
-    return child_start(&csi);
+    struct child* child = child_start(&csi);
+    char c;
+    do {
+        read_all(child->fd[1]->fd, &c, 1);
+    } while (c != '\n');
+
+    return child;
+}
+
+#ifndef BUILD_STUB
+static void
+send_stub(const void* data, size_t datasz)
+{
+    SCOPED_RESLIST(rl);
+    const char* tmpfilename;
+    FILE* tmpfile = xnamed_tempfile(&tmpfilename);
+    if (fwrite(data, datasz, 1, tmpfile) != 1)
+        die_errno("fwrite");
+    if (fchmod(fileno(tmpfile), 0755) == -1)
+        die_errno("fchmod");
+    adb_send_file(tmpfilename, ADBX_REMOTE_FILENAME);
+}
+#endif
+
+static struct child*
+try_adb_stub(struct child_start_info* csi, char** err) {
+    struct reslist* rl_stub = reslist_push_new();
+    struct child* child = child_start(csi);
+    SCOPED_RESLIST(rl_local);
+    struct chat* cc = chat_new(child->fd[0]->fd, child->fd[1]->fd);
+    chat_swallow_prompt(cc);
+    chat_talk_at(cc, xaprintf("exec %s stub", ADBX_REMOTE_FILENAME));
+    char* resp = chat_read_line(cc);
+    dbg("stub resp: [%s]", resp);
+    if (strcmp(resp, ADBX_PROTO_START_LINE) == 0) {
+        reslist_pop_nodestroy(rl_stub);
+        return child;
+    } else {
+        reslist_pop_nodestroy(rl_stub);
+        *err = xstrdup(resp);
+        reslist_destroy(rl_stub);
+        return NULL;
+    }
 }
 
 static struct child*
-start_stub_adb(void)
+start_stub_adb(bool force_send_stub)
 {
-    abort();
+    struct child_start_info csi = {
+        .flags = CHILD_INHERIT_STDERR,
+        .exename = "adb",
+        .argv = (const char*[]){"adb", "shell", NULL}
+    };
+
+    struct child* child = NULL;
+    char* err = NULL;
+    if (!force_send_stub)
+        child = try_adb_stub(&csi, &err);
+
+#ifndef BUILD_STUB
+    if (!child) {
+        send_stub(arm_stub, arm_stubsz);
+        child = try_adb_stub(&csi, &err);
+    }
+
+    if (!child) {
+        send_stub(x86_stub, x86_stubsz);
+        child = try_adb_stub(&csi, &err);
+    }
+#endif
+
+    if (!child)
+        die(ECOMM, "trouble starting adb stub: %s", err);
+
+    return child;
 }
 
 static void
@@ -235,6 +300,7 @@ shex_main(int argc, char** argv)
     sigset_t orig_sigmask;
     sigset_t blocked_signals;
     const char* exename = NULL;
+    bool force_send_stub = false;
 
     sigemptyset(&blocked_signals);
     sigaddset(&blocked_signals, SIGWINCH);
@@ -254,14 +320,18 @@ shex_main(int argc, char** argv)
         { "help", no_argument, NULL, 'h' },
         { "local", no_argument, NULL, 'l' },
         { "exename", required_argument, NULL, 'e' },
+        { "force-send-stub", no_argument, NULL, 'f' },
         { 0 }
     };
 
     char c;
-    while ((c = getopt_long(argc, argv, "+:lhe:", opts, NULL)) != -1) {
+    while ((c = getopt_long(argc, argv, "+:lhe:f", opts, NULL)) != -1) {
         switch (c) {
             case 'e':
                 exename = optarg;
+                break;
+            case 'f':
+                force_send_stub = true;
                 break;
             case 'l':
                 local_mode = true;
@@ -285,18 +355,14 @@ shex_main(int argc, char** argv)
     struct msg_shex_hello* hello_msg =
         make_hello_msg(cmd_bufsz, child_stream_bufsz, args_to_send);
 
-    for (int i = 0; i <3; ++i)
-        if (isatty(i))
-            xmkraw(i);
-
     struct child* child;
     if (local_mode)
         child = start_stub_local();
     else
-        child = start_stub_adb();
+        child = start_stub_adb(force_send_stub);
 
     write_all_adb_encoded(child->fd[0]->fd, hello_msg, hello_msg->msg.size);
-    struct msg_stub_hello* stub_hello = read_stub_hello(child->fd[1]->fd);
+    read_stub_hello(child->fd[1]->fd);
 
     send_cmdline(child->fd[0]->fd, argc, argv, exename);
 
@@ -305,7 +371,7 @@ shex_main(int argc, char** argv)
     struct adbx_sh* sh = &shex.sh;
 
     sh->poll_mask = &orig_sigmask;
-    sh->max_outgoing_msg = stub_hello->maxmsg;
+    sh->max_outgoing_msg = cmd_bufsz;
     sh->process_msg = shex_process_msg;
     sh->nrch = 5;
     struct channel** ch = xalloc(sh->nrch * sizeof (*ch));
@@ -338,9 +404,12 @@ shex_main(int argc, char** argv)
 
     sh->ch = ch;
 
+    for (int i = 0; i <3; ++i)
+        if (isatty(i))
+            xmkraw(i);
+
     replace_with_dev_null(0);
     replace_with_dev_null(1);
-    replace_with_dev_null(2);
 
     io_loop_init(sh);
     dbg("starting main loop");

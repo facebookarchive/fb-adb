@@ -21,22 +21,6 @@
 #include "termbits.h"
 #include "constants.h"
 
-static int
-xwaitpid(pid_t child_pid)
-{
-    int status;
-    int ret;
-
-    do {
-        ret = waitpid(child_pid, &status, 0);
-    } while (ret < 0 && errno == EINTR);
-
-    if (ret < 0)
-        die_errno("waitpid(%lu)", (unsigned long) child_pid);
-
-    return status;
-}
-
 static void
 send_exit_message(int status, struct adbx_sh* sh)
 {
@@ -170,7 +154,7 @@ read_child_arglist(size_t expected)
         SCOPED_RESLIST(rl_read_arg);
         struct msg_cmdline_argument* m;
         struct msg* mhdr = read_msg(0, read_all_adb_encoded);
-        reslist_pop_nodestroy();
+        reslist_pop_nodestroy(rl_read_arg);
 
         const char* argval;
         size_t arglen;
@@ -227,7 +211,7 @@ start_child(struct msg_shex_hello* shex_hello)
 
     SCOPED_RESLIST(rl_args);
     char** child_args = read_child_arglist(shex_hello->nr_argv);
-    reslist_pop_nodestroy();
+    reslist_pop_nodestroy(rl_args);
     struct child_start_info csi = {
         .flags = CHILD_CTTY,
         .exename = child_args[0],
@@ -246,9 +230,23 @@ start_child(struct msg_shex_hello* shex_hello)
     return child_start(&csi);
 }
 
+static void
+send_stub_hello(void)
+{
+    struct msg_stub_hello stub_hello;
+    memset(&stub_hello, 0, sizeof (stub_hello));
+    stub_hello.msg.type = MSG_STUB_HELLO;
+    stub_hello.msg.size = sizeof (stub_hello);
+    stub_hello.version = PROTO_VERSION;
+    write_all(1, &stub_hello, sizeof (stub_hello));
+}
+
 int
 stub_main(int argc, char** argv)
 {
+    if (argc != 1)
+        die(EINVAL, "this command is internal");
+
     if (isatty(0)) {
         hack_reopen_tty(0);
         xmkraw(0);
@@ -259,18 +257,11 @@ stub_main(int argc, char** argv)
         xmkraw(1);
     }
 
-    if (argc != 1)
-        die(EINVAL, "this command is internal");
+    printf("%s\n", ADBX_PROTO_START_LINE);
+    fflush(stdout);
 
     struct msg_shex_hello* shex_hello = read_shex_hello();
-
-    struct msg_stub_hello stub_hello;
-    memset(&stub_hello, 0, sizeof (stub_hello));
-    stub_hello.msg.type = MSG_STUB_HELLO;
-    stub_hello.msg.size = sizeof (stub_hello);
-    stub_hello.version = PROTO_VERSION;
-    stub_hello.maxmsg = shex_hello->stub_recv_bufsz;
-    write_all(1, &stub_hello, sizeof (stub_hello));
+    send_stub_hello();
 
     struct child* child = start_child(shex_hello);
     struct stub stub;

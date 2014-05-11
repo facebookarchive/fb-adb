@@ -15,6 +15,7 @@
 #include "ringbuf.h"
 #include "proto.h"
 #include "channel.h"
+#include "constants.h"
 
 #ifndef NDEBUG
 
@@ -72,18 +73,16 @@ dbglock_init(void)
     if (dbglock_fd != -1)
         return;
 
+    if (!dbg_enabled_p())
+        return;
+
     const char envvar[] = "ADBX_DBGLOCK_NAME";
     /* No, we can't just inherit the file descriptor.  Without a
      * separate file open, taking the lock won't block.  */
 
     const char* fn = getenv(envvar);
     if (fn == NULL) {
-#ifdef __ANDROID__
-        const char* pfx = "/data/local/tmp";
-#else
-        const char* pfx = "/tmp";
-#endif
-
+        const char* pfx = DEFAULT_TEMP_DIR;
         char* tmpfname = xaprintf("%s/adbx-dbg-XXXXXX", pfx);
         struct cleanup* cl = cleanup_allocate();
         int tmpfd = mkostemp(tmpfname, O_CLOEXEC | O_RDWR);

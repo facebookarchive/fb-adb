@@ -1,4 +1,5 @@
 #pragma once
+#include <stdio.h>
 #include <stdarg.h>
 #include <stddef.h>
 #include <sys/stat.h>
@@ -14,8 +15,9 @@
 struct reslist;
 struct reslist* reslist_push_new(void);
 void reslist_cleanup_local(struct reslist** rl_local);
-void reslist_pop_nodestroy(void);
+void reslist_pop_nodestroy(struct reslist* rl);
 void reslist_destroy(struct reslist* rl);
+struct reslist* reslist_current(void);
 
 #define SCOPED_RESLIST(varname)                         \
     __attribute__((cleanup(reslist_cleanup_local)))     \
@@ -35,6 +37,7 @@ void* xcalloc(size_t sz);
 int xopen(const char* pathname, int flags, mode_t mode);
 void xpipe(int* read_end, int* write_end);
 int xdup(int fd);
+FILE* xfdopen(int fd, const char* mode);
 
 struct fdh {
     struct reslist* rl; // Owns both fd and fdh
@@ -134,8 +137,11 @@ int ppoll(struct pollfd *fds, nfds_t nfds,
 int mkostemp(char *template, int flags);
 #endif
 
+FILE* xnamed_tempfile(const char** name);
+
 #ifndef _POSIX_VDISABLE
 #define _POSIX_VDISABLE 0
 #endif
 
 void replace_with_dev_null(int fd);
+int xwaitpid(pid_t child_pid);

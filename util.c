@@ -8,11 +8,13 @@
 #include <setjmp.h>
 #include <stdlib.h>
 #include <signal.h>
+#include <sys/wait.h>
 #include <sys/syscall.h>
 #include <sys/uio.h>
-#include "util.h"
 #include <sys/queue.h>
 #include <libgen.h>
+#include "util.h"
+#include "constants.h"
 
 struct resource {
     enum { RES_RESLIST, RES_CLEANUP } type;
@@ -59,10 +61,21 @@ reslist_push_new(void)
     return rl;
 }
 
-void
-reslist_pop_nodestroy(void)
+bool
+reslist_on_chain_p(struct reslist* rl)
 {
-    current_reslist = current_reslist->parent;
+    struct reslist* crl = current_reslist;
+    while (crl && crl != rl)
+        crl = crl->parent;
+
+    return crl != NULL;
+}
+
+void
+reslist_pop_nodestroy(struct reslist* rl)
+{
+    assert(reslist_on_chain_p(rl));
+    current_reslist = rl->parent;
 }
 
 void
@@ -306,6 +319,28 @@ xdup(int fd)
     return newfd;
 }
 
+static void
+xfopen_cleanup(void* arg)
+{
+    fclose((FILE*) arg);
+}
+
+FILE*
+xfdopen(int fd, const char* mode)
+{
+    struct cleanup* cl = cleanup_allocate();
+    int newfd = fcntl(fd, F_DUPFD_CLOEXEC, fd);
+    if (newfd == -1)
+        die_errno("F_DUPFD_CLOEXEC");
+    FILE* f = fdopen(newfd, mode);
+    if (f == NULL) {
+        close(newfd);
+        die_errno("fdopen");
+    }
+    cleanup_commit(cl, xfopen_cleanup, f);
+    return f;
+}
+
 // Like xdup, but make return a structure that allows the fd to be
 // individually closed.
 struct fdh*
@@ -315,7 +350,7 @@ fdh_dup(int fd)
     struct fdh* fdh = xalloc(sizeof (*fdh));
     fdh->rl = rl;
     fdh->fd = xdup(fd);
-    reslist_pop_nodestroy();
+    reslist_pop_nodestroy(rl);
     return fdh;
 }
 
@@ -584,4 +619,58 @@ replace_with_dev_null(int fd)
     close(nfd);
     if (fcntl(fd, F_SETFL, flags) < 0)
         die_errno("fcntl");
+}
+
+struct xnamed_tempfile_save {
+    char* name;
+    int fd;
+    FILE* stream;
+};
+
+static void
+xnamed_tempfile_cleanup(void* arg)
+{
+    struct xnamed_tempfile_save* save = arg;
+
+    if (save->stream)
+        fclose(save->stream);
+
+    if (save->name)
+        unlink(save->name);
+}
+
+FILE*
+xnamed_tempfile(const char** out_name)
+{
+    struct cleanup* cl = cleanup_allocate();
+    struct xnamed_tempfile_save* save = xcalloc(sizeof (*save));
+    cleanup_commit(cl, xnamed_tempfile_cleanup, save);
+    char* name = xaprintf("%s/adbx-XXXXXX", DEFAULT_TEMP_DIR);
+    int fd = mkostemp(name, O_CLOEXEC);
+    if (fd == -1)
+        die_errno("mkostemp");
+
+    save->name = name;
+    save->stream = fdopen(fd, "r+");
+    if (save->stream == NULL)
+        die_errno("fdopen");
+
+    *out_name = name;
+    return save->stream;
+}
+
+int
+xwaitpid(pid_t child_pid)
+{
+    int status;
+    int ret;
+
+    do {
+        ret = waitpid(child_pid, &status, 0);
+    } while (ret < 0 && errno == EINTR);
+
+    if (ret < 0)
+        die_errno("waitpid(%lu)", (unsigned long) child_pid);
+
+    return status;
 }

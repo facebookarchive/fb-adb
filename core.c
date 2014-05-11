@@ -30,7 +30,11 @@ detect_msg(struct ringbuf* rb, struct msg* mhdr)
     ringbuf_copy_out(rb, mhdr, sizeof (*mhdr));
     if (avail < mhdr->size) {
         if (mhdr->size - avail > ringbuf_room(rb))
-            die_proto_error("impossibly large message");
+            die_proto_error("impossibly large message: "
+                            "type:%u sz:%lu room:%lu",
+                            mhdr->type,
+                            (unsigned long)(mhdr->size - avail),
+                            (unsigned long)ringbuf_room(rb));
 
         return false;
     }

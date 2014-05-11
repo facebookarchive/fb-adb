@@ -6,6 +6,7 @@
 #define CHILD_PTY_STDERR 0x4
 #define CHILD_INHERIT_STDERR 0x8
 #define CHILD_CTTY 0x10
+#define CHILD_MERGE_STDERR 0x20
 
 struct child_start_info {
     int flags;
