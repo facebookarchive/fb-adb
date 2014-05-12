@@ -133,6 +133,10 @@ cleanup_commit(struct cleanup* cl,
                cleanupfn fn,
                void* fndata)
 {
+    /* Regardless of where the structure was when we allocated it, put
+     * it on top of the list now. */
+    LIST_REMOVE(&cl->r, link);
+    LIST_INSERT_HEAD(&current_reslist->contents, &cl->r, link);
     cl->fn = fn;
     cl->fndata = fndata;
 }
@@ -383,6 +387,7 @@ int
 main(int argc, char** argv)
 {
     signal(SIGPIPE, SIG_IGN);
+
     struct main_info mi;
     mi.argc = argc;
     mi.argv = argv;
@@ -664,20 +669,4 @@ xnamed_tempfile(const char** out_name)
 
     *out_name = name;
     return save->stream;
-}
-
-int
-xwaitpid(pid_t child_pid)
-{
-    int status;
-    int ret;
-
-    do {
-        ret = waitpid(child_pid, &status, 0);
-    } while (ret < 0 && errno == EINTR);
-
-    if (ret < 0)
-        die_errno("waitpid(%lu)", (unsigned long) child_pid);
-
-    return status;
 }

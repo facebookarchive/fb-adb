@@ -18,8 +18,11 @@ struct child_start_info {
 
 struct child {
     pid_t pid;
+    int status;
+    unsigned dead_p : 1;
     struct fdh* pty_master;
     struct fdh* fd[3];
 };
 
 struct child* child_start(const struct child_start_info* csi);
+int child_wait(struct child* c);

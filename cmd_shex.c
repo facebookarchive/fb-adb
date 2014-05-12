@@ -95,22 +95,15 @@ try_adb_stub(struct child_start_info* csi, char** err)
     int n = -1;
     uint64_t ver;
     sscanf(resp, ADBX_PROTO_START_LINE "%n", &ver, &n);
-    if (n == -1) {
+    if (n != -1 && build_time <= ver) {
         reslist_pop_nodestroy(rl_stub);
-        *err = xstrdup(resp);
-        reslist_destroy(rl_stub);
-        return NULL;
-    }
-
-    if (ver < build_time) {
-        reslist_pop_nodestroy(rl_stub);
-        *err = xstrdup("build too old");
-        reslist_destroy(rl_stub);
-        return NULL;
+        return child;
     }
 
     reslist_pop_nodestroy(rl_stub);
-    return child;
+    *err = xstrdup(resp);
+    reslist_destroy(rl_stub);
+    return NULL;
 }
 
 static struct child*

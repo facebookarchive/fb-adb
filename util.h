@@ -166,5 +166,4 @@ FILE* xnamed_tempfile(const char** name);
 #endif
 
 void replace_with_dev_null(int fd);
-int xwaitpid(pid_t child_pid);
 

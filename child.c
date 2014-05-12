@@ -1,6 +1,7 @@
 #include <errno.h>
 #include <stdlib.h>
 #include <sys/ioctl.h>
+#include <sys/wait.h>
 #include <stdio.h>
 #include <string.h>
 #include <signal.h>
@@ -53,10 +54,23 @@ child_child(struct internal_child_info* ci)
     _exit(127); // Do not allow errors to propagate further
 }
 
+static void
+child_cleanup(void* arg)
+{
+    struct child* child = arg;
+    if (!child->dead_p) {
+        if (kill(child->pid, SIGTERM) < 0 && errno != ESRCH)
+            die_errno("kill(%d)", (int) child->pid);
+
+        child_wait(child);
+    }
+}
 
 struct child*
 child_start(const struct child_start_info* csi)
 {
+    struct child* child = xcalloc(sizeof (*child));
+    struct cleanup* cl_waiter = cleanup_allocate();
     SCOPED_RESLIST(rl_local);
 
     int flags = csi->flags;
@@ -133,8 +147,7 @@ child_start(const struct child_start_info* csi)
     }
 
     reslist_pop_nodestroy(rl_local);
-
-    struct child* child = xcalloc(sizeof (*child));
+    cleanup_commit(cl_waiter, child_cleanup, child);
     child->pid = child_pid;
     if (pty_master != -1)
         child->pty_master = fdh_dup(pty_master);
@@ -144,4 +157,22 @@ child_start(const struct child_start_info* csi)
         child->fd[2] = fdh_dup(parentfd[2]);
 
     return child;
+}
+
+int
+child_wait(struct child* child)
+{
+    if (!child->dead_p) {
+        int ret;
+        do {
+            ret = waitpid(child->pid, &child->status, 0);
+        } while (ret < 0 && errno == EINTR);
+
+        if (ret < 0)
+            die_errno("waitpid(%u)", (unsigned) child->pid);
+
+        child->dead_p = true;
+    }
+
+    return child->status;
 }

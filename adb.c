@@ -1,8 +1,8 @@
 #include <stdlib.h>
 #include <sys/types.h>
 #include <ctype.h>
-#include <errno.h>
 #include <sys/wait.h>
+#include <errno.h>
 #include "adb.h"
 #include "child.h"
 #include "util.h"
@@ -23,7 +23,7 @@ adb_send_file(const char* local, const char* remote)
     size_t len = read_all(adb->fd[1]->fd, buf, sizeof (buf));
     fdh_destroy(adb->fd[1]);
 
-    int status = xwaitpid(adb->pid);
+    int status = child_wait(adb);
     if (!(WIFEXITED(status) && WEXITSTATUS(status) == 0)) {
         if (len == sizeof (buf))
             --len;

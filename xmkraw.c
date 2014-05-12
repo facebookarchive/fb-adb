@@ -5,7 +5,6 @@
 
 struct xmkraw_save {
     int fd;
-    unsigned flags;
     struct termios attr;
 };
 
@@ -39,29 +38,28 @@ static void
 xmkraw_cleanup(void* arg)
 {
     struct xmkraw_save* save = arg;
-    if ((save->flags & XMKRAW_SKIP_CLEANUP) == 0) {
-        int ret;
-        do {
-            ret = tcsetattr(save->fd, TCSADRAIN, &save->attr);
-        } while (ret == -1 && errno == EINTR);
-    }
-
+    int ret;
+    do {
+        ret = tcsetattr(save->fd, TCSADRAIN, &save->attr);
+    } while (ret == -1 && errno == EINTR);
     close(save->fd);
 }
 
 void
 xmkraw(int fd, unsigned flags)
 {
-    struct xmkraw_save* save = xalloc(sizeof (*save));
-    save->flags = flags;
     struct termios attr;
     xtcgetattr(fd, &attr);
-    struct cleanup* cl = cleanup_allocate();
-    save->fd = dup(fd);
-    if (save->fd == -1)
-        die_errno("dup");
-    save->attr = attr;
-    cleanup_commit(cl, xmkraw_cleanup, save);
+
+    if ((flags & XMKRAW_SKIP_CLEANUP) == 0) {
+        struct xmkraw_save* save = xalloc(sizeof (*save));
+        struct cleanup* cl = cleanup_allocate();
+        save->fd = dup(fd);
+        if (save->fd == -1)
+            die_errno("dup");
+        save->attr = attr;
+        cleanup_commit(cl, xmkraw_cleanup, save);
+    }
 
     cfmakeraw(&attr);
     xtcsetattr(fd, &attr);

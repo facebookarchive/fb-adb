@@ -248,15 +248,11 @@ stub_main(int argc, char** argv)
      * resetting the pty can send some extra bytes that can confuse
      * our peer. */
 
-    if (isatty(0)) {
-        hack_reopen_tty(0);
+    if (isatty(0))
         xmkraw(0, XMKRAW_SKIP_CLEANUP);
-    }
 
-    if (isatty(1)) {
-        hack_reopen_tty(1);
+    if (isatty(1))
         xmkraw(1, XMKRAW_SKIP_CLEANUP);
-    }
 
     printf(ADBX_PROTO_START_LINE "\n", build_time);
     fflush(stdout);
@@ -350,7 +346,7 @@ stub_main(int argc, char** argv)
                      !channel_dead_p(ch[CHILD_STDOUT]) ||
                      !channel_dead_p(ch[CHILD_STDERR])));
 
-    send_exit_message(xwaitpid(child->pid), sh);
+    send_exit_message(child_wait(child), sh);
     channel_close(ch[TO_PEER]);
 
     PUMP_WHILE(sh, !channel_dead_p(ch[TO_PEER]));
