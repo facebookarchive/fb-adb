@@ -6,7 +6,6 @@ if test "$srcdir" = "."; then
    dnl host system.
    AC_MSG_ERROR([Only out-of-tree builds supported.  Try mkdir build && cd build && ../configure.])
 fi
-AM_INIT_AUTOMAKE([-Wall -Werror foreign])
 AC_CANONICAL_BUILD
 AC_CANONICAL_HOST
 
@@ -45,6 +44,7 @@ if test -n "$BUILD_STUB"; then
    export PATH="$PWD/toolchain/bin:$PATH"
 fi
 
+AM_INIT_AUTOMAKE([-Wall -Werror foreign])
 AC_SUBST([PATH])
 
 AC_PROG_CC_C99
@@ -56,7 +56,7 @@ AC_CHECK_FUNCS([ppoll dup3 mkostemp pselect])
 
 is_android=$(echo "$CC" | grep android)
 if test -n "$BUILD_STUB" && test -z "$is_android" ; then
-   AC_MSG_ERROR([could not found Android cross-compiler for $host])
+   AC_MSG_ERROR([could not find Android cross-compiler for $host])
 fi
 
 CPPFLAGS="$CPPFLAGS -Wall -Werror -D_GNU_SOURCE=1"
