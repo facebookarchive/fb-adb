@@ -9,3 +9,4 @@ adbx
 Makefile
 Makefile.in
 termnames.h
+build/
