@@ -5,8 +5,9 @@
 #define CHILD_PTY_STDOUT 0x2
 #define CHILD_PTY_STDERR 0x4
 #define CHILD_INHERIT_STDERR 0x8
-#define CHILD_CTTY 0x10
-#define CHILD_MERGE_STDERR 0x20
+#define CHILD_MERGE_STDERR 0x10
+#define CHILD_CTTY 0x20
+#define CHILD_SETSID 0x40
 
 struct child_start_info {
     int flags;
@@ -17,6 +18,7 @@ struct child_start_info {
 };
 
 struct child {
+    int flags;
     pid_t pid;
     int status;
     unsigned dead_p : 1;

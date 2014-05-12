@@ -9,6 +9,7 @@
 #include "child.h"
 
 struct internal_child_info {
+    int flags;
     const struct child_start_info* csi;
     int* childfd;
     int pty_slave;
@@ -19,10 +20,12 @@ static void
 child_child_1(void* arg)
 {
     struct internal_child_info* ci = arg;
-    if (ci->pty_slave != -1) {
+    if (ci->flags & CHILD_SETSID)
         if (setsid() == (pid_t) -1)
             die_errno("setsid");
-        if (ioctl(ci->pty_slave, TIOCSCTTY, ci->pty_slave) == -1)
+
+    if (ci->pty_slave != -1) {
+        if (ioctl(ci->pty_slave, TIOCSCTTY, 0) == -1)
             die_errno("TIOCSCTTY");
         if (tcsetpgrp(ci->pty_slave, getpid()) == -1)
             die_errno("tcsetpgrp");
@@ -82,6 +85,10 @@ child_start(const struct child_start_info* csi)
                  CHILD_PTY_STDERR |
                  CHILD_CTTY))
     {
+        flags |= (CHILD_CTTY | CHILD_SETSID);
+    }
+
+    if (flags & CHILD_CTTY) {
         pty_master = xopen("/dev/ptmx", O_RDWR | O_NOCTTY | O_CLOEXEC, 0);
         if (grantpt(pty_master) || unlockpt(pty_master))
             die_errno("grantpt/unlockpt");
@@ -131,6 +138,8 @@ child_start(const struct child_start_info* csi)
         xpipe(&parentfd[2], &childfd[2]);
     }
 
+    child->flags = flags;
+
     pid_t child_pid = fork();
 
     if (child_pid == -1)
@@ -138,6 +147,7 @@ child_start(const struct child_start_info* csi)
 
     if (child_pid == 0) {
         struct internal_child_info ci = {
+            .flags = flags,
             .csi = csi,
             .pty_slave = pty_slave,
             .childfd = childfd,

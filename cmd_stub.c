@@ -220,7 +220,7 @@ start_child(struct msg_shex_hello* shex_hello)
     char** child_args = read_child_arglist(shex_hello->nr_argv);
     reslist_pop_nodestroy(rl_args);
     struct child_start_info csi = {
-        .flags = CHILD_CTTY,
+        .flags = CHILD_SETSID,
         .exename = child_args[0],
         .argv = (const char* const *) child_args + 1,
         .pty_setup = setup_pty,
