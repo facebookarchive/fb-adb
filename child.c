@@ -62,8 +62,20 @@ child_cleanup(void* arg)
 {
     struct child* child = arg;
     if (!child->dead_p) {
-        if (kill(child->pid, SIGTERM) < 0 && errno != ESRCH)
-            die_errno("kill(%d)", (int) child->pid);
+        if (child->pty_master == NULL) {
+            /* In the pty case, the system's automatic SIGHUP should
+             * take care of the killing.  */
+            int sig = child->deathsig ?: SIGTERM;
+            pid_t child_pid = child->pid;
+            if (sig < 0) {
+                /* Send to process group instead */
+                sig = -sig;
+                child_pid = -child_pid;
+            }
+
+            if (kill(child->pid, SIGTERM) < 0 && errno != ESRCH)
+                die_errno("kill(%d)", (int) child->pid);
+        }
 
         child_wait(child);
     }
@@ -138,7 +150,15 @@ child_start(const struct child_start_info* csi)
         xpipe(&parentfd[2], &childfd[2]);
     }
 
+    reslist_pop_nodestroy(rl_local);
     child->flags = flags;
+    child->deathsig = csi->deathsig;
+    if (pty_master != -1)
+        child->pty_master = fdh_dup(pty_master);
+    child->fd[0] = fdh_dup(parentfd[0]);
+    child->fd[1] = fdh_dup(parentfd[1]);
+    if ((flags & CHILD_INHERIT_STDERR) == 0)
+        child->fd[2] = fdh_dup(parentfd[2]);
 
     pid_t child_pid = fork();
 
@@ -156,16 +176,8 @@ child_start(const struct child_start_info* csi)
         child_child(&ci);
     }
 
-    reslist_pop_nodestroy(rl_local);
-    cleanup_commit(cl_waiter, child_cleanup, child);
     child->pid = child_pid;
-    if (pty_master != -1)
-        child->pty_master = fdh_dup(pty_master);
-    child->fd[0] = fdh_dup(parentfd[0]);
-    child->fd[1] = fdh_dup(parentfd[1]);
-    if ((flags & CHILD_INHERIT_STDERR) == 0)
-        child->fd[2] = fdh_dup(parentfd[2]);
-
+    cleanup_commit(cl_waiter, child_cleanup, child);
     return child;
 }
 

@@ -224,7 +224,8 @@ start_child(struct msg_shex_hello* shex_hello)
         .exename = child_args[0],
         .argv = (const char* const *) child_args + 1,
         .pty_setup = setup_pty,
-        .pty_setup_data = shex_hello
+        .pty_setup_data = shex_hello,
+        .deathsig = -SIGHUP,
     };
 
     if (shex_hello->si[0].pty_p)

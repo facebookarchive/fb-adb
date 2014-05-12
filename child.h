@@ -15,10 +15,12 @@ struct child_start_info {
     const char* const* argv;
     void (*pty_setup)(int master, int slave, void* data);
     void* pty_setup_data;
+    int deathsig;
 };
 
 struct child {
     int flags;
+    int deathsig;
     pid_t pid;
     int status;
     unsigned dead_p : 1;

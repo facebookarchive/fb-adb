@@ -42,3 +42,6 @@ dummy-update-timestamp:
 timestamp.c: dummy-update-timestamp
 	cp -fup ../timestamp.c $@
 endif
+
+distclean-local:
+	rm -rf toolchain
