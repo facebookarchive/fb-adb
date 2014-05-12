@@ -182,10 +182,16 @@ fill_window_size(int fd, struct window_size* ws)
     return ret == 0;
 }
 
+struct tty_flags {
+    unsigned tty_p : 1;
+    unsigned want_pty_p : 1;
+};
+
 struct msg_shex_hello*
 make_hello_msg(size_t cmd_bufsz,
                size_t stream_bufsz,
-               size_t nr_argv)
+               size_t nr_argv,
+               struct tty_flags tty_flags[3])
 {
     struct msg_shex_hello* m;
     size_t sz = sizeof (*m) + nr_termbits * sizeof (m->tctl[0]);
@@ -198,9 +204,7 @@ make_hello_msg(size_t cmd_bufsz,
     m->stub_recv_bufsz = cmd_bufsz;
     for (int i = 0; i < 3; ++i) {
         m->si[i].bufsz = stream_bufsz;
-        if (isatty(i)) {
-            m->si[i].pty_p = true;
-        }
+        m->si[i].pty_p = tty_flags[i].want_pty_p;
     }
 
     m->posix_vdisable_value = _POSIX_VDISABLE;
@@ -209,16 +213,16 @@ make_hello_msg(size_t cmd_bufsz,
     struct termios out_attr;
 
     int in_tty = -1;
-    if (isatty(0)) {
+    if (m->si[0].pty_p && tty_flags[0].tty_p) {
         in_tty = 0;
         xtcgetattr(in_tty, &in_attr);
         m->ispeed = cfgetispeed(&in_attr);
     }
 
     int out_tty = -1;
-    if (isatty(1))
+    if (m->si[1].pty_p && tty_flags[1].tty_p)
         out_tty = 1;
-    else if (isatty(2))
+    else if (m->si[2].pty_p && tty_flags[2].tty_p)
         out_tty = 2;
 
     if (out_tty != -1) {
@@ -306,36 +310,36 @@ shex_main(int argc, char** argv)
     size_t child_stream_bufsz = DEFAULT_STREAM_BUFSZ;
     size_t our_stream_bufsz = DEFAULT_STREAM_BUFSZ;
     bool local_mode = false;
+    enum { TTY_AUTO,
+           TTY_DISABLE,
+           TTY_ENABLE,
+           TTY_SUPER_ENABLE } tty_mode = TTY_AUTO;
 
     sigset_t orig_sigmask;
     sigset_t blocked_signals;
     const char* exename = NULL;
     bool force_send_stub = false;
+    struct tty_flags tty_flags[3];
 
-    sigemptyset(&blocked_signals);
-    sigaddset(&blocked_signals, SIGWINCH);
-    sigprocmask(SIG_BLOCK, &blocked_signals, &orig_sigmask);
-    signal(SIGWINCH, handle_sigwinch);
-
-    if (isatty(0))
-        hack_reopen_tty(0);
-
-    if (isatty(1))
-        hack_reopen_tty(1);
-
-    if (isatty(2))
-        hack_reopen_tty(2);
+    memset(&tty_flags, 0, sizeof (tty_flags));
+    for (int i = 0; i < 3; ++i)
+        if (isatty(i)) {
+            hack_reopen_tty(i);
+            tty_flags[i].tty_p = true;
+        }
 
     static struct option opts[] = {
         { "help", no_argument, NULL, 'h' },
         { "local", no_argument, NULL, 'l' },
         { "exename", required_argument, NULL, 'e' },
         { "force-send-stub", no_argument, NULL, 'f' },
+        { "force-tty", no_argument, NULL, 't' },
+        { "disable-tty", no_argument, NULL, 'T' },
         { 0 }
     };
 
     char c;
-    while ((c = getopt_long(argc, argv, "+:lhe:f", opts, NULL)) != -1) {
+    while ((c = getopt_long(argc, argv, "+:lhe:ftT", opts, NULL)) != -1) {
         switch (c) {
             case 'e':
                 exename = optarg;
@@ -345,6 +349,15 @@ shex_main(int argc, char** argv)
                 break;
             case 'l':
                 local_mode = true;
+                break;
+            case 't':
+                if (tty_mode == TTY_ENABLE)
+                    tty_mode = TTY_SUPER_ENABLE;
+                else
+                    tty_mode = TTY_ENABLE;
+                break;
+            case 'T':
+                tty_mode = TTY_DISABLE;
                 break;
             case ':':
                 die(EINVAL, "missing option for -%c", optopt);
@@ -361,9 +374,28 @@ shex_main(int argc, char** argv)
 
     argc -= optind;
     argv += optind;
+
+    if (tty_mode == TTY_AUTO)
+        tty_mode = (argc == 0) ? TTY_ENABLE : TTY_DISABLE;
+
+    for (int i = 0; i < 3; ++i)
+        if ((tty_mode == TTY_ENABLE && tty_flags[i].tty_p)
+            || tty_mode == TTY_SUPER_ENABLE)
+        {
+            tty_flags[i].want_pty_p = true;
+        }
+
+    sigemptyset(&blocked_signals);
+    sigaddset(&blocked_signals, SIGWINCH);
+    sigprocmask(SIG_BLOCK, &blocked_signals, &orig_sigmask);
+    signal(SIGWINCH, handle_sigwinch);
+
     size_t args_to_send = XMAX((size_t) argc + 1, 2);
     struct msg_shex_hello* hello_msg =
-        make_hello_msg(cmd_bufsz, child_stream_bufsz, args_to_send);
+        make_hello_msg(cmd_bufsz,
+                       child_stream_bufsz,
+                       args_to_send,
+                       tty_flags);
 
     struct child* child;
     if (local_mode)
@@ -413,7 +445,7 @@ shex_main(int argc, char** argv)
     sh->ch = ch;
 
     for (int i = 0; i <3; ++i)
-        if (isatty(i))
+        if (tty_flags[i].tty_p && tty_flags[i].want_pty_p)
             xmkraw(i, 0);
 
     replace_with_dev_null(0);
