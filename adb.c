@@ -3,6 +3,7 @@
 #include <ctype.h>
 #include <sys/wait.h>
 #include <errno.h>
+#include <string.h>
 #include "adb.h"
 #include "child.h"
 #include "util.h"
@@ -14,7 +15,7 @@ adb_send_file(const char* local,
               const char* const* adb_args)
 {
     SCOPED_RESLIST(rl_send_stub);
-    
+
     struct child_start_info csi = {
         .flags = CHILD_MERGE_STDERR,
         .exename = "adb",
@@ -43,6 +44,12 @@ adb_send_file(const char* local,
         char* epos = buf;
         while (*epos != '\0' && isspace(*epos))
             ++epos;
+
+        if (strncmp(epos, "error: ", strlen("error: ")) == 0) {
+            epos += strlen("error: ");
+            char* e = strchr(epos, '\n');
+            if (e) *e = '\0';
+        }
 
         die(ECOMM, "adb error: %s", epos);
     }
