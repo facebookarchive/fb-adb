@@ -8,8 +8,8 @@
 #include <sys/wait.h>
 #include "util.h"
 
-extern int stub_main(int, char**);
-extern int shex_main(int, char**);
+extern int stub_main(int, const char**);
+extern int shex_main(int, const char**);
 
 __attribute__((noreturn))
 static void
@@ -91,7 +91,7 @@ real_main(int argc, char** argv)
     if (prgarg == NULL)
         die(EINVAL, "no sub-command given. Use --help for help.");
 
-    int (*sub_main)(int, char**) = NULL;
+    int (*sub_main)(int, const char**) = NULL;
     if (!strcmp(prgarg, "stub"))
         sub_main = stub_main;
     else if (!strcmp(prgarg, "shex") || !strcmp(prgarg, "sh"))
@@ -112,5 +112,5 @@ real_main(int argc, char** argv)
     memmove(&argv[non_adb_off],
             &argv[non_adb_off+1],
             sizeof (*argv) * (argc - nr_adb_args - 1));
-    return sub_main(argc - 1, argv);
+    return sub_main(argc - 1, (const char**) argv);
 }

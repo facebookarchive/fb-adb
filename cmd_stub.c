@@ -239,7 +239,7 @@ start_child(struct msg_shex_hello* shex_hello)
 }
 
 int
-stub_main(int argc, char** argv)
+stub_main(int argc, const char** argv)
 {
     if (argc != 1)
         die(EINVAL, "this command is internal");

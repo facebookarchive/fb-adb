@@ -25,6 +25,7 @@
 #include "chat.h"
 #include "stubs.h"
 #include "timestamp.h"
+#include "argv.h"
 
 static void
 print_usage(void)
@@ -58,7 +59,7 @@ start_stub_local(void)
 
 #ifndef BUILD_STUB
 static void
-send_stub(const void* data, size_t datasz)
+send_stub(const void* data, size_t datasz, const char* const* adb_args)
 {
     SCOPED_RESLIST(rl);
     const char* tmpfilename;
@@ -67,7 +68,7 @@ send_stub(const void* data, size_t datasz)
         die_errno("fwrite");
     if (fchmod(fileno(tmpfile), 0755) == -1)
         die_errno("fchmod");
-    adb_send_file(tmpfilename, ADBX_REMOTE_FILENAME);
+    adb_send_file(tmpfilename, ADBX_REMOTE_FILENAME, adb_args);
 }
 #endif
 
@@ -107,12 +108,15 @@ try_adb_stub(struct child_start_info* csi, char** err)
 }
 
 static struct child*
-start_stub_adb(bool force_send_stub)
+start_stub_adb(bool force_send_stub, const char* const* adb_args)
 {
     struct child_start_info csi = {
         .flags = CHILD_INHERIT_STDERR,
         .exename = "adb",
-        .argv = (const char*[]){"adb", "shell", NULL}
+        .argv = argv_concat((const char*[]){"adb", NULL},
+                            adb_args,
+                            (const char*[]){"shell", NULL},
+                            NULL)
     };
 
     struct child* child = NULL;
@@ -122,12 +126,12 @@ start_stub_adb(bool force_send_stub)
 
 #ifndef BUILD_STUB
     if (!child) {
-        send_stub(arm_stub, arm_stubsz);
+        send_stub(arm_stub, arm_stubsz, adb_args);
         child = try_adb_stub(&csi, &err);
     }
 
     if (!child) {
-        send_stub(x86_stub, x86_stubsz);
+        send_stub(x86_stub, x86_stubsz, adb_args);
         child = try_adb_stub(&csi, &err);
     }
 #endif
@@ -272,7 +276,10 @@ send_cmdline_argument(int fd, unsigned type, const void* val, size_t valsz)
 }
 
 static void
-send_cmdline(int fd, int argc, char** argv, const char* exename)
+send_cmdline(int fd,
+             int argc,
+             const char* const* argv,
+             const char* exename)
 {
     if (argc == 0) {
         /* Default interactive shell */
@@ -297,7 +304,7 @@ send_cmdline(int fd, int argc, char** argv, const char* exename)
 }
 
 int
-shex_main(int argc, char** argv)
+shex_main(int argc, const char** argv)
 {
     size_t cmd_bufsz = DEFAULT_CMD_BUFSZ;
     size_t child_stream_bufsz = DEFAULT_STREAM_BUFSZ;
@@ -313,6 +320,7 @@ shex_main(int argc, char** argv)
     const char* exename = NULL;
     bool force_send_stub = false;
     struct tty_flags tty_flags[3];
+    const char* const* adb_args = empty_argv;
 
     memset(&tty_flags, 0, sizeof (tty_flags));
     for (int i = 0; i < 3; ++i)
@@ -331,8 +339,11 @@ shex_main(int argc, char** argv)
         { 0 }
     };
 
-    char c;
-    while ((c = getopt_long(argc, argv, "+:lhe:ftT", opts, NULL)) != -1) {
+    for (;;) {
+        char c = getopt_long(argc, (char**) argv, "+:lhe:ftT", opts, NULL);
+        if (c == -1)
+            break;
+        
         switch (c) {
             case 'e':
                 exename = optarg;
@@ -394,7 +405,7 @@ shex_main(int argc, char** argv)
     if (local_mode)
         child = start_stub_local();
     else
-        child = start_stub_adb(force_send_stub);
+        child = start_stub_adb(force_send_stub, adb_args);
 
     write_all_adb_encoded(child->fd[0]->fd, hello_msg, hello_msg->msg.size);
     send_cmdline(child->fd[0]->fd, argc, argv, exename);

@@ -6,6 +6,7 @@ libadbx_a_SOURCES = \
 	adb.c \
 	adbenc.c \
 	adbx.c \
+	argv.c \
 	chat.c \
 	child.c \
 	cmd_shex.c \

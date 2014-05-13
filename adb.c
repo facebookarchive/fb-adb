@@ -6,15 +6,22 @@
 #include "adb.h"
 #include "child.h"
 #include "util.h"
+#include "argv.h"
 
 void
-adb_send_file(const char* local, const char* remote)
+adb_send_file(const char* local,
+              const char* remote,
+              const char* const* adb_args)
 {
     SCOPED_RESLIST(rl_send_stub);
+    
     struct child_start_info csi = {
         .flags = CHILD_MERGE_STDERR,
         .exename = "adb",
-        .argv = (const char*[]){"adb", "push", local, remote, NULL},
+        .argv = argv_concat((const char*[]){"adb", NULL},
+                            adb_args ?: empty_argv,
+                            (const char*[]){"push", local, remote, NULL},
+                            NULL),
     };
     struct child* adb = child_start(&csi);
     fdh_destroy(adb->fd[0]);
