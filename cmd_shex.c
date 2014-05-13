@@ -27,10 +27,35 @@
 #include "timestamp.h"
 #include "argv.h"
 
+static const char usage[] = (
+    "%s [OPTS] [CMD [ARGS...]]: run command on Android device\n"
+    "\n"
+    "  -t\n"
+    "  --force-tty\n"
+    "    Allocate a PTY even when CMD is given\n"
+    "\n"
+    "  -E EXENAME\n"
+    "  --exename EXENAME\n"
+    "    Run EXENAME on remote host.  Default is CMD, which becomes\n"
+    "    argv[0] in any case.\n"
+    "\n"
+    "  -T\n"
+    "  --disable-tty\n"
+    "    Never give the remote command a pseudo-terminal.\n"
+    "\n"
+    "  -h\n"
+    "  --help\n"
+    "    Display this message.\n"
+    "\n"
+    "  -d, -e, -s, -p, -H, -P\n"
+    "    Control the device to which adbx connects.  See adb help.\n"
+    "\n"
+    );
+
 static void
 print_usage(void)
 {
-    printf("%s [-u sock]: shex\n", prgname);
+    printf(usage, prgname);
 }
 
 struct adbx_shex {
@@ -332,7 +357,7 @@ shex_main(int argc, const char** argv)
     static struct option opts[] = {
         { "help", no_argument, NULL, 'h' },
         { "local", no_argument, NULL, 'l' },
-        { "exename", required_argument, NULL, 'e' },
+        { "exename", required_argument, NULL, 'E' },
         { "force-send-stub", no_argument, NULL, 'f' },
         { "force-tty", no_argument, NULL, 't' },
         { "disable-tty", no_argument, NULL, 'T' },
@@ -340,12 +365,16 @@ shex_main(int argc, const char** argv)
     };
 
     for (;;) {
-        char c = getopt_long(argc, (char**) argv, "+:lhe:ftT", opts, NULL);
+        char c = getopt_long(argc,
+                             (char**) argv,
+                             "+:lhE:ftTdes:p:H:P:",
+                             opts,
+                             NULL);
         if (c == -1)
             break;
-        
+
         switch (c) {
-            case 'e':
+            case 'E':
                 exename = optarg;
                 break;
             case 'f':
@@ -362,6 +391,24 @@ shex_main(int argc, const char** argv)
                 break;
             case 'T':
                 tty_mode = TTY_DISABLE;
+                break;
+            case 'd':
+            case 'e':
+                adb_args = argv_concat(
+                    adb_args,
+                    (const char*[]){xaprintf("-%c", c), NULL},
+                    NULL);
+                break;
+            case 's':
+            case 'p':
+            case 'H':
+            case 'P':
+                adb_args = argv_concat(
+                    adb_args,
+                    (const char*[]){xaprintf("-%c", c),
+                                    xstrdup(optarg),
+                                    NULL},
+                    NULL);
                 break;
             case ':':
                 die(EINVAL, "missing option for -%c", optopt);
