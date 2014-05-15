@@ -52,7 +52,7 @@ chat_swallow_prompt(struct chat* cc)
     char c;
     do {
         c = chat_getc(cc);
-    } while (c != '#');
+    } while (c != '#' && c != '$');
     chat_expect(cc, ' ');
 }
 
