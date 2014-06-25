@@ -46,6 +46,14 @@ chat_expect(struct chat* cc, char expected)
 }
 
 void
+chat_expect_maybe(struct chat* cc, char expected)
+{
+    char c = chat_getc(cc);
+    if (c != expected)
+        ungetc(c, cc->from);
+}
+
+void
 chat_swallow_prompt(struct chat* cc)
 {
     /* 100% reliable prompt detection */
@@ -75,7 +83,7 @@ chat_talk_at(struct chat* cc, const char* what)
 
     /* Yes, this is really what comes back after a \n.  */
     chat_expect(cc, '\r');
-    chat_expect(cc, '\r');
+    chat_expect_maybe(cc, '\r');
     chat_expect(cc, '\n');
 }
 

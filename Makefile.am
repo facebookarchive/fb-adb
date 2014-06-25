@@ -23,8 +23,10 @@ adbx_LDADD = libadbx.a
 
 # Android demands PIC executables
 if BUILD_STUB
-AM_CFLAGS = -fPIC -flto
-AM_LDFLAGS = -fPIC -pie -flto
+AM_LDFLAGS =
+# AM_CFLAGS = -fPIC -flto
+# AM_LDFLAGS = -fPIC -pie
+AM_LDFLAGS += -flto
 endif
 
 AM_CPPFLAGS = -I.

@@ -10,14 +10,19 @@
 
 extern int stub_main(int, const char**);
 extern int shex_main(int, const char**);
+extern int shex_main_rcmd(int, const char**);
 
 __attribute__((noreturn))
 static void
 usage(void)
 {
-    printf("adbx %s - ADB wrapper\n", PACKAGE_VERSION);
+    printf("%s %s - Enhanced ADB\n", prgname, PACKAGE_VERSION);
     printf("\n");
-    printf("  adbx {sh,shex} [CMD ARGS...] - Improved adb shell.\n");
+    printf("  %s shell [CMD ARGS...] - Improved adb shell.\n", prgname);
+    printf("\n");
+    printf("  %s rcmd CMD [ARGS...] - Run commands directly, without\n",
+           prgname);
+    printf("    using the shell.\n");
     printf("\n");
     printf("  Other commands forward to adb. See below.\n");
     printf("\n");
@@ -92,13 +97,19 @@ real_main(int argc, char** argv)
         die(EINVAL, "no sub-command given. Use --help for help.");
 
     int (*sub_main)(int, const char**) = NULL;
-    if (!strcmp(prgarg, "stub"))
+    if (!strcmp(prgarg, "stub")) {
         sub_main = stub_main;
-    else if (!strcmp(prgarg, "shex") || !strcmp(prgarg, "sh"))
+    } else if (!strcmp(prgarg, "shellx") || !strcmp(prgarg, "sh")) {
         sub_main = shex_main;
-    else if (!strcmp(prgarg, "help") ||
-             !strcmp(prgarg, "-h") ||
-             !strcmp(prgarg, "--help"))
+    } else if (!strcmp(prgarg, "shell") &&
+               !getenv("ADB_SHELL_OLD_BEHAVIOR"))
+    {
+        sub_main = shex_main;
+    } else if (!strcmp(prgarg, "rcmd")) {
+        sub_main = shex_main_rcmd;
+    } else if (!strcmp(prgarg, "help") ||
+               !strcmp(prgarg, "-h") ||
+               !strcmp(prgarg, "--help"))
     {
         usage();
     } else {

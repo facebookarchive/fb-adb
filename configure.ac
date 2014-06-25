@@ -56,7 +56,7 @@ AC_PROG_SED
 
 AC_PROG_RANLIB
 AM_PROG_AR
-AC_CHECK_FUNCS([ppoll dup3 mkostemp kqueue pipe2 ptsname])
+AC_CHECK_FUNCS([ppoll signalfd4 dup3 mkostemp kqueue pipe2 ptsname])
 
 is_android=$(echo "$CC" | grep android)
 if test -n "$BUILD_STUB" && test -z "$is_android" ; then

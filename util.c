@@ -20,6 +20,10 @@
 #include <sys/time.h>
 #endif
 
+#ifdef HAVE_SIGNALFD_4
+#include <sys/signalfd.h>
+#endif
+
 #include "util.h"
 #include "constants.h"
 
@@ -629,11 +633,100 @@ write_all(int fd, const void* buf, size_t sz)
 
 #if !defined(HAVE_PPOLL) && defined(__linux__)
 #define HAVE_PPOLL 1
+
+# if !defined(HAVE_SIGNALFD_4)
+# define SFD_CLOEXEC O_CLOEXEC
+int
+signalfd4(int fd, const sigset_t* mask, int flags)
+{
+    return syscall(__NR_signalfd4, fd, mask, flags);
+}
+#endif
+
+static int
+timespec_to_ms(const struct timespec* ts)
+{
+    static const int ns_per_ms = 1000000;
+
+    if (ts == NULL)
+        return -1;
+
+    if (ts->tv_sec > INT_MAX / 1000)
+        return INT_MAX;
+
+    return ts->tv_sec * 1000 + ts->tv_nsec / ns_per_ms;
+}
+
+static int
+ppoll_emulation(struct pollfd *fds, nfds_t nfds,
+                const struct timespec *timeout_ts,
+                const sigset_t *sigmask)
+{
+    int ret = -1;
+    int sfd = -1;
+    sigset_t inverse_sigmask;
+    struct pollfd* xfds;
+    int pr;
+    int poll_timeout = timespec_to_ms(timeout_ts);
+
+    if (sigmask == NULL)
+        return poll(fds, nfds, poll_timeout);
+
+    sigemptyset(&inverse_sigmask);
+    for (int i = 0; i < NSIG; ++i)
+        if (!sigismember((sigset_t*) sigmask, i))
+            sigaddset(&inverse_sigmask, i);
+
+    if (nfds > INT_MAX ||
+        (nfds + 1) > SIZE_MAX / sizeof (*xfds))
+    {
+        errno = EINVAL;
+        goto out;
+    }
+
+    xfds = alloca((nfds + 1) * sizeof (*xfds));
+    memcpy(&xfds[1], fds, nfds);
+    memset(&xfds[0], 0, sizeof (xfds[0]));
+    xfds[0].fd = sfd;
+    xfds[0].events = POLLIN;
+
+    sfd = signalfd4(-1, &inverse_sigmask, SFD_CLOEXEC);
+    if (sfd == -1)
+        goto out;
+
+    pr = poll(xfds, nfds + 1, poll_timeout);
+    if (pr < 1)
+        goto out;
+
+    if (xfds[0].revents & POLLIN) {
+        // Got a signal.  Temporarily set sigprocmask to the one
+        // specified in order to give signals a shot at delivery.
+        sigset_t orig_sigmask;
+        sigprocmask(SIG_SETMASK, sigmask, &orig_sigmask);
+        sigprocmask(SIG_SETMASK, &orig_sigmask, NULL);
+        errno = EINTR;
+        goto out;
+    }
+
+    memcpy(fds, &xfds[1], nfds);
+    ret = 0;
+
+    out:
+
+    if (sfd != -1)
+        close(sfd);
+
+    return ret;
+}
+
 int
 ppoll(struct pollfd *fds, nfds_t nfds,
       const struct timespec *timeout_ts, const sigset_t *sigmask)
 {
-    return syscall(__NR_ppoll, fds, nfds, timeout_ts, sigmask);
+    int ret = syscall(__NR_ppoll, fds, nfds, timeout_ts, sigmask);
+    if (ret == -1 && errno == ENOSYS)
+        return ppoll_emulation(fds, nfds, timeout_ts, sigmask);
+    return ret;
 }
 #endif
 
@@ -667,7 +760,9 @@ ppoll(struct pollfd *fds, nfds_t nfds,
         if (!sigismember(sigmask, sig))
             nr_events += 1;
 
-    if (nr_events > INT_MAX) {
+    if (nr_events > INT_MAX ||
+        nr_events > SIZE_MAX / sizeof (struct kevent))
+    {
         errno = EINVAL;
         goto out;
     }
@@ -771,6 +866,14 @@ ppoll(struct pollfd *fds, nfds_t nfds,
     }
 
     return ret;
+}
+#endif
+
+#if !defined(HAVE_PPOLL) && defined(HAVE_PSELECT)
+int
+ppoll(struct pollfd *fds, nfds_t nfds,
+      const struct timespec *timeout_ts, const sigset_t *sigmask)
+{
 }
 #endif
 

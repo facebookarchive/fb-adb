@@ -27,8 +27,12 @@
 #include "timestamp.h"
 #include "argv.h"
 
+enum shex_mode {
+    SHEX_MODE_SHELL,
+    SHEX_MODE_RCMD
+};
+
 static const char usage[] = (
-    "%s [OPTS] [CMD [ARGS...]]: run command on Android device\n"
     "\n"
     "  -t\n"
     "  --force-tty\n"
@@ -53,9 +57,18 @@ static const char usage[] = (
     );
 
 static void
-print_usage(void)
+print_usage(enum shex_mode smode)
 {
-    printf(usage, prgname);
+    if (smode == SHEX_MODE_SHELL)
+        printf("%s [OPTS] [CMD [ARGS...]]: "
+               "run shell command on Android device\n",
+               prgname);
+    else
+        printf("%s [OPTS] PROGRAM [ARGS...]: "
+               "run program on Android device; bypass shell\n",
+               prgname);
+
+    fputs(usage, stdout);
 }
 
 struct adbx_shex {
@@ -301,6 +314,76 @@ send_cmdline_argument(int fd, unsigned type, const void* val, size_t valsz)
 }
 
 static void
+lim_outc(char c, size_t *pos, char *buf, size_t bufsz)
+{
+    if (*pos < bufsz) {
+        buf[*pos] = c;
+    }
+
+    *pos += 1;
+}
+
+static void
+lim_strcat(const char* s, size_t *pos, char *buf, size_t bufsz)
+{
+    char c;
+
+    while ((c = *s++)) {
+        lim_outc(c, pos, buf, bufsz);
+    }
+}
+
+static void
+lim_shellquote(const char* word, size_t *pos, char *buf, size_t bufsz)
+{
+    char c;
+
+    lim_strcat("'", pos, buf, bufsz);
+    while ((c = *word++)) {
+        if (c == '\'') {
+            lim_strcat("'\\''", pos, buf, bufsz);
+        } else {
+            lim_outc(c, pos, buf, bufsz);
+        }
+    }
+
+    lim_strcat("'", pos, buf, bufsz);
+}
+
+static void
+lim_format_shell_command_line(const char *const* argv,
+                              int argc,
+                              size_t *pos,
+                              char *buf,
+                              size_t bufsz)
+{
+    if (argc > 0) {
+        /* Special case: don't quote the first argument. */
+        lim_strcat(argv[0], pos, buf, bufsz);
+    }
+
+    for (int i = 1; i < argc; ++i) {
+        lim_outc(' ', pos, buf, bufsz);
+        lim_shellquote(argv[i], pos, buf, bufsz);
+    }
+}
+
+/* Replace a command line with a shell invocation. */
+static void
+make_shell_command_line(int* argc, const char*** argv)
+{
+    size_t sz = 0;
+    lim_format_shell_command_line(*argv, *argc, &sz, NULL, 0);
+    char* script = xalloc(sz + 1);
+    size_t pos = 0;
+    lim_format_shell_command_line(*argv, *argc, &pos, script, sz);
+    script[pos] = '\0';
+    *argc = 3;
+    *argv = argv_concat((const char*[]) {"sh", "-c", script, NULL},
+                        NULL);
+}
+
+static void
 send_cmdline(int fd,
              int argc,
              const char* const* argv,
@@ -328,8 +411,8 @@ send_cmdline(int fd,
     }
 }
 
-int
-shex_main(int argc, const char** argv)
+static int
+shex_main_common(enum shex_mode smode, int argc, const char** argv)
 {
     size_t cmd_bufsz = DEFAULT_CMD_BUFSZ;
     size_t child_stream_bufsz = DEFAULT_STREAM_BUFSZ;
@@ -416,7 +499,7 @@ shex_main(int argc, const char** argv)
                 if (optopt != '?')
                     die(EINVAL, "invalid option -%c", optopt);
             case 'h':
-                print_usage();
+                print_usage(smode);
                 return 0;
             default:
                 abort();
@@ -425,6 +508,12 @@ shex_main(int argc, const char** argv)
 
     argc -= optind;
     argv += optind;
+
+    if (smode == SHEX_MODE_RCMD && argc == 0)
+        die(EINVAL, "remote command not given");
+
+    if (smode == SHEX_MODE_SHELL && argc > 0)
+        make_shell_command_line(&argc, &argv);
 
     if (tty_mode == TTY_AUTO)
         tty_mode = (argc == 0) ? TTY_ENABLE : TTY_DISABLE;
@@ -545,4 +634,16 @@ shex_main(int argc, const char** argv)
         die(EPIPE, "lost connection to peer");
 
     return shex.child_exit_status;
+}
+
+int
+shex_main(int argc, const char** argv)
+{
+    return shex_main_common(SHEX_MODE_SHELL, argc, argv);
+}
+
+int
+shex_main_rcmd(int argc, const char** argv)
+{
+    return shex_main_common(SHEX_MODE_RCMD, argc, argv);
 }
