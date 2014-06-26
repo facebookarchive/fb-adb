@@ -29,7 +29,8 @@
 
 enum shex_mode {
     SHEX_MODE_SHELL,
-    SHEX_MODE_RCMD
+    SHEX_MODE_RCMD,
+    SHEX_MODE_SU,
 };
 
 static const char usage[] = (
@@ -46,6 +47,10 @@ static const char usage[] = (
     "  -T\n"
     "  --disable-tty\n"
     "    Never give the remote command a pseudo-terminal.\n"
+    "\n"
+    "  -r\n"
+    "  --root\n"
+    "    Request a root shell.\n"
     "\n"
     "  -h\n"
     "  --help\n"
@@ -111,7 +116,7 @@ send_stub(const void* data, size_t datasz, const char* const* adb_args)
 #endif
 
 static struct child*
-try_adb_stub(struct child_start_info* csi, char** err)
+try_adb_stub(struct child_start_info* csi, int* uid, char** err)
 {
     struct reslist* rl_stub = reslist_push_new();
     struct child* child = child_start(csi);
@@ -133,7 +138,7 @@ try_adb_stub(struct child_start_info* csi, char** err)
     dbg("stub resp: [%s]", resp);
     int n = -1;
     uintmax_t ver;
-    sscanf(resp, ADBX_PROTO_START_LINE "%n", &ver, &n);
+    sscanf(resp, ADBX_PROTO_START_LINE "%n", &ver, uid, &n);
     if (n != -1 && build_time <= ver) {
         reslist_pop_nodestroy(rl_stub);
         return child;
@@ -146,7 +151,9 @@ try_adb_stub(struct child_start_info* csi, char** err)
 }
 
 static struct child*
-start_stub_adb(bool force_send_stub, const char* const* adb_args)
+start_stub_adb(bool force_send_stub,
+               const char* const* adb_args,
+               int* uid)
 {
     struct child_start_info csi = {
         .flags = CHILD_INHERIT_STDERR,
@@ -160,17 +167,17 @@ start_stub_adb(bool force_send_stub, const char* const* adb_args)
     struct child* child = NULL;
     char* err = NULL;
     if (!force_send_stub)
-        child = try_adb_stub(&csi, &err);
+        child = try_adb_stub(&csi, uid, &err);
 
 #ifndef BUILD_STUB
     if (!child) {
         send_stub(arm_stub, arm_stubsz, adb_args);
-        child = try_adb_stub(&csi, &err);
+        child = try_adb_stub(&csi, uid, &err);
     }
 
     if (!child) {
         send_stub(x86_stub, x86_stubsz, adb_args);
-        child = try_adb_stub(&csi, &err);
+        child = try_adb_stub(&csi, uid, &err);
     }
 #endif
 
@@ -370,7 +377,9 @@ lim_format_shell_command_line(const char *const* argv,
 
 /* Replace a command line with a shell invocation. */
 static void
-make_shell_command_line(int* argc, const char*** argv)
+make_shell_command_line(const char* shell,
+                        int* argc,
+                        const char*** argv)
 {
     size_t sz = 0;
     lim_format_shell_command_line(*argv, *argc, &sz, NULL, 0);
@@ -379,7 +388,7 @@ make_shell_command_line(int* argc, const char*** argv)
     lim_format_shell_command_line(*argv, *argc, &pos, script, sz);
     script[pos] = '\0';
     *argc = 3;
-    *argv = argv_concat((const char*[]) {"sh", "-c", script, NULL},
+    *argv = argv_concat((const char*[]) {shell, "-c", script, NULL},
                         NULL);
 }
 
@@ -411,6 +420,35 @@ send_cmdline(int fd,
     }
 }
 
+static void
+command_re_exec_as_root(struct child* child)
+{
+    SCOPED_RESLIST(rl_re_exec_as_root);
+
+    // Tell child to re-exec itself as root.  It'll send another hello
+    // message, which we read below.
+
+    struct msg rmsg = {
+        .size = sizeof (rmsg),
+        .type = MSG_EXEC_AS_ROOT,
+    };
+
+    write_all_adb_encoded(child->fd[0]->fd, &rmsg, rmsg.size);
+
+    struct chat* cc = chat_new(child->fd[0]->fd, child->fd[1]->fd);
+    char* resp = chat_read_line(cc);
+    int n = -1;
+    int uid;
+    uintmax_t ver;
+    sscanf(resp, ADBX_PROTO_START_LINE "%n", &ver, &uid, &n);
+
+    if (n == -1)
+        die(ECOMM, "trouble re-execing adb stub as root: %s", resp);
+
+    if (uid != 0)
+        die(ECOMM, "told child to re-exec as root; gave us uid=%d", uid);
+}
+
 static int
 shex_main_common(enum shex_mode smode, int argc, const char** argv)
 {
@@ -429,6 +467,7 @@ shex_main_common(enum shex_mode smode, int argc, const char** argv)
     bool force_send_stub = false;
     struct tty_flags tty_flags[3];
     const char* const* adb_args = empty_argv;
+    bool want_root = false;
 
     memset(&tty_flags, 0, sizeof (tty_flags));
     for (int i = 0; i < 3; ++i)
@@ -444,19 +483,23 @@ shex_main_common(enum shex_mode smode, int argc, const char** argv)
         { "force-send-stub", no_argument, NULL, 'f' },
         { "force-tty", no_argument, NULL, 't' },
         { "disable-tty", no_argument, NULL, 'T' },
+        { "root", no_argument, NULL, 'r' },
         { 0 }
     };
 
     for (;;) {
         char c = getopt_long(argc,
                              (char**) argv,
-                             "+:lhE:ftTdes:p:H:P:",
+                             "+:lhE:ftTdes:p:H:P:r",
                              opts,
                              NULL);
         if (c == -1)
             break;
 
         switch (c) {
+            case 'r':
+                want_root = true;
+                break;
             case 'E':
                 exename = optarg;
                 break;
@@ -513,7 +556,7 @@ shex_main_common(enum shex_mode smode, int argc, const char** argv)
         die(EINVAL, "remote command not given");
 
     if (smode == SHEX_MODE_SHELL && argc > 0)
-        make_shell_command_line(&argc, &argv);
+        make_shell_command_line("sh", &argc, &argv);
 
     if (tty_mode == TTY_AUTO)
         tty_mode = (argc == 0) ? TTY_ENABLE : TTY_DISABLE;
@@ -538,10 +581,17 @@ shex_main_common(enum shex_mode smode, int argc, const char** argv)
                        tty_flags);
 
     struct child* child;
-    if (local_mode)
+    int uid;
+    if (local_mode) {
+        if (want_root)
+            die(EINVAL, "root upgrade not supported in local mode");
         child = start_stub_local();
-    else
-        child = start_stub_adb(force_send_stub, adb_args);
+    } else {
+        child = start_stub_adb(force_send_stub, adb_args, &uid);
+    }
+
+    if (want_root && uid != 0)
+        command_re_exec_as_root(child);
 
     write_all_adb_encoded(child->fd[0]->fd, hello_msg, hello_msg->msg.size);
     send_cmdline(child->fd[0]->fd, argc, argv, exename);

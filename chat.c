@@ -61,6 +61,7 @@ chat_swallow_prompt(struct chat* cc)
     do {
         c = chat_getc(cc);
     } while (c != '#' && c != '$');
+
     chat_expect(cc, ' ');
 }
 

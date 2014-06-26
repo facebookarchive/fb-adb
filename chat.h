@@ -1,5 +1,8 @@
 #pragma once
 
+#include <stdio.h>
+#include <stdbool.h>
+
 struct chat {
     FILE* to;
     FILE* from;

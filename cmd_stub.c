@@ -197,19 +197,6 @@ read_child_arglist(size_t expected)
     return argv;
 }
 
-static struct msg_shex_hello*
-read_shex_hello(void)
-{
-    struct msg* mhdr = read_msg(0, read_all_adb_encoded);
-    if (mhdr->type != MSG_SHEX_HELLO ||
-        mhdr->size < sizeof (struct msg_shex_hello))
-    {
-        die(ECOMM, "bad hello");
-    }
-
-    return (struct msg_shex_hello*) mhdr;
-}
-
 static struct child*
 start_child(struct msg_shex_hello* shex_hello)
 {
@@ -238,6 +225,13 @@ start_child(struct msg_shex_hello* shex_hello)
     return child_start(&csi);
 }
 
+static void __attribute__((noreturn))
+re_exec_as_root()
+{
+    execlp("su", "su", "-c", xaprintf("%s stub", orig_argv0), NULL);
+    die_errno("execlp of su");
+}
+
 int
 stub_main(int argc, const char** argv)
 {
@@ -255,10 +249,23 @@ stub_main(int argc, const char** argv)
     if (isatty(1))
         xmkraw(1, XMKRAW_SKIP_CLEANUP);
 
-    printf(ADBX_PROTO_START_LINE "\n", build_time);
+    printf(ADBX_PROTO_START_LINE "\n", build_time, (int) getuid());
     fflush(stdout);
 
-    struct msg_shex_hello* shex_hello = read_shex_hello();
+    struct msg_shex_hello* shex_hello;
+    struct msg* mhdr = read_msg(0, read_all_adb_encoded);
+
+    if (mhdr->type == MSG_EXEC_AS_ROOT)
+        re_exec_as_root(); // Never returns
+
+    if (mhdr->type != MSG_SHEX_HELLO ||
+        mhdr->size < sizeof (struct msg_shex_hello))
+    {
+        die(ECOMM, "bad hello");
+    }
+
+    shex_hello = (struct msg_shex_hello*) mhdr;
+
     struct child* child = start_child(shex_hello);
     struct stub stub;
     memset(&stub, 0, sizeof (stub));

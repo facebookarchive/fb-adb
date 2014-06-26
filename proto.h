@@ -13,7 +13,8 @@ enum msg_type {
     MSG_SHEX_HELLO,
     MSG_CMDLINE_ARGUMENT,
     MSG_CMDLINE_DEFAULT_SH,
-    MSG_CMDLINE_DEFAULT_SH_LOGIN
+    MSG_CMDLINE_DEFAULT_SH_LOGIN,
+    MSG_EXEC_AS_ROOT,
 };
 
 struct msg {
@@ -95,4 +96,4 @@ static const unsigned CHILD_STDIN = 2;
 static const unsigned CHILD_STDOUT = 3;
 static const unsigned CHILD_STDERR = 4;
 
-#define ADBX_PROTO_START_LINE "ADBX protocol %ju follows"
+#define ADBX_PROTO_START_LINE "ADBX protocol %ju follows (uid=%d)"
