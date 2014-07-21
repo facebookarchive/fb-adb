@@ -21,12 +21,9 @@ libadbx_a_SOURCES = \
 adbx_SOURCES = timestamp.c
 adbx_LDADD = libadbx.a
 
-# Android demands PIC executables
 if BUILD_STUB
 AM_LDFLAGS = -flto
 AM_CFLAGS =
-# AM_CFLAGS += -fPIC -pie
-# AM_LDFLAGS += -pie
 endif
 
 AM_CPPFLAGS = -I.
