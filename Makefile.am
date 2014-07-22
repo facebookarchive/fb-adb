@@ -5,7 +5,7 @@ noinst_LIBRARIES = libfb-adb.a
 libfb_adb_a_SOURCES = \
 	adb.c \
 	adbenc.c \
-	adbx.c \
+	fb-adb.c \
 	argv.c \
 	chat.c \
 	child.c \
