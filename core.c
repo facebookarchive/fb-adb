@@ -43,14 +43,14 @@ detect_msg(struct ringbuf* rb, struct msg* mhdr)
 }
 
 static void
-adbx_sh_process_msg_channel_data(struct adbx_sh* sh,
-                                 struct msg_channel_data* m)
+fb_adb_sh_process_msg_channel_data(struct fb_adb_sh* sh,
+                                   struct msg_channel_data* m)
 {
     unsigned nrch = sh->nrch;
     struct channel* cmdch = sh->ch[FROM_PEER];
 
     if (m->channel <= NR_SPECIAL_CH || m->channel > nrch)
-            die_proto_error("data: invalid channel %d", m->channel);
+        die_proto_error("data: invalid channel %d", m->channel);
 
     struct channel* c = sh->ch[m->channel];
     if (c->dir == CHANNEL_FROM_FD)
@@ -76,8 +76,8 @@ adbx_sh_process_msg_channel_data(struct adbx_sh* sh,
 }
 
 static void
-adbx_sh_process_msg_channel_window(struct adbx_sh* sh,
-                                   struct msg_channel_window* m)
+fb_adb_sh_process_msg_channel_window(struct fb_adb_sh* sh,
+                                     struct msg_channel_window* m)
 {
     unsigned nrch = sh->nrch;
     if (m->channel <= NR_SPECIAL_CH || m->channel > nrch)
@@ -96,8 +96,8 @@ adbx_sh_process_msg_channel_window(struct adbx_sh* sh,
 }
 
 static void
-adbx_sh_process_msg_channel_close(struct adbx_sh* sh,
-                                  struct msg_channel_close* m)
+fb_adb_sh_process_msg_channel_close(struct fb_adb_sh* sh,
+                                    struct msg_channel_close* m)
 {
     unsigned nrch = sh->nrch;
     if (m->channel <= NR_SPECIAL_CH || m->channel > nrch)
@@ -109,7 +109,7 @@ adbx_sh_process_msg_channel_close(struct adbx_sh* sh,
 }
 
 void
-read_cmdmsg(struct adbx_sh* sh, struct msg mhdr, void* mbuf, size_t msz)
+read_cmdmsg(struct fb_adb_sh* sh, struct msg mhdr, void* mbuf, size_t msz)
 {
     if (mhdr.size != msz)
         die_proto_error("wrong msg size type:%u expected:%u received:%u",
@@ -123,7 +123,7 @@ read_cmdmsg(struct adbx_sh* sh, struct msg mhdr, void* mbuf, size_t msz)
 }
 
 void
-adbx_sh_process_msg(struct adbx_sh* sh, struct msg mhdr)
+fb_adb_sh_process_msg(struct fb_adb_sh* sh, struct msg mhdr)
 {
     struct channel* cmdch = sh->ch[FROM_PEER];
 
@@ -135,17 +135,17 @@ adbx_sh_process_msg(struct adbx_sh* sh, struct msg mhdr)
         ringbuf_copy_out(cmdch->rb, &m, sizeof (m));
         ringbuf_note_removed(cmdch->rb, sizeof (m));
         dbgmsg(&m.msg, "recv");
-        adbx_sh_process_msg_channel_data(sh, &m);
+        fb_adb_sh_process_msg_channel_data(sh, &m);
     } else if (mhdr.type == MSG_CHANNEL_WINDOW) {
         struct msg_channel_window m;
         read_cmdmsg(sh, mhdr, &m, sizeof (m));
         dbgmsg(&m.msg, "recv");
-        adbx_sh_process_msg_channel_window(sh, &m);
+        fb_adb_sh_process_msg_channel_window(sh, &m);
     } else if (mhdr.type == MSG_CHANNEL_CLOSE) {
         struct msg_channel_close m;
         read_cmdmsg(sh, mhdr, &m, sizeof (m));
         dbgmsg(&m.msg, "recv");
-        adbx_sh_process_msg_channel_close(sh, &m);
+        fb_adb_sh_process_msg_channel_close(sh, &m);
     } else {
         ringbuf_note_removed(cmdch->rb, mhdr.size);
         die(ECOMM, "unrecognized command %d (sz=%hu)",
@@ -154,16 +154,16 @@ adbx_sh_process_msg(struct adbx_sh* sh, struct msg mhdr)
 }
 
 static size_t
-adbx_maxoutmsg(struct adbx_sh* sh)
+fb_adb_maxoutmsg(struct fb_adb_sh* sh)
 {
     return XMIN(sh->max_outgoing_msg,
                 ringbuf_room(sh->ch[TO_PEER]->rb));
 }
 
 static void
-xmit_acks(struct channel* c, unsigned chno, struct adbx_sh* sh)
+xmit_acks(struct channel* c, unsigned chno, struct fb_adb_sh* sh)
 {
-    size_t maxoutmsg = adbx_maxoutmsg(sh);
+    size_t maxoutmsg = fb_adb_maxoutmsg(sh);
     struct msg_channel_window m;
 
     if (c->bytes_written > 0 && maxoutmsg >= sizeof (m)) {
@@ -181,12 +181,12 @@ xmit_acks(struct channel* c, unsigned chno, struct adbx_sh* sh)
 static void
 xmit_data(struct channel* c,
           unsigned chno,
-          struct adbx_sh* sh)
+          struct fb_adb_sh* sh)
 {
     if (c->dir != CHANNEL_FROM_FD)
         return;
 
-    size_t maxoutmsg = adbx_maxoutmsg(sh);
+    size_t maxoutmsg = fb_adb_maxoutmsg(sh);
     size_t avail = ringbuf_size(c->rb);
     struct msg_channel_data m;
 
@@ -208,14 +208,14 @@ xmit_data(struct channel* c,
 static void
 xmit_eof(struct channel* c,
          unsigned chno,
-         struct adbx_sh* sh)
+         struct fb_adb_sh* sh)
 {
     struct msg_channel_close m;
 
     if (c->fdh == NULL &&
         c->sent_eof == false &&
         ringbuf_size(c->rb) == 0 &&
-        adbx_maxoutmsg(sh) >= sizeof (m))
+        fb_adb_maxoutmsg(sh) >= sizeof (m))
     {
         memset(&m, 0, sizeof (m));
         m.msg.type = MSG_CHANNEL_CLOSE;
@@ -240,7 +240,7 @@ do_pending_close(struct channel* c)
 }
 
 void
-io_loop_init(struct adbx_sh* sh)
+io_loop_init(struct fb_adb_sh* sh)
 {
     struct channel** ch = sh->ch;
     unsigned nrch = sh->nrch;
@@ -251,7 +251,7 @@ io_loop_init(struct adbx_sh* sh)
 }
 
 void
-io_loop_do_io(struct adbx_sh* sh)
+io_loop_do_io(struct fb_adb_sh* sh)
 {
     SCOPED_RESLIST(rl);
     dbgch("before io_loop_do_io", sh->ch, sh->nrch);
@@ -279,7 +279,7 @@ io_loop_do_io(struct adbx_sh* sh)
 }
 
 void
-io_loop_pump(struct adbx_sh* sh)
+io_loop_pump(struct fb_adb_sh* sh)
 {
     SCOPED_RESLIST(rl);
 
@@ -305,9 +305,9 @@ io_loop_pump(struct adbx_sh* sh)
 }
 
 void
-queue_message_synch(struct adbx_sh* sh, struct msg* m)
+queue_message_synch(struct fb_adb_sh* sh, struct msg* m)
 {
-    PUMP_WHILE(sh, adbx_maxoutmsg(sh) < m->size);
+    PUMP_WHILE(sh, fb_adb_maxoutmsg(sh) < m->size);
     dbgmsg(m, "send[synch]");
     channel_write(sh->ch[TO_PEER], &(struct iovec){m, m->size}, 1);
 }

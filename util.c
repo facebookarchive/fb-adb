@@ -956,7 +956,7 @@ FILE*
 xnamed_tempfile(const char** out_name)
 {
     struct xnamed_tempfile_save* save = xcalloc(sizeof (*save));
-    char* name = xaprintf("%s/adbx-XXXXXX", DEFAULT_TEMP_DIR);
+    char* name = xaprintf("%s/fb-adb-XXXXXX", DEFAULT_TEMP_DIR);
     struct cleanup* cl = cleanup_allocate();
     cleanup_commit(cl, xnamed_tempfile_cleanup, save);
     int fd = mkostemp(name, O_CLOEXEC);

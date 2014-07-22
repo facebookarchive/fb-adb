@@ -96,4 +96,4 @@ static const unsigned CHILD_STDIN = 2;
 static const unsigned CHILD_STDOUT = 3;
 static const unsigned CHILD_STDERR = 4;
 
-#define ADBX_PROTO_START_LINE "ADBX protocol %ju follows (uid=%d)"
+#define FB_ADB_PROTO_START_LINE "FB_ADB protocol %ju follows (uid=%d)"

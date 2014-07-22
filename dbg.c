@@ -27,7 +27,7 @@ static int dbglock_level = 0;
 void
 dbg_init(void)
 {
-    const char* dv = getenv("ADBX_DEBUG");
+    const char* dv = getenv("FB_ADB_DEBUG");
     if (dv == NULL) {
         /* Noop */
     } else if (strcmp(dv, "1") == 0) {
@@ -79,14 +79,14 @@ dbglock_init(void)
     if (!dbg_enabled_p())
         return;
 
-    const char envvar[] = "ADBX_DBGLOCK_NAME";
+    const char envvar[] = "FB_ADB_DBGLOCK_NAME";
     /* No, we can't just inherit the file descriptor.  Without a
      * separate file open, taking the lock won't block.  */
 
     const char* fn = getenv(envvar);
     if (fn == NULL) {
         const char* pfx = DEFAULT_TEMP_DIR;
-        char* tmpfname = xaprintf("%s/adbx-dbg-XXXXXX", pfx);
+        char* tmpfname = xaprintf("%s/fb-adb-dbg-XXXXXX", pfx);
         struct cleanup* cl = cleanup_allocate();
         int tmpfd = mkostemp(tmpfname, O_CLOEXEC);
         if (tmpfd != -1) {

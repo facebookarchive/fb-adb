@@ -13,28 +13,28 @@ enum channel_names {
     NR_SPECIAL_CH = TO_PEER
 };
 
-struct adbx_sh {
+struct fb_adb_sh {
     sigset_t* poll_mask;
     size_t max_outgoing_msg;
     unsigned nrch;
     struct channel** ch;
-    void (*process_msg)(struct adbx_sh* sh, struct msg mhdr);
+    void (*process_msg)(struct fb_adb_sh* sh, struct msg mhdr);
 };
 
-void queue_message_synch(struct adbx_sh* sh, struct msg* m);
-void io_loop_init(struct adbx_sh* sh);
-void io_loop_pump(struct adbx_sh* sh);
-void io_loop_do_io(struct adbx_sh* sh);
-void adbx_sh_process_msg(struct adbx_sh* sh, struct msg mhdr);
+void queue_message_synch(struct fb_adb_sh* sh, struct msg* m);
+void io_loop_init(struct fb_adb_sh* sh);
+void io_loop_pump(struct fb_adb_sh* sh);
+void io_loop_do_io(struct fb_adb_sh* sh);
+void fb_adb_sh_process_msg(struct fb_adb_sh* sh, struct msg mhdr);
 
-void read_cmdmsg(struct adbx_sh* sh,
+void read_cmdmsg(struct fb_adb_sh* sh,
                  struct msg mhdr,
                  void* mbuf,
                  size_t msz);
 
 #define PUMP_WHILE(_sh, _c)                     \
     ({                                          \
-        struct adbx_sh* _m = (_sh);             \
+        struct fb_adb_sh* _m = (_sh);           \
         io_loop_pump(_m);                       \
         while ((_c)) {                          \
             io_loop_do_io(_m);                  \

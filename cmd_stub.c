@@ -23,7 +23,7 @@
 #include "timestamp.h"
 
 static void
-send_exit_message(int status, struct adbx_sh* sh)
+send_exit_message(int status, struct fb_adb_sh* sh)
 {
     struct msg_child_exit m;
     memset(&m, 0, sizeof (m));
@@ -56,12 +56,12 @@ set_window_size(int fd, const struct window_size* ws)
 }
 
 struct stub {
-    struct adbx_sh sh;
+    struct fb_adb_sh sh;
     struct child* child;
 };
 
 static void
-stub_process_msg(struct adbx_sh* sh, struct msg mhdr)
+stub_process_msg(struct fb_adb_sh* sh, struct msg mhdr)
 {
     if (mhdr.type == MSG_WINDOW_SIZE) {
         struct msg_window_size m;
@@ -74,7 +74,7 @@ stub_process_msg(struct adbx_sh* sh, struct msg mhdr)
         return;
     }
 
-    adbx_sh_process_msg(sh, mhdr);
+    fb_adb_sh_process_msg(sh, mhdr);
 }
 
 static void
@@ -249,7 +249,7 @@ stub_main(int argc, const char** argv)
     if (isatty(1))
         xmkraw(1, XMKRAW_SKIP_CLEANUP);
 
-    printf(ADBX_PROTO_START_LINE "\n", build_time, (int) getuid());
+    printf(FB_ADB_PROTO_START_LINE "\n", build_time, (int) getuid());
     fflush(stdout);
 
     struct msg_shex_hello* shex_hello;
@@ -270,7 +270,7 @@ stub_main(int argc, const char** argv)
     struct stub stub;
     memset(&stub, 0, sizeof (stub));
     stub.child = child;
-    struct adbx_sh* sh = &stub.sh;
+    struct fb_adb_sh* sh = &stub.sh;
 
     sh->process_msg = stub_process_msg;
     sh->max_outgoing_msg = shex_hello->maxmsg;

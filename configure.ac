@@ -1,4 +1,4 @@
-AC_INIT([adbx], [1.0], [dancol@dancol.org])
+AC_INIT([fb-adb], [1.0], [dancol@fb.com])
 if test "$srcdir" = "."; then
    dnl We configure this directory multiple times, once for each stub
    dnl architecture, but we can only do that if we're out of tree for
@@ -72,7 +72,7 @@ CPPFLAGS="$CPPFLAGS -U_FORTIFY_SOURCE -D_FORTIFY_SOURCE=0"
 
 if test -z "$BUILD_STUB"; then
    STUB_SUBDIRS="stub-x86 stub-arm"
-   STUB_BINARIES="stub-x86/adbx stub-arm/adbx"
+   STUB_BINARIES="stub-x86/fb-adb stub-arm/fb-adb"
    AC_CONFIG_SUBDIRS([stub-x86 stub-arm])
    AC_SUBST([STUB_BINARIES])
 else

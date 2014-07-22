@@ -9,5 +9,5 @@
         .int \sym\()_end - \sym
 .endm
 
-bin_data arm_stub, "stub-arm/adbx"
-bin_data x86_stub, "stub-x86/adbx"
+bin_data arm_stub, "stub-arm/fb-adb"
+bin_data x86_stub, "stub-x86/fb-adb"

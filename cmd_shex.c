@@ -57,7 +57,7 @@ static const char usage[] = (
     "    Display this message.\n"
     "\n"
     "  -d, -e, -s, -p, -H, -P\n"
-    "    Control the device to which adbx connects.  See adb help.\n"
+    "    Control the device to which fb-adb connects.  See adb help.\n"
     "\n"
     );
 
@@ -76,8 +76,8 @@ print_usage(enum shex_mode smode)
     fputs(usage, stdout);
 }
 
-struct adbx_shex {
-    struct adbx_sh sh;
+struct fb_adb_shex {
+    struct fb_adb_sh sh;
     int child_exit_status;
     bool child_exited;
 };
@@ -111,7 +111,7 @@ send_stub(const void* data, size_t datasz, const char* const* adb_args)
         die_errno("fwrite");
     if (fchmod(fileno(tmpfile), 0755) == -1)
         die_errno("fchmod");
-    adb_send_file(tmpfilename, ADBX_REMOTE_FILENAME, adb_args);
+    adb_send_file(tmpfilename, FB_ADB_REMOTE_FILENAME, adb_args);
 }
 #endif
 
@@ -124,7 +124,7 @@ try_adb_stub(struct child_start_info* csi, int* uid, char** err)
     struct chat* cc = chat_new(child->fd[0]->fd, child->fd[1]->fd);
     chat_swallow_prompt(cc);
 
-    char* cmd = xaprintf("exec %s stub", ADBX_REMOTE_FILENAME);
+    char* cmd = xaprintf("exec %s stub", FB_ADB_REMOTE_FILENAME);
     unsigned promptw = 40;
     if (strlen(cmd) > promptw) {
         // The extra round trip sucks, but if we don't do this, mksh's
@@ -138,7 +138,7 @@ try_adb_stub(struct child_start_info* csi, int* uid, char** err)
     dbg("stub resp: [%s]", resp);
     int n = -1;
     uintmax_t ver;
-    sscanf(resp, ADBX_PROTO_START_LINE "%n", &ver, uid, &n);
+    sscanf(resp, FB_ADB_PROTO_START_LINE "%n", &ver, uid, &n);
     if (n != -1 && build_time <= ver) {
         reslist_pop_nodestroy(rl_stub);
         return child;
@@ -188,10 +188,10 @@ start_stub_adb(bool force_send_stub,
 }
 
 static void
-shex_process_msg(struct adbx_sh* sh, struct msg mhdr)
+shex_process_msg(struct fb_adb_sh* sh, struct msg mhdr)
 {
     if (mhdr.type == MSG_CHILD_EXIT) {
-        struct adbx_shex* shex = (struct adbx_shex*) sh;
+        struct fb_adb_shex* shex = (struct fb_adb_shex*) sh;
         struct msg_child_exit m;
         read_cmdmsg(sh, mhdr, &m, sizeof (m));
         dbgmsg(&m.msg, "recv");
@@ -200,7 +200,7 @@ shex_process_msg(struct adbx_sh* sh, struct msg mhdr)
         return;
     }
 
-    adbx_sh_process_msg(sh, mhdr);
+    fb_adb_sh_process_msg(sh, mhdr);
 }
 
 static bool
@@ -440,7 +440,7 @@ command_re_exec_as_root(struct child* child)
     int n = -1;
     int uid;
     uintmax_t ver;
-    sscanf(resp, ADBX_PROTO_START_LINE "%n", &ver, &uid, &n);
+    sscanf(resp, FB_ADB_PROTO_START_LINE "%n", &ver, &uid, &n);
 
     if (n == -1)
         die(ECOMM, "trouble re-execing adb stub as root: %s", resp);
@@ -596,9 +596,9 @@ shex_main_common(enum shex_mode smode, int argc, const char** argv)
     write_all_adb_encoded(child->fd[0]->fd, hello_msg, hello_msg->msg.size);
     send_cmdline(child->fd[0]->fd, argc, argv, exename);
 
-    struct adbx_shex shex;
+    struct fb_adb_shex shex;
     memset(&shex, 0, sizeof (shex));
-    struct adbx_sh* sh = &shex.sh;
+    struct fb_adb_sh* sh = &shex.sh;
 
     sh->poll_mask = &orig_sigmask;
     sh->max_outgoing_msg = cmd_bufsz;
