@@ -1,3 +1,4 @@
+// Copyright 2004-present Facebook. All Rights Reserved.
 #pragma once
 /* Some platforms prefix normal symbols with underscores; some don't.
  * Override this default behavior so we can use the same ASM symbol

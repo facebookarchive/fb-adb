@@ -1,3 +1,4 @@
+// Copyright 2004-present Facebook. All Rights Reserved.
 #include <assert.h>
 #include <stdio.h>
 #include <stdint.h>

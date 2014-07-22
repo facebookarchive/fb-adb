@@ -1,3 +1,4 @@
+// Copyright 2004-present Facebook. All Rights Reserved.
 #pragma once
 #include <stddef.h>
 size_t argv_count(const char* const* argv);

@@ -1,3 +1,4 @@
+// Copyright 2004-present Facebook. All Rights Reserved.
 #pragma once
 struct termios;
 void xtcgetattr(int fd, struct termios* attr);

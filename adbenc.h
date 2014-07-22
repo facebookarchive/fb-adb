@@ -1,3 +1,4 @@
+// Copyright 2004-present Facebook. All Rights Reserved.
 #pragma once
 
 void adb_encode(unsigned* inout_state,

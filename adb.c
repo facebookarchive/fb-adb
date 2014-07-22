@@ -1,3 +1,4 @@
+// Copyright 2004-present Facebook. All Rights Reserved.
 #include <stdlib.h>
 #include <sys/types.h>
 #include <ctype.h>

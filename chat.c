@@ -1,3 +1,4 @@
+// Copyright 2004-present Facebook. All Rights Reserved.
 #include <stdio.h>
 #include <string.h>
 #include <errno.h>

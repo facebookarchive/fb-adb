@@ -1,3 +1,4 @@
+// Copyright 2004-present Facebook. All Rights Reserved.
 #include <errno.h>
 #include <stddef.h>
 #include "adbenc.h"

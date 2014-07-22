@@ -1,3 +1,4 @@
+# Copyright 2004-present Facebook. All Rights Reserved.
 # Link most objects in a library first so that timestamp.c can depend
 # on that library and get regenerated only when it changes.
 bin_PROGRAMS = fb-adb

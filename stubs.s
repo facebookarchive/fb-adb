@@ -1,3 +1,4 @@
+/* Copyright 2004-present Facebook. All Rights Reserved. */
         .macro bin_data sym, file
         .global \sym
 \sym\():
