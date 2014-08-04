@@ -12,3 +12,5 @@
 
 bin_data arm_stub, "stub-arm/fb-adb"
 bin_data x86_stub, "stub-x86/fb-adb"
+bin_data arm_pic_stub, "stub-arm-pic/fb-adb"
+bin_data x86_pic_stub, "stub-x86-pic/fb-adb"

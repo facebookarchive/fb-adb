@@ -171,13 +171,18 @@ start_stub_adb(bool force_send_stub,
         child = try_adb_stub(&csi, uid, &err);
 
 #ifndef BUILD_STUB
-    if (!child) {
-        send_stub(arm_stub, arm_stubsz, adb_args);
-        child = try_adb_stub(&csi, uid, &err);
-    }
+    const struct {
+        const void* data;
+        size_t size;
+    } stubs[] = {
+        { arm_pic_stub, arm_pic_stubsz },
+        { x86_pic_stub, x86_pic_stubsz },
+        { arm_stub, arm_stubsz },
+        { x86_stub, x86_stubsz },
+    };
 
-    if (!child) {
-        send_stub(x86_stub, x86_stubsz, adb_args);
+    for (unsigned i = 0; i < ARRAYSIZE(stubs) && !child; ++i) {
+        send_stub(stubs[i].data, stubs[i].size, adb_args);
         child = try_adb_stub(&csi, uid, &err);
     }
 #endif

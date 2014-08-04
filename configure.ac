@@ -71,14 +71,26 @@ dnl min(sizeof(buf), x)), unsigned x, tricks _FORTIFY_SOURCE into
 dnl thinking we might overflow the buffer, but we clearly can't.
 CPPFLAGS="$CPPFLAGS -U_FORTIFY_SOURCE -D_FORTIFY_SOURCE=0"
 
+dnl Each of these stub variants has a corresponding source
+dnl subdirectory; each subdirectory contains a dummy configure script
+dnl that re-invokes this script with BUILD_STUB on the command line.
+dnl To add a new stub variant, add a new entry to this list, new
+dnl subdirectories, and new entries in stubs.s.
+
+m4_define([stubs], [x86, arm, x86-pic, arm-pic])
+
 if test -z "$BUILD_STUB"; then
-   STUB_SUBDIRS="stub-x86 stub-arm"
-   STUB_BINARIES="stub-x86/fb-adb stub-arm/fb-adb"
-   AC_CONFIG_SUBDIRS([stub-x86 stub-arm])
-   AC_SUBST([STUB_BINARIES])
+  STUB_BINARIES=
+  STUB_SUBDIRS=
+  m4_foreach([xxstub], [stubs], [
+    AC_CONFIG_SUBDIRS(stub-xxstub)
+    STUB_BINARIES="$STUB_BINARIES stub-xxstub/fb-adb"
+    STUB_SUBDIRS="$STUB_SUBDIRS stub-xxstub"
+  ])
+  AC_SUBST([STUB_BINARIES])
 else
-   CPPFLAGS="$CPPFLAGS -DBUILD_STUB=1"
-   CFLAGS="$CFLAGS -Wno-format"
+  CPPFLAGS="$CPPFLAGS -DBUILD_STUB=1"
+  CFLAGS="$CFLAGS -Wno-format"
 fi
 
 AC_ARG_ENABLE([checking],
@@ -95,6 +107,7 @@ else
 fi
 
 AM_CONDITIONAL([BUILD_STUB], [test -n "$BUILD_STUB"])
+AM_CONDITIONAL([BUILD_PIC], [test -n "$BUILD_PIC"])
 AC_SUBST([STUB_SUBDIRS])
 AC_CONFIG_FILES([Makefile])
 echo "Checking enabled?    ${enable_checking}"

@@ -22,9 +22,17 @@ libfb_adb_a_SOURCES = \
 fb_adb_SOURCES = timestamp.c
 fb_adb_LDADD = libfb-adb.a
 
+AM_LDFLAGS=
+AM_CFLAGS=
+
 if BUILD_STUB
-AM_LDFLAGS = -flto
-AM_CFLAGS =
+AM_LDFLAGS += -flto
+AM_CFLAGS += -flto
+endif
+
+if BUILD_PIC
+AM_LDFLAGS += -fPIC -pie
+AM_CFLAGS += -fPIC
 endif
 
 AM_CPPFLAGS = -I.
