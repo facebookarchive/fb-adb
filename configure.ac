@@ -1,4 +1,12 @@
-dnl Copyright 2014 Facebook. All Rights Reserved.
+dnl Copyright (c) 2014, Facebook, Inc.
+dnl All rights reserved.
+dnl
+dnl This source code is licensed under the BSD-style license found in
+dnl the LICENSE file in the root directory of this source tree. An
+dnl  additional grant of patent rights can be found in the PATENTS file
+dnl in the same directory.
+dnl
+
 AC_INIT([fb-adb], [1.0], [dancol@fb.com])
 if test "$srcdir" = "."; then
    dnl We configure this directory multiple times, once for each stub
