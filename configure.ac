@@ -1,4 +1,4 @@
-dnl Copyright 2004-present Facebook. All Rights Reserved.
+dnl Copyright 2014 Facebook. All Rights Reserved.
 AC_INIT([fb-adb], [1.0], [dancol@fb.com])
 if test "$srcdir" = "."; then
    dnl We configure this directory multiple times, once for each stub
