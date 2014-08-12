@@ -1,4 +1,4 @@
-#!/bin/sh
+#!/bin/bash
 # Copyright (c) 2014, Facebook, Inc.
 # All rights reserved.
 #
