@@ -2,7 +2,7 @@ fb-adb is a tool for interacting with Android systems.  It does much of
 what adb does, but with better remote shell support and, hopefully,
 fewer bugs.  Differences between adb and fb-adb are that fb-adb:
 
-  * Binary clean (no LF -> CRLF mangling)
+  * binary clean (no LF -> CRLF mangling)
   * transmits and updates window size
   * distinguishes standard output and standard error
   * properly muxes streams with independent flow control
