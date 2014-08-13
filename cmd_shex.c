@@ -139,7 +139,8 @@ try_adb_stub(struct child_start_info* csi, int* uid, char** err)
     if (strlen(cmd) > promptw) {
         // The extra round trip sucks, but if we don't do this, mksh's
         // helpful line editing will screw up our echo detection.
-        chat_talk_at(cc, xaprintf("COLUMNS=%lu", promptw + strlen(cmd)));
+        unsigned long total_promptw = promptw + strlen(cmd);
+        chat_talk_at(cc, xaprintf("COLUMNS=%lu", total_promptw));
         chat_swallow_prompt(cc);
     }
 
