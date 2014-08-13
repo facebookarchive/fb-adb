@@ -10,6 +10,7 @@
  */
 #pragma once
 #include <stdint.h>
+#pragma pack(push, 1)
 
 /* The world is little-endian */
 
@@ -101,6 +102,8 @@ struct msg_cmdline_argument {
     struct msg msg;
     char value[0];
 };
+
+#pragma pack(pop)
 
 static const unsigned CHILD_STDIN = 2;
 static const unsigned CHILD_STDOUT = 3;

@@ -179,7 +179,10 @@ read_child_arglist(size_t expected)
         if (mhdr->type == MSG_CMDLINE_ARGUMENT) {
             m = (struct msg_cmdline_argument*) mhdr;
             if (mhdr->size < sizeof (*m))
-                die(ECOMM, "bad handshake");
+                die(ECOMM,
+                    "bad handshake: MSG_CMDLINE_ARGUMENT size %u < %u",
+                    (unsigned) mhdr->size,
+                    (unsigned) sizeof (*m));
 
             argval = m->value;
             arglen = m->msg.size - sizeof (*m);
@@ -195,7 +198,9 @@ read_child_arglist(size_t expected)
 
             arglen = strlen(argval);
         } else {
-            die(ECOMM, "bad handshake");
+            die(ECOMM,
+                "bad handshake: unknown init msg s=%u t=%u",
+                (unsigned) mhdr->size, (unsigned) mhdr->type);
         }
 
         argv[argno] = xalloc(arglen + 1);
