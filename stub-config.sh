@@ -15,6 +15,9 @@ for opt in "$@"; do
     if [[ $opt = --srcdir=* ]]; then
         srcdir=${opt:9}/..
         cfgopts+=(--srcdir="$srcdir")
+    elif [[ $opt = 'CC='* ]]; then
+        # Stub will choose CC for cross-compile
+        unset CC
     else
         cfgopts+=("$opt")
     fi
