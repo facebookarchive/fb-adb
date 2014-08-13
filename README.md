@@ -3,7 +3,7 @@ with Android systems. It does much of what adb does, but with better
 remote shell support and, hopefully, fewer bugs. Differences between
 adb and fb-adb are that fb-adb:
 
-  * binary clean (no LF -> CRLF mangling)
+  * is binary clean (no LF -> CRLF mangling)
   * transmits and updates window size
   * distinguishes standard output and standard error
   * properly muxes streams with independent flow control
