@@ -102,9 +102,8 @@ char*
 chat_read_line(struct chat* cc)
 {
     char line[512];
-    if (fgets(line, sizeof (line), cc->from) == NULL)
-        die(ECOMM, "lost connection to child");
-
+    line[0] = '\0';
+    fgets(line, sizeof (line), cc->from);
     size_t linesz = strlen(line);
     while (linesz > 0 && strchr("\r\n", line[linesz - 1]))
         linesz--;
