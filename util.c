@@ -23,6 +23,11 @@
 #include <sys/uio.h>
 #include <sys/queue.h>
 #include <libgen.h>
+#include <sys/socket.h>
+
+#ifndef SOCK_CLOEXEC
+#define SOCK_CLOEXEC O_CLOEXEC
+#endif
 
 #ifdef HAVE_KQUEUE
 #include <sys/types.h>
@@ -396,6 +401,28 @@ xpipe(int* read_end, int* write_end)
     cleanup_commit_close_fd(cl[1], fd[1]);
     *read_end = fd[0];
     *write_end = fd[1];
+}
+
+void
+xsocketpair(int domain, int type, int protocol,
+            int* s1, int* s2)
+{
+    struct cleanup* cl[2];
+    cl[0] = cleanup_allocate();
+    cl[1] = cleanup_allocate();
+
+    type |= SOCK_CLOEXEC;
+    int fd[2];
+    if (socketpair(domain, type, protocol, fd) < 0)
+        die_errno("socketpair");
+
+    assert_cloexec(fd[0]);
+    assert_cloexec(fd[1]);
+
+    cleanup_commit_close_fd(cl[0], fd[0]);
+    cleanup_commit_close_fd(cl[1], fd[1]);
+    *s1 = fd[0];
+    *s2 = fd[1];
 }
 
 #if !defined(F_DUPFD_CLOEXEC) && defined(__linux__)

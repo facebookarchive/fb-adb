@@ -237,13 +237,16 @@ start_child(struct msg_shex_hello* shex_hello)
     if (shex_hello->si[2].pty_p)
         csi.flags |= CHILD_PTY_STDERR;
 
+    if (shex_hello->stdio_socket_p)
+        csi.flags |= CHILD_SOCKETPAIR_STDIO;
+
     return child_start(&csi);
 }
 
 static void __attribute__((noreturn))
 re_exec_as_root()
 {
-    execlp("su", "su", "-c", xaprintf("%s stub", orig_argv0), NULL);
+    execlp("su", "su", "-c", orig_argv0, "stub", NULL);
     die_errno("execlp of su");
 }
 

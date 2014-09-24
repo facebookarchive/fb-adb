@@ -16,6 +16,8 @@
 #include <string.h>
 #include <signal.h>
 #include <unistd.h>
+#include <sys/socket.h>
+#include <sys/un.h>
 #include "child.h"
 
 struct internal_child_info {
@@ -133,18 +135,25 @@ child_start(const struct child_start_info* csi)
     int childfd[3];
     int parentfd[3];
 
-    if (flags & CHILD_PTY_STDIN) {
-        childfd[0] = xdup(pty_slave);
-        parentfd[0] = xdup(pty_master);
+    if (flags & CHILD_SOCKETPAIR_STDIO) {
+        flags &= ~(CHILD_PTY_STDIN | CHILD_PTY_STDOUT);
+        xsocketpair(AF_UNIX, SOCK_STREAM, 0, &childfd[0], &parentfd[0]);
+        childfd[1] = xdup(childfd[0]);
+        parentfd[1] = xdup(parentfd[0]);
     } else {
-        xpipe(&childfd[0], &parentfd[0]);
-    }
+        if (flags & CHILD_PTY_STDIN) {
+            childfd[0] = xdup(pty_slave);
+            parentfd[0] = xdup(pty_master);
+        } else {
+            xpipe(&childfd[0], &parentfd[0]);
+        }
 
-    if (flags & CHILD_PTY_STDOUT) {
-        childfd[1] = xdup(pty_slave);
-        parentfd[1] = xdup(pty_master);
-    } else {
-        xpipe(&parentfd[1], &childfd[1]);
+        if (flags & CHILD_PTY_STDOUT) {
+            childfd[1] = xdup(pty_slave);
+            parentfd[1] = xdup(pty_master);
+        } else {
+            xpipe(&parentfd[1], &childfd[1]);
+        }
     }
 
     // If child has a pty for both stdout and stderr, from our POV, it

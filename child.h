@@ -11,13 +11,14 @@
 #pragma once
 #include "util.h"
 
-#define CHILD_PTY_STDIN  0x1
-#define CHILD_PTY_STDOUT 0x2
-#define CHILD_PTY_STDERR 0x4
-#define CHILD_INHERIT_STDERR 0x8
-#define CHILD_MERGE_STDERR 0x10
-#define CHILD_CTTY 0x20
-#define CHILD_SETSID 0x40
+#define CHILD_PTY_STDIN  (1<<0)
+#define CHILD_PTY_STDOUT (1<<1)
+#define CHILD_PTY_STDERR (1<<2)
+#define CHILD_INHERIT_STDERR (1<<3)
+#define CHILD_MERGE_STDERR (1<<4)
+#define CHILD_CTTY (1<<5)
+#define CHILD_SETSID (1<<6)
+#define CHILD_SOCKETPAIR_STDIO (1<<7)
 
 struct child_start_info {
     int flags;

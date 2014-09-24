@@ -94,6 +94,7 @@ struct msg_shex_hello {
     uint32_t ispeed;
     uint32_t ospeed;
     uint8_t posix_vdisable_value;
+    uint8_t stdio_socket_p;
     struct stream_information si[3];
     struct term_control tctl[0];
 };

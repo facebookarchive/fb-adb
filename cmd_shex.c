@@ -17,8 +17,6 @@
 #include <string.h>
 #include <sys/wait.h>
 #include <getopt.h>
-#include <sys/socket.h>
-#include <sys/un.h>
 #include <sys/ioctl.h>
 #include <termios.h>
 #include "util.h"
@@ -61,6 +59,10 @@ static const char usage[] = (
     "  -r\n"
     "  --root\n"
     "    Request a root shell.\n"
+    "\n"
+    "  -u\n"
+    "  --socket\n"
+    "    Use a socketpair for child stdin and stdout.\n"
     "\n"
     "  -h\n"
     "  --help\n"
@@ -473,6 +475,7 @@ shex_main_common(enum shex_mode smode, int argc, const char** argv)
     size_t our_stream_bufsz = DEFAULT_STREAM_BUFSZ;
     bool local_mode = false;
     enum { TTY_AUTO,
+           TTY_SOCKPAIR,
            TTY_DISABLE,
            TTY_ENABLE,
            TTY_SUPER_ENABLE } tty_mode = TTY_AUTO;
@@ -500,13 +503,14 @@ shex_main_common(enum shex_mode smode, int argc, const char** argv)
         { "force-tty", no_argument, NULL, 't' },
         { "disable-tty", no_argument, NULL, 'T' },
         { "root", no_argument, NULL, 'r' },
+        { "socket", no_argument, NULL, 'u' },
         { 0 }
     };
 
     for (;;) {
         char c = getopt_long(argc,
                              (char**) argv,
-                             "+:lhE:ftTdes:p:H:P:r",
+                             "+:lhE:ftTdes:p:H:P:ru",
                              opts,
                              NULL);
         if (c == -1)
@@ -552,6 +556,9 @@ shex_main_common(enum shex_mode smode, int argc, const char** argv)
                                     NULL},
                     NULL);
                 break;
+            case 'u':
+                tty_mode = TTY_SOCKPAIR;
+                break;
             case ':':
                 die(EINVAL, "missing option for -%c", optopt);
             case '?':
@@ -595,6 +602,10 @@ shex_main_common(enum shex_mode smode, int argc, const char** argv)
                        child_stream_bufsz,
                        args_to_send,
                        tty_flags);
+
+    if (tty_mode == TTY_SOCKPAIR) {
+        hello_msg->stdio_socket_p = 1;
+    }
 
     struct child* child;
     int uid;

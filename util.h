@@ -73,6 +73,8 @@ void* xcalloc(size_t sz);
 
 int xopen(const char* pathname, int flags, mode_t mode);
 void xpipe(int* read_end, int* write_end);
+void xsocketpair(int domain, int type, int protocol,
+                 int* s1, int* s2);
 int xdup(int fd);
 FILE* xfdopen(int fd, const char* mode);
 
