@@ -19,6 +19,7 @@
 #include <termios.h>
 #include <getopt.h>
 #include <sys/ioctl.h>
+#include <limits.h>
 #include "util.h"
 #include "child.h"
 #include "xmkraw.h"
@@ -250,6 +251,13 @@ re_exec_as_root()
     die_errno("execlp of su");
 }
 
+static void __attribute__((noreturn))
+re_exec_as_user(const char* username)
+{
+    execlp("run-as", "run-as", username, orig_argv0, "stub", NULL);
+    die_errno("execlp of run-as");
+}
+
 int
 stub_main(int argc, const char** argv)
 {
@@ -275,6 +283,20 @@ stub_main(int argc, const char** argv)
 
     if (mhdr->type == MSG_EXEC_AS_ROOT)
         re_exec_as_root(); // Never returns
+
+    if (mhdr->type == MSG_EXEC_AS_USER) {
+        struct msg_exec_as_user* umsg =
+            (struct msg_exec_as_user*) mhdr;
+        size_t username_length = umsg->msg.size - sizeof (*umsg);
+        if (username_length > INT_MAX)
+            die(ECOMM, "name length overflow");
+
+        const char* username =
+            xaprintf("%.*s",
+                     (int) username_length,
+                     umsg->username);
+        re_exec_as_user(username); // Never returns
+    }
 
     if (mhdr->type != MSG_SHEX_HELLO ||
         mhdr->size < sizeof (struct msg_shex_hello))

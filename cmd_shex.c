@@ -58,9 +58,13 @@ static const char usage[] = (
     "\n"
     "  -r\n"
     "  --root\n"
-    "    Request a root shell.\n"
+    "    Run remote command or shell as root.\n"
     "\n"
-    "  -u\n"
+    "  -u User\n"
+    "  --user USER\n"
+    "    Run remote command or shell as USER.\n"
+    "\n"
+    "  -U\n"
     "  --socket\n"
     "    Use a socketpair for child stdin and stdout.\n"
     "\n"
@@ -467,6 +471,38 @@ command_re_exec_as_root(struct child* child)
         die(ECOMM, "told child to re-exec as root; gave us uid=%d", uid);
 }
 
+static void
+command_re_exec_as_user(struct child* child, const char* username)
+{
+    SCOPED_RESLIST(rl_re_exec_as_root);
+
+    // Tell child to re-exec itself as our user.  It'll send another
+    // hello message, which we read below.
+
+    struct msg_exec_as_user* m;
+    size_t username_length = strlen(username);
+    size_t alloc_size = sizeof (*m);
+    if (SATADD(&alloc_size, alloc_size, username_length))
+        die(EINVAL, "username too long");
+
+    m = xcalloc(alloc_size);
+    m->msg.size = alloc_size;
+    m->msg.type = MSG_EXEC_AS_USER;
+    memcpy(m->username, username, username_length);
+    write_all_adb_encoded(child->fd[0]->fd, m, m->msg.size);
+
+    struct chat* cc = chat_new(child->fd[0]->fd, child->fd[1]->fd);
+    char* resp = chat_read_line(cc);
+    int n = -1;
+    int uid;
+    uintmax_t ver;
+    sscanf(resp, FB_ADB_PROTO_START_LINE "%n", &ver, &uid, &n);
+
+    if (n == -1)
+        die(ECOMM, "trouble re-execing adb stub as %s: %s",
+            username, resp);
+}
+
 static int
 shex_main_common(enum shex_mode smode, int argc, const char** argv)
 {
@@ -487,6 +523,7 @@ shex_main_common(enum shex_mode smode, int argc, const char** argv)
     struct tty_flags tty_flags[3];
     const char* const* adb_args = empty_argv;
     bool want_root = false;
+    char* want_user = NULL;
 
     memset(&tty_flags, 0, sizeof (tty_flags));
     for (int i = 0; i < 3; ++i)
@@ -503,14 +540,15 @@ shex_main_common(enum shex_mode smode, int argc, const char** argv)
         { "force-tty", no_argument, NULL, 't' },
         { "disable-tty", no_argument, NULL, 'T' },
         { "root", no_argument, NULL, 'r' },
-        { "socket", no_argument, NULL, 'u' },
+        { "socket", no_argument, NULL, 'U' },
+        { "user", required_argument, NULL, 'u' },
         { 0 }
     };
 
     for (;;) {
         char c = getopt_long(argc,
                              (char**) argv,
-                             "+:lhE:ftTdes:p:H:P:ru",
+                             "+:lhE:ftTdes:p:H:P:rUu:",
                              opts,
                              NULL);
         if (c == -1)
@@ -518,6 +556,8 @@ shex_main_common(enum shex_mode smode, int argc, const char** argv)
 
         switch (c) {
             case 'r':
+                if (want_user != NULL)
+                    die(EINVAL, "cannot both run-as user and su to root");
                 want_root = true;
                 break;
             case 'E':
@@ -556,8 +596,13 @@ shex_main_common(enum shex_mode smode, int argc, const char** argv)
                                     NULL},
                     NULL);
                 break;
-            case 'u':
+            case 'U':
                 tty_mode = TTY_SOCKPAIR;
+                break;
+            case 'u':
+                if (want_root)
+                    die(EINVAL, "cannot both run-as user and su to root");
+                want_user = xstrdup(optarg);
                 break;
             case ':':
                 die(EINVAL, "missing option for -%c", optopt);
@@ -619,6 +664,9 @@ shex_main_common(enum shex_mode smode, int argc, const char** argv)
 
     if (want_root && uid != 0)
         command_re_exec_as_root(child);
+
+    if (want_user)
+        command_re_exec_as_user(child, want_user);
 
     write_all_adb_encoded(child->fd[0]->fd, hello_msg, hello_msg->msg.size);
     send_cmdline(child->fd[0]->fd, argc, argv, exename);
