@@ -118,7 +118,19 @@ child_start(const struct child_start_info* csi)
             die_errno("grantpt/unlockpt");
 
 #ifdef HAVE_PTSNAME
-        char* pty_slave_name = xstrdup(ptsname(pty_master));
+        char* pty_slave_name = NULL;
+/*
+ * stdlib.h provided by OS X does not declare ptsname_r()
+ */
+#ifdef __APPLE__
+        pty_slave_name = xstrdup(ptsname(pty_master));
+#else
+        size_t buflen = 256;
+        char buffer[buflen];
+        ptsname_r(pty_master, buffer, buflen);
+        pty_slave_name = xstrdup(buffer);
+#endif
+
 #else
         int pty_slave_num;
         if (ioctl(pty_master, TIOCGPTN, &pty_slave_num) != 0)
