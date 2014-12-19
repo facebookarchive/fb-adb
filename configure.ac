@@ -32,6 +32,8 @@ if ! test -f "$andk/build/tools/make-standalone-toolchain.sh"; then
    AC_MSG_ERROR([Android NDK not in "$andk"])
 fi
 
+echo "Using Android NDK at $andk"
+
 latestp=$(ls -1 "$andk"/platforms | sort -rk2 -t- -n | head -1)
 AC_ARG_WITH([android-platform],
             AS_HELP_STRING([--with-android-platform=NR],
