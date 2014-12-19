@@ -118,6 +118,8 @@ child_start(const struct child_start_info* csi)
             die_errno("grantpt/unlockpt");
 
 #ifdef HAVE_PTSNAME
+        // Yes, yes, ptsname is not thread-safe.  We're
+        // single-threaded.
         char* pty_slave_name = xstrdup(ptsname(pty_master));
 #else
         int pty_slave_num;

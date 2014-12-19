@@ -34,12 +34,17 @@ fi
 
 echo "Using Android NDK at $andk"
 
-latestp=$(ls -1 "$andk"/platforms | sort -rk2 -t- -n | head -1)
+dnl We default to android-19 because it's broadly compatible
+
 AC_ARG_WITH([android-platform],
             AS_HELP_STRING([--with-android-platform=NR],
-            [Android NDK API version (default latest)]))
+            [Android NDK API version (default android-19)]))
 if test -z "$with_android_platform"; then
-   platform=$latestp
+   platform=android-19
+fi
+
+if test "$platform" = "latest"; then
+   platform=$(ls -1 "$andk"/platforms | sort -rk2 -t- -n | head -1)
 fi
 
 if test -n "$BUILD_STUB"; then
@@ -74,7 +79,7 @@ if test -n "$BUILD_STUB" && test -z "$is_android" ; then
    AC_MSG_ERROR([could not find Android cross-compiler for $host])
 fi
 
-CPPFLAGS="$CPPFLAGS -Wall -Werror -D_GNU_SOURCE=1"
+CPPFLAGS="$CPPFLAGS -Wall -D_GNU_SOURCE=1"
 
 dnl _FORTIFY_SOURCE produces too many false positives: read(fd, buf,
 dnl min(sizeof(buf), x)), unsigned x, tricks _FORTIFY_SOURCE into
