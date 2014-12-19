@@ -69,3 +69,4 @@ endif
 
 distclean-local:
 	rm -rf toolchain
+	rm -rf $(STUB_SUBDIRS)
