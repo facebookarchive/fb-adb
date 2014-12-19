@@ -33,6 +33,15 @@ cd build
 make
 ````
 
+Warning: by default, the build script will attempt to compile using the latest
+Android API. If you compile fb-adb using android-21 or later, your binary will
+be incompatible with older versions of Android.  To maintain compatibility
+while using the latest NDK version, you have to manually specify the target sdk
+version:
+````
+../configure --with-android-platform=19
+````
+
 RUNNING
 -------
 
