@@ -44,3 +44,9 @@ the same device-selection options that adb does.
 `fb-adb shell` is the fancy shell command that supports the features
 described above.  Run `fb-adb shell -h` for additional options.
 
+EXAMPLES
+--------
+
+* Capture a screenshot from device and write it locally to a timestamped file:
+
+    `fb-adb screencap -p  > screenshot-$(timestamp).png`
