@@ -49,4 +49,12 @@ EXAMPLES
 
 * Capture a screenshot from device and write it locally to a timestamped file:
 
-    `fb-adb screencap -p  > screenshot-$(timestamp).png`
+    `fb-adb rcmd screencap -p > screenshot-$(timestamp).png`
+
+* Dump `database.db` of the `com.bar.foo` app:
+
+    `fb-adb rcmd -u com.bar.foo sqlite3 /data/data/com.bar.foo/databases/database.db .d`
+
+* Open remote shell as the user `com.bar.foo`:
+
+    `fb-adb shell -u com.bar.foo`
