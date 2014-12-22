@@ -125,6 +125,8 @@ send_stub(const void* data, size_t datasz, const char* const* adb_args)
     FILE* tmpfile = xnamed_tempfile(&tmpfilename);
     if (fwrite(data, datasz, 1, tmpfile) != 1)
         die_errno("fwrite");
+    if (fflush(tmpfile) == -1)
+        die_errno("fflush");
     if (fchmod(fileno(tmpfile), 0755) == -1)
         die_errno("fchmod");
     adb_send_file(tmpfilename, FB_ADB_REMOTE_FILENAME, adb_args);
