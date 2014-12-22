@@ -9,15 +9,12 @@
  *
  */
 #pragma once
-/* Some platforms prefix normal symbols with underscores; some don't.
- * Override this default behavior so we can use the same ASM symbol
- * names everywhere.  */
+#include <stddef.h>
 
-extern char arm_stub[] asm("arm_stub");
-extern unsigned arm_stubsz asm("arm_stubsz");
-extern char x86_stub[] asm("x86_stub");
-extern unsigned x86_stubsz asm("x86_stubsz");
-extern char arm_pic_stub[] asm("arm_pic_stub");
-extern unsigned arm_pic_stubsz asm("arm_pic_stubsz");
-extern char x86_pic_stub[] asm("x86_pic_stub");
-extern unsigned x86_pic_stubsz asm("x86_pic_stubsz");
+struct fbadb_stub {
+    const void* data;
+    size_t size;
+};
+
+extern const struct fbadb_stub stubs[];
+extern const size_t nr_stubs;

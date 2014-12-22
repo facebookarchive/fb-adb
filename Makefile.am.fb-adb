@@ -8,17 +8,21 @@
 # in the same directory.
 #
 
-libfb_adb_a_SOURCES += cmd_shex.c
-AM_CPPFLAGS += -DFBADB_MAIN=1
-
 SUBDIRS = $(STUB_SUBDIRS)
-DIST_SUBDIRS = 
+DIST_SUBDIRS =
 
 bin_PROGRAMS = fb-adb
-fb_adb_SOURCES += stubs.s
+
+AM_CPPFLAGS += -DFBADB_MAIN=1
+libfb_adb_a_SOURCES += cmd_shex.c stubs.h
+
+nodist_fb_adb_SOURCES += stubs.c
+CLEANFILES += stubs.c
+stubs.c: $(srcdir)/mkstubsc.sh $(STUB_BINARIES)
+	XXD="$(XXD)" $(srcdir)/mkstubsc.sh $(STUB_BINARIES) > $@
+
 timestamp.c: timestamp.c.in libfb-adb.a
 	$(SED) -e "s/BUILD_TIME/`date +%s`/" $< > $@
-
 
 dist-hook:
 	for x in $(STUB_SUBDIRS); do \
@@ -32,8 +36,8 @@ distclean-local:
 	done
 	rmdir $(STUB_SUBDIRS)
 
-stubs.o: $(STUB_BINARIES)
-
 EXTRA_DIST =
 EXTRA_DIST += README.md LICENSE PATENTS NEWS stub-config.sh
 EXTRA_DIST += timestamp.c.in termnames.h.in termnames.sed
+EXTRA_DIST += mkstubsc.sh
+

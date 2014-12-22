@@ -67,11 +67,17 @@ AM_INIT_AUTOMAKE([-Wall -Werror foreign])
 AC_SUBST([PATH])
 
 AC_PROG_CC_C99
-AM_PROG_AS
 AC_PROG_SED
-
 AC_PROG_RANLIB
 AM_PROG_AR
+
+if test -z "$BUILD_STUB"; then
+  AC_PATH_PROG([XXD], [xxd])
+  if test -z "$XXD"; then
+    AC_MSG_ERROR([xxd is required to build])
+  fi
+fi
+
 AC_CHECK_FUNCS([ppoll signalfd4 dup3 mkostemp kqueue pipe2 ptsname])
 
 is_android=$(echo "$CC" | grep android)
@@ -92,15 +98,15 @@ dnl that re-invokes this script with BUILD_STUB on the command line.
 dnl To add a new stub variant, add a new entry to this list, new
 dnl subdirectories, and new entries in stubs.s.
 
-m4_define([stubs], [x86, arm, x86-pic, arm-pic])
+m4_define([stubs], [stub-x86, stub-arm, stub-x86-pic, stub-arm-pic])
 
 if test -z "$BUILD_STUB"; then
   STUB_BINARIES=
   STUB_SUBDIRS=
   m4_foreach([xxstub], [stubs], [
-    AC_CONFIG_SUBDIRS(stub-xxstub)
-    STUB_BINARIES="$STUB_BINARIES stub-xxstub/stub"
-    STUB_SUBDIRS="$STUB_SUBDIRS stub-xxstub"
+    AC_CONFIG_SUBDIRS(xxstub)
+    STUB_BINARIES="$STUB_BINARIES xxstub/stub"
+    STUB_SUBDIRS="$STUB_SUBDIRS xxstub"
   ])
   AC_SUBST([STUB_BINARIES])
 fi
