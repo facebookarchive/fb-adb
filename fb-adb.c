@@ -153,6 +153,9 @@ real_main(int argc, char** argv)
     {
         usage();
         return 0;
+    } else if (!strcmp(prgarg, "--version")) {
+        printf("fb-adb %s\n", PACKAGE_VERSION);
+        return 0;
     } else {
         execvp("adb", argv);
         die(EINVAL, "could not exec adb: %s", strerror(errno));
