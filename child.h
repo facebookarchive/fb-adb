@@ -27,6 +27,7 @@ struct child_start_info {
     void (*pty_setup)(int master, int slave, void* data);
     void* pty_setup_data;
     int deathsig;
+    const char* child_chdir;
 };
 
 struct child {

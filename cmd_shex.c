@@ -61,13 +61,22 @@ static const char usage[] = (
     "  --root\n"
     "    Run remote command or shell as root.\n"
     "\n"
-    "  -u User\n"
+    "  -u USER\n"
     "  --user USER\n"
     "    Run remote command or shell as USER.\n"
     "\n"
     "  -U\n"
     "  --socket\n"
     "    Use a socketpair for child stdin and stdout.\n"
+    "\n"
+    "  -D\n"
+    "  --no-ctty\n"
+    "    Run child without a controlling terminal.  On disconnect,\n"
+    "    child will not receive SIGHUP as it normally would.\n"
+    "\n"
+    "  -C DIR\n"
+    "  --chdir DIR\n"
+    "    Change to DIR before executing child.\n"
     "\n"
     "  -h\n"
     "  --help\n"
@@ -456,6 +465,28 @@ command_re_exec_as_user(struct child* child, const char* username)
             username, resp);
 }
 
+static void
+send_chdir(int fd, const char* child_chdir)
+{
+    size_t dirsz;
+    size_t totalsz;
+    struct msg_chdir mchd;
+
+    dirsz = strlen(child_chdir);
+
+    if (SATADD(&totalsz, dirsz, sizeof (mchd)) || totalsz > UINT16_MAX)
+        die(EINVAL, "directory too long");
+
+    memset(&mchd, 0, sizeof (mchd));
+    mchd.msg.size = totalsz;
+    mchd.msg.type = MSG_CHDIR;
+
+    dbg("sending chdir to [%s] %hu", child_chdir, mchd.msg.size);
+
+    write_all_adb_encoded(fd, &mchd, sizeof (mchd));
+    write_all_adb_encoded(fd, child_chdir, dirsz);
+}
+
 static int
 shex_main_common(enum shex_mode smode, int argc, const char** argv)
 {
@@ -477,6 +508,8 @@ shex_main_common(enum shex_mode smode, int argc, const char** argv)
     const char* const* adb_args = empty_argv;
     bool want_root = false;
     char* want_user = NULL;
+    bool want_ctty = true;
+    char* child_chdir = NULL;
 
     memset(&tty_flags, 0, sizeof (tty_flags));
     for (int i = 0; i < 3; ++i)
@@ -492,16 +525,18 @@ shex_main_common(enum shex_mode smode, int argc, const char** argv)
         { "force-send-stub", no_argument, NULL, 'f' },
         { "force-tty", no_argument, NULL, 't' },
         { "disable-tty", no_argument, NULL, 'T' },
+        { "no-ctty", no_argument, NULL, 'D' },
         { "root", no_argument, NULL, 'r' },
         { "socket", no_argument, NULL, 'U' },
         { "user", required_argument, NULL, 'u' },
+        { "chdir", required_argument, NULL, 'C' },
         { 0 }
     };
 
     for (;;) {
         char c = getopt_long(argc,
                              (char**) argv,
-                             "+:lhE:ftTdes:p:H:P:rUu:",
+                             "+:lhE:ftTdes:p:H:P:rUu:DC:",
                              opts,
                              NULL);
         if (c == -1)
@@ -557,6 +592,12 @@ shex_main_common(enum shex_mode smode, int argc, const char** argv)
                     die(EINVAL, "cannot both run-as user and su to root");
                 want_user = xstrdup(optarg);
                 break;
+            case 'D':
+                want_ctty = false;
+                break;
+            case 'C':
+                child_chdir = xstrdup(optarg);
+                break;
             case ':':
                 die(EINVAL, "missing option for -%c", optopt);
             case '?':
@@ -605,6 +646,9 @@ shex_main_common(enum shex_mode smode, int argc, const char** argv)
         hello_msg->stdio_socket_p = 1;
     }
 
+    if (want_ctty)
+        hello_msg->ctty_p = 1;
+
     struct child* child;
     int uid;
     if (local_mode) {
@@ -622,6 +666,10 @@ shex_main_common(enum shex_mode smode, int argc, const char** argv)
         command_re_exec_as_user(child, want_user);
 
     write_all_adb_encoded(child->fd[0]->fd, hello_msg, hello_msg->msg.size);
+
+    if (child_chdir)
+        send_chdir(child->fd[0]->fd, child_chdir);
+    
     send_cmdline(child->fd[0]->fd, argc, argv, exename);
 
     struct fb_adb_shex shex;

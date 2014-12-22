@@ -32,6 +32,15 @@ static void
 child_child_1(void* arg)
 {
     struct internal_child_info* ci = arg;
+
+    /* dup2 resets O_CLOEXEC */
+    for (int i = 0; i < 3; ++i)
+        if (dup2(ci->childfd[i], i) == -1)
+            die_errno("dup2(%d->%d)", ci->childfd[i], i);
+
+    if (ci->csi->child_chdir && chdir(ci->csi->child_chdir) == -1)
+        die_errno("chdir");
+
     if (ci->flags & CHILD_SETSID)
         if (setsid() == (pid_t) -1)
             die_errno("setsid");
@@ -42,11 +51,6 @@ child_child_1(void* arg)
         if (tcsetpgrp(ci->pty_slave, getpid()) == -1)
             die_errno("tcsetpgrp");
     }
-
-    /* dup2 resets O_CLOEXEC */
-    for (int i = 0; i < 3; ++i)
-        if (dup2(ci->childfd[i], i) == -1)
-            die_errno("dup2(%d->%d)", ci->childfd[i], i);
 
     sigset_t blocked;
     sigemptyset(&blocked);

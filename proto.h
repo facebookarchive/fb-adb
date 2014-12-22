@@ -27,6 +27,7 @@ enum msg_type {
     MSG_CMDLINE_DEFAULT_SH_LOGIN,
     MSG_EXEC_AS_ROOT,
     MSG_EXEC_AS_USER,
+    MSG_CHDIR,
 };
 
 struct msg {
@@ -96,6 +97,7 @@ struct msg_shex_hello {
     uint32_t ospeed;
     uint8_t posix_vdisable_value;
     uint8_t stdio_socket_p;
+    uint8_t ctty_p;
     struct stream_information si[3];
     struct term_control tctl[0];
 };
@@ -108,6 +110,11 @@ struct msg_cmdline_argument {
 struct msg_exec_as_user {
     struct msg msg;
     char username[0];
+};
+
+struct msg_chdir {
+    struct msg msg;
+    char dir[0];
 };
 
 #pragma pack(pop)

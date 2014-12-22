@@ -159,10 +159,13 @@ setup_pty(int master, int slave, void* arg)
     }
 }
 
-static char**
-read_child_arglist(size_t expected)
+static void
+read_child_arglist(size_t expected,
+                   char*** out_argv,
+                   const char** out_cwd)
 {
     char** argv;
+    const char* cwd = "/";
 
     if (expected >= SIZE_MAX / sizeof (*argv))
         die(EFBIG, "too many arguments");
@@ -198,6 +201,13 @@ read_child_arglist(size_t expected)
                 argval = xaprintf("-%s", argval);
 
             arglen = strlen(argval);
+        } else if (mhdr->type == MSG_CHDIR) {
+            struct msg_chdir* mchd = (struct msg_chdir*) mhdr;
+            cwd = xaprintf("%.*s",
+                           (int) (mhdr->size - sizeof (*mchd)),
+                           mchd->dir);
+            --argno;
+            continue;
         } else {
             die(ECOMM,
                 "bad handshake: unknown init msg s=%u t=%u",
@@ -210,7 +220,8 @@ read_child_arglist(size_t expected)
     }
 
     argv[expected] = NULL;
-    return argv;
+    *out_argv = argv;
+    *out_cwd = cwd;
 }
 
 static struct child*
@@ -220,7 +231,11 @@ start_child(struct msg_shex_hello* shex_hello)
         die(ECOMM, "insufficient arguments given");
 
     SCOPED_RESLIST(rl_args);
-    char** child_args = read_child_arglist(shex_hello->nr_argv);
+    char** child_args;
+    const char* child_chdir = NULL;
+    read_child_arglist(shex_hello->nr_argv,
+                       &child_args, &child_chdir);
+
     reslist_pop_nodestroy(rl_args);
     struct child_start_info csi = {
         .flags = CHILD_SETSID,
@@ -229,6 +244,7 @@ start_child(struct msg_shex_hello* shex_hello)
         .pty_setup = setup_pty,
         .pty_setup_data = shex_hello,
         .deathsig = -SIGHUP,
+        .child_chdir = child_chdir,
     };
 
     if (shex_hello->si[0].pty_p)
@@ -240,6 +256,9 @@ start_child(struct msg_shex_hello* shex_hello)
 
     if (shex_hello->stdio_socket_p)
         csi.flags |= CHILD_SOCKETPAIR_STDIO;
+
+    if (shex_hello->ctty_p)
+        csi.flags |= CHILD_CTTY;
 
     return child_start(&csi);
 }

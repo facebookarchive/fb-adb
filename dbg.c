@@ -188,6 +188,14 @@ dbgmsg(struct msg* msg, const char* tag)
             dbg("%s MSG_CHILD_EXIT status=%u", tag, m->exit_status);
             break;
         }
+        case MSG_CHDIR: {
+            struct msg_chdir* m = (void*) msg;
+            dbg("%s MSG_CHDIR dir=%.*s",
+                tag,
+                (int) (m->msg.size - sizeof (*m)),
+                m->dir);
+            break;
+        }
         default: {
             dbg("%s MSG_??? type=%d sz=%d", tag, msg->type, msg->size);
             break;
