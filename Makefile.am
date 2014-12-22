@@ -71,3 +71,5 @@ include Makefile.am.stub
 else
 include Makefile.am.fb-adb
 endif
+
+.DELETE_ON_ERROR:
