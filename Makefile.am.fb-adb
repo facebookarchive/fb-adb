@@ -1,0 +1,36 @@
+# -*- makefile-automake -*-
+# Copyright (c) 2014, Facebook, Inc.
+# All rights reserved.
+#
+# This source code is licensed under the BSD-style license found in
+# the LICENSE file in the root directory of this source tree. An
+# additional grant of patent rights can be found in the PATENTS file
+# in the same directory.
+#
+
+SUBDIRS = $(STUB_SUBDIRS)
+DIST_SUBDIRS = 
+
+bin_PROGRAMS = fb-adb
+fb_adb_SOURCES += stubs.s
+timestamp.c: timestamp.c.in libfb-adb.a
+	$(SED) -e "s/BUILD_TIME/`date +%s`/" $< > $@
+
+
+dist-hook:
+	for x in $(STUB_SUBDIRS); do \
+		mkdir -p $(distdir)/$$x; \
+		cp -f $(srcdir)/$$x/configure $(distdir)/$$x; \
+	done
+
+distclean-local:
+	for x in $(STUB_SUBDIRS); do \
+		if test -d $$x; then $(MAKE) -C $$x distclean; fi; \
+	done
+	rmdir $(STUB_SUBDIRS)
+
+stubs.o: $(STUB_BINARIES)
+
+EXTRA_DIST =
+EXTRA_DIST += README.md LICENSE PATENTS NEWS stub-config.sh
+EXTRA_DIST += timestamp.c.in termnames.h.in termnames.sed

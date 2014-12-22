@@ -1,0 +1,35 @@
+# -*- makefile-automake -*-
+# Copyright (c) 2014, Facebook, Inc.
+# All rights reserved.
+#
+# This source code is licensed under the BSD-style license found in
+# the LICENSE file in the root directory of this source tree. An
+# additional grant of patent rights can be found in the PATENTS file
+# in the same directory.
+#
+
+noinst_PROGRAMS = fb-adb
+
+dummy-update-timestamp:
+	$(MAKE) -C .. timestamp.c
+timestamp.c: dummy-update-timestamp
+	cp -fp ../timestamp.c $@
+
+AM_LDFLAGS += -flto
+AM_CFLAGS += -flto
+
+if STRIP_STUBS
+stub$(EXEEXT): fb-adb$(EXEEXT)
+	$(STRIP) -o $@ $<
+else
+stub$(EXEEXT): fb-adb$(EXEEXT)
+	cp -fp $< $@
+endif
+
+all-local: stub$(EXEEXT)
+
+distclean-local:
+	rm -rf toolchain
+
+clean-local:
+	rm -f stub
