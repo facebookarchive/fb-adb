@@ -24,7 +24,6 @@ libfb_adb_a_SOURCES = \
 	chat.h \
 	child.c \
 	child.h \
-	cmd_shex.c \
 	cmd_stub.c \
 	constants.h \
 	core.c \
@@ -49,15 +48,15 @@ fb_adb_SOURCES =
 nodist_fb_adb_SOURCES = timestamp.c
 fb_adb_LDADD = libfb-adb.a
 
-AM_LDFLAGS=
-AM_CFLAGS=
+AM_CPPFLAGS = -I.
+AM_CFLAGS =
+AM_LDFLAGS =
 
 if BUILD_PIC
-AM_LDFLAGS += -fPIC -pie
 AM_CFLAGS += -fPIC
+AM_LDFLAGS += -fPIC -pie
 endif
 
-AM_CPPFLAGS = -I.
 BUILT_SOURCES = timestamp.c
 
 $(srcdir)/termbits.c: termnames.h

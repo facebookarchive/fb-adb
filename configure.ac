@@ -103,9 +103,6 @@ if test -z "$BUILD_STUB"; then
     STUB_SUBDIRS="$STUB_SUBDIRS stub-xxstub"
   ])
   AC_SUBST([STUB_BINARIES])
-else
-  CPPFLAGS="$CPPFLAGS -DBUILD_STUB=1"
-  CFLAGS="$CFLAGS -Wno-format"
 fi
 
 AC_ARG_ENABLE([checking],

@@ -8,6 +8,9 @@
 # in the same directory.
 #
 
+libfb_adb_a_SOURCES += cmd_shex.c
+AM_CPPFLAGS += -DFBADB_MAIN=1
+
 SUBDIRS = $(STUB_SUBDIRS)
 DIST_SUBDIRS = 
 

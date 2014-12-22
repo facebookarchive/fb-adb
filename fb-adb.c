@@ -19,8 +19,11 @@
 #include "util.h"
 
 extern int stub_main(int, const char**);
+
+#if FBADB_MAIN
 extern int shex_main(int, const char**);
 extern int shex_main_rcmd(int, const char**);
+#endif
 
 __attribute__((noreturn))
 static void
@@ -109,6 +112,7 @@ real_main(int argc, char** argv)
     int (*sub_main)(int, const char**) = NULL;
     if (!strcmp(prgarg, "stub")) {
         sub_main = stub_main;
+#if FBADB_MAIN
     } else if (!strcmp(prgarg, "shellx") || !strcmp(prgarg, "sh")) {
         sub_main = shex_main;
     } else if (!strcmp(prgarg, "shell") &&
@@ -117,6 +121,7 @@ real_main(int argc, char** argv)
         sub_main = shex_main;
     } else if (!strcmp(prgarg, "rcmd")) {
         sub_main = shex_main_rcmd;
+#endif
     } else if (!strcmp(prgarg, "help") ||
                !strcmp(prgarg, "-h") ||
                !strcmp(prgarg, "--help"))

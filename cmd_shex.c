@@ -116,7 +116,6 @@ start_stub_local(void)
     return child;
 }
 
-#ifndef BUILD_STUB
 static void
 send_stub(const void* data, size_t datasz, const char* const* adb_args)
 {
@@ -131,7 +130,6 @@ send_stub(const void* data, size_t datasz, const char* const* adb_args)
         die_errno("fchmod");
     adb_send_file(tmpfilename, FB_ADB_REMOTE_FILENAME, adb_args);
 }
-#endif
 
 static struct child*
 try_adb_stub(struct child_start_info* csi, int* uid, char** err)
@@ -188,7 +186,6 @@ start_stub_adb(bool force_send_stub,
     if (!force_send_stub)
         child = try_adb_stub(&csi, uid, &err);
 
-#ifndef BUILD_STUB
     const struct {
         const void* data;
         size_t size;
@@ -203,7 +200,6 @@ start_stub_adb(bool force_send_stub,
         send_stub(stubs[i].data, stubs[i].size, adb_args);
         child = try_adb_stub(&csi, uid, &err);
     }
-#endif
 
     if (!child)
         die(ECOMM, "trouble starting adb stub: %s", err);

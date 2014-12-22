@@ -15,8 +15,9 @@ dummy-update-timestamp:
 timestamp.c: dummy-update-timestamp
 	cp -fp ../timestamp.c $@
 
-AM_LDFLAGS += -flto
+AM_CPPFLAGS += -DFBADB_STUB=1
 AM_CFLAGS += -flto
+AM_LDFLAGS += -flto
 
 if STRIP_STUBS
 stub$(EXEEXT): fb-adb$(EXEEXT)
