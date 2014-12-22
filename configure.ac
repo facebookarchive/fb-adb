@@ -18,9 +18,12 @@ fi
 AC_CANONICAL_BUILD
 AC_CANONICAL_HOST
 
+platform=
 AC_ARG_WITH([android-ndk],
             AS_HELP_STRING([--with-android-ndk=NDK],
-            [Android NDK location (defaults to $ANDROID_NDK)]))
+            [Android NDK location (defaults to $ANDROID_NDK)
+             "system" means to try finding cross-compilers
+             in PATH instead of in an NDK.]))
 if test -z "$with_android_ndk" && test -n "$ANDROID_NDK"; then
    with_android_ndk=$ANDROID_NDK
 fi
@@ -28,39 +31,54 @@ if test -z "$with_android_ndk"; then
    AC_MSG_ERROR([Android NDK location not given])
 fi
 andk=$with_android_ndk
-if ! test -f "$andk/build/tools/make-standalone-toolchain.sh"; then
-   AC_MSG_ERROR([Android NDK not in "$andk"])
+if test "$andk" = "system"; then
+  echo "Using system Android cross-compilers"
+  platform=system
+else
+  if ! test -f "$andk/build/tools/make-standalone-toolchain.sh"; then
+     AC_MSG_ERROR([Android NDK not in "$andk"])
+  fi
+  echo "Using Android NDK at $andk"
 fi
-
-echo "Using Android NDK at $andk"
 
 dnl We default to android-19 because it's broadly compatible
-
 AC_ARG_WITH([android-platform],
-            AS_HELP_STRING([--with-android-platform=NR],
-            [Android NDK API version (default android-19)]))
-if test -z "$with_android_platform"; then
-   platform=android-19
+            AS_HELP_STRING([--with-android-platform=API-VERSION],
+            [Android NDK API version (default android-19).
+             "latest" means to use latest from the NDK.]))
+
+if test "$platform" = "system"; then
+  if test -n "$with_android_platform"; then
+    AC_MSG_ERROR([Cannot specify platform when using system cross-compilers])
+  fi
+else
+  if test -z "$with_android_platform"; then
+    platform=android-19
+  elif test "$with_android_platform" = "latest"; then
+    platform=$(ls -1 "$andk"/platforms | sort -rk2 -t- -n | head -1)
+  else
+    platform=$with_android_platform
+  fi
 fi
 
-if test "$platform" = "latest"; then
-   platform=$(ls -1 "$andk"/platforms | sort -rk2 -t- -n | head -1)
-fi
+if test "$platform" = "system"; then
+  true
+else
+  if test -n "$BUILD_STUB"; then
+     rm -rf toolchain
+     mkdir -p toolchain
+     if test $host_cpu = i686; then
+        toolchain_cpu=x86
+      else
+        toolchain_cpu=arm
+      fi
+     echo "Configuring native NDK toolchain for $platform/$toolchain_cpu"
 
-if test -n "$BUILD_STUB"; then
-   rm -rf toolchain
-   mkdir -p toolchain
-   if test $host_cpu = i686; then
-      toolchain_cpu=x86
-    else
-      toolchain_cpu=arm
-    fi
-   echo "Configuring native NDK toolchain for $platform/$toolchain_cpu"
-
-   "$andk"/build/tools/make-standalone-toolchain.sh \
-     --install-dir=toolchain --platform=$platform \
-     --arch=$toolchain_cpu
-   export PATH="$PWD/toolchain/bin:$PATH"
+     "$andk"/build/tools/make-standalone-toolchain.sh \
+       --install-dir=toolchain --platform=$platform \
+       --arch=$toolchain_cpu
+     export PATH="$PWD/toolchain/bin:$PATH"
+  fi
 fi
 
 AM_INIT_AUTOMAKE([-Wall -Werror foreign])
