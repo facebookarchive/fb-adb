@@ -99,7 +99,7 @@ if test -z "$BUILD_STUB"; then
   STUB_SUBDIRS=
   m4_foreach([xxstub], [stubs], [
     AC_CONFIG_SUBDIRS(stub-xxstub)
-    STUB_BINARIES="$STUB_BINARIES stub-xxstub/fb-adb"
+    STUB_BINARIES="$STUB_BINARIES stub-xxstub/stub"
     STUB_SUBDIRS="$STUB_SUBDIRS stub-xxstub"
   ])
   AC_SUBST([STUB_BINARIES])
@@ -111,7 +111,7 @@ fi
 AC_ARG_ENABLE([checking],
         AS_HELP_STRING([--enable-checking],
         [Enable assertions (default no)]),
-        [],
+        [true],
         [enable_checking=no])
 if test "$enable_checking" = "yes"; then
    true
@@ -123,6 +123,7 @@ fi
 
 AM_CONDITIONAL([BUILD_STUB], [test -n "$BUILD_STUB"])
 AM_CONDITIONAL([BUILD_PIC], [test -n "$BUILD_PIC"])
+AM_CONDITIONAL([STRIP_STUBS], [test "$enable_checking" = "no"])
 AC_SUBST([STUB_SUBDIRS])
 AC_CONFIG_FILES([Makefile])
 echo "Checking enabled?    ${enable_checking}"

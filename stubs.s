@@ -16,7 +16,7 @@
         .int \sym\()_end - \sym
 .endm
 
-bin_data arm_stub, "stub-arm/fb-adb"
-bin_data x86_stub, "stub-x86/fb-adb"
-bin_data arm_pic_stub, "stub-arm-pic/fb-adb"
-bin_data x86_pic_stub, "stub-x86-pic/fb-adb"
+bin_data arm_stub, "stub-arm/stub"
+bin_data x86_stub, "stub-x86/stub"
+bin_data arm_pic_stub, "stub-arm-pic/stub"
+bin_data x86_pic_stub, "stub-x86-pic/stub"
