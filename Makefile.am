@@ -50,7 +50,7 @@ nodist_fb_adb_SOURCES = timestamp.c
 fb_adb_LDADD = libfb-adb.a
 
 AM_CPPFLAGS = -I.
-AM_CFLAGS =
+AM_CFLAGS = -fvisibility=hidden
 AM_LDFLAGS =
 
 if BUILD_PIC
