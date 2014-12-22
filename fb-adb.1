@@ -1,0 +1,202 @@
+.\" Copyright (c) 2014, Facebook, Inc.
+.\" All rights reserved.
+.\"
+.\" This source code is licensed under the BSD-style license found in
+.\" the LICENSE file in the root directory of this source tree. An
+.\" additional grant of patent rights can be found in the PATENTS file
+.\" in the same directory.
+.\"
+.TH fb-adb 1 2014-12-22 Facebook fb-adb
+.SH NAME
+fb-adb \- Improved Android Debug Bridge
+.SH SYNOPSIS
+
+.de rcmdargs
+.OP \-dehrtTU
+.OP \-E exename
+.OP \-H host
+.OP \-P port
+.OP \-p product
+.OP \-s device
+.OP \-u user
+.OP \-C dir
+..
+
+.SY "fb-adb shell"
+.rcmdargs
+.RI [ command ]
+.RI [ args
+.IR .\|.\|. ]
+.YS
+
+.SY "fb-adb rcmd"
+.rcmdargs
+.I command
+.RI [ args
+.IR .\|.\|. ]
+.YS
+
+.SY "fb-adb help"
+.YS
+
+.SY "fb-adb"
+.I adb-command
+.RI [ args
+.IR .\|.\|. ]
+.YS
+
+.SH DESCRIPTION
+
+\fBfb-adb\fR wraps \fBadb\fR to provide enhanced shell and command
+execution functionality.
+
+\fBfb-adb shell\fR (which can also be spelled \fBfb-adb sh\fR and
+\fBfb-adb shellx\fR) runs \fIcommand\fR and its arguments through the
+device shell (which is usually \fBmksh\fR(1)) with all arguments
+shell-quoted.  (\fIcommand\fR itself is unquoted, so it may contain
+shell constructs, e.g., globs.)
+.B fb-adb shell
+without arguments starts an interactive shell, making it slightly more
+efficient, especially when connecting to CPU-constrained devices.
+
+.B fb-adb rcmd
+is similar, except that it runs \fIcommand\fR directly without
+invoking the shell and does not have a zero-argument form that starts
+an interactive shell.
+
+.B fb-adb help
+displays a mixture of \fBfb-adb\fR's own help and \fBadb\fR's.  If
+standard output is a terminal, the help is shown in a pager
+(\fBPAGER\fR, which defaults to \fBless\fR).
+
+All other commands are forwarded to \fBadb\fR, making it feasible to
+use \fBfb-adb\fR in place of \fBadb\fR for most tasks.
+
+\fBadb\fR must be on PATH.
+
+.SH DIFFERENCES FROM ADB
+
+Differences between \fBadb\fR and \fBfb-adb\fR are that \fBfb-adb\fR:
+
+  * is binary clean (no LF -> CRLF mangling)
+  * transmits and updates terminal window size via SIGWINCH
+  * distinguishes standard output and standard error
+  * properly muxes streams, each with independent flow control
+  * allows for ssh-like pty allocation control
+  * propagates program exit status instead of always exiting with status 0
+  * properly escapes program arguments
+  * kills remote program on local exit
+  * provides a generic facility to elevate to root without re-escaping command
+line arguments
+
+.SH OPTIONS
+
+.TP
+.BR \-d
+Connect to a device.  Identical to \fBadb\fR's \fB\-d\fR option.
+
+.TP
+.BR \-e
+Connect to an emulator.  Identical to \fBadb\fR's \fB\-e\fR option.
+
+.TP
+.BI \-s " specific-device"
+Connect to a specific device.  Identical to \fBadb\fR's \fB\-s\fR
+option.
+
+.TP
+.BI \-p " product-name-or-path"
+Supplied the product name or path.  Identical to \fBadb\fR's \fB\-p\fR
+option.
+
+.TP
+.BI \-H " hostname"
+Specifies the hostname of the \fBadb\fR server to which to connect.
+Identical to \fBadb\fR's \fB\-H\fR option.
+
+.TP
+.BI \-P " hostname"
+Specifies the port of the \fBadb\fR server to which to connect.
+Identical to \fBadb\fR's \fB\-P\fR option.
+
+.TP
+.BR \-r ", " --root
+Attempt to become root before executing \fIcommand\fR or starting an
+interactive shell.
+
+.TP
+.BI \-u " user"
+.TQ
+.BI \--user " user"
+Become \fIuser\fR before executing \fIcommand\fR or starting an
+interactive shell.  \fIuser\fR is an identifier that \fBrun-as\fR on
+the device understands, e.g., \fBcom.facebook.wakizashi\fR.
+
+.TP
+.BR \-U ", " \--socket
+Use an AF_UNIX socketpair for the remote child's standard input and
+standard output.
+
+.TP
+.BR \-D ", " \--no-ctty
+Do not give the remote child a controlling terminal.  Normally,
+\fBfb-adb\fR connects a remote child to a controlling terminal so that
+when the a \fBfb-adb\fR disconnects, the child receives a SIGHUP.
+With this option set, the child instead sees its standard streams
+closed, but is not sent any signal.
+
+.TP
+.BR \-t ", " \--force-tty
+Normally, if a \fIcommand\fR is supplied, \fBfb-adb\fR gives the
+remote child pipes for its standard streams.  This option instructs
+\fBfb-adb\fR to instead use a pseudoterminal for each standard stream
+connected to a terminal on the client.  If repeated, \fB-t\fR makes
+\fBfb-adb\fR give the child a pseudoterminal even for streams for
+which the \fBfb-adb\fR client does not have a terminal.
+
+.TP
+.BR \-t ", " \--force-tty
+Never give the child a pseudo-terminal for a standard stream.
+
+.TP
+.BI \-E " exename"
+.TQ
+.BI \--exename " exename"
+Execute \fIexename\fR as the remote child program instead of
+\fIcommand\fB.  \fIcommand\fR is argv[0] in any case.  If starting an
+interactive shell, use \fIcommand\fR instead of the default shell
+executable.
+
+.TP
+.BI \-C " dir"
+.TQ
+.BI \--chdir " dir"
+Change to directory \fIdir\fR before running \fIcommand\fR or starting
+an interactive shell.
+
+.TP
+.BR \-h ", " \--help ", " help
+Display help output.
+
+.SH BUGS
+
+\fBfb-adb\fR should present better error messages when it can't run a
+stub.  It should not try to send stubs for architectures that cannot
+possibly work.
+
+.SH EXAMPLES
+
+.IP "Capture a screenshot from device and write it locally to a timestamped file"
+.B fb-adb rcmd screencap -p > screenshot-$(timestamp).png
+
+.IP "Dump database.db of the com.bar.foo app"
+.B fb-adb rcmd -u com.bar.foo sqlite3 /data/data/com.bar.foo/databases/database.db .d
+
+.IP "Open remote shell as the user com.bar.foo"
+.B fb-adb shell -u com.bar.foo
+
+.SH SEE ALSO
+
+Run
+.B fb-adb help
+to see ADB's own list of commands.

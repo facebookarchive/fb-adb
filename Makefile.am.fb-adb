@@ -39,5 +39,6 @@ distclean-local:
 EXTRA_DIST =
 EXTRA_DIST += README.md LICENSE PATENTS NEWS stub-config.sh
 EXTRA_DIST += timestamp.c.in termnames.h.in termnames.sed
-EXTRA_DIST += mkstubsc.sh
+EXTRA_DIST += mkstubsc.sh fb-adb.1
 
+man_MANS = fb-adb.1
