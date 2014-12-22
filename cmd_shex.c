@@ -34,6 +34,7 @@
 #include "stubs.h"
 #include "timestamp.h"
 #include "argv.h"
+#include "strutil.h"
 
 enum shex_mode {
     SHEX_MODE_SHELL,
@@ -338,43 +339,6 @@ send_cmdline_argument(int fd, unsigned type, const void* val, size_t valsz)
     m.size = totalsz;
     write_all_adb_encoded(fd, &m, sizeof (m));
     write_all_adb_encoded(fd, val, valsz);
-}
-
-static void
-lim_outc(char c, size_t *pos, char *buf, size_t bufsz)
-{
-    if (*pos < bufsz) {
-        buf[*pos] = c;
-    }
-
-    *pos += 1;
-}
-
-static void
-lim_strcat(const char* s, size_t *pos, char *buf, size_t bufsz)
-{
-    char c;
-
-    while ((c = *s++)) {
-        lim_outc(c, pos, buf, bufsz);
-    }
-}
-
-static void
-lim_shellquote(const char* word, size_t *pos, char *buf, size_t bufsz)
-{
-    char c;
-
-    lim_strcat("'", pos, buf, bufsz);
-    while ((c = *word++)) {
-        if (c == '\'') {
-            lim_strcat("'\\''", pos, buf, bufsz);
-        } else {
-            lim_outc(c, pos, buf, bufsz);
-        }
-    }
-
-    lim_strcat("'", pos, buf, bufsz);
 }
 
 static void

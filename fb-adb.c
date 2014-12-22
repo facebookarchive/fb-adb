@@ -17,6 +17,7 @@
 #include <string.h>
 #include <sys/wait.h>
 #include "util.h"
+#include "strutil.h"
 
 extern int stub_main(int, const char**);
 
@@ -25,28 +26,52 @@ extern int shex_main(int, const char**);
 extern int shex_main_rcmd(int, const char**);
 #endif
 
-__attribute__((noreturn))
+#ifndef __ANDROID__
+static void
+view_with_pager(const char* filename)
+{
+    size_t qnamesz = 0;
+    lim_shellquote(filename, &qnamesz, NULL, 0);
+    char* qname = xalloc(qnamesz);
+    size_t pos = 0;
+    lim_shellquote(filename, &pos, qname, qnamesz);
+    system(xaprintf("%s %s",
+                    getenv("PAGER") ?: "less",
+                    qname));
+}
+#endif
+
 static void
 usage(void)
 {
-    printf("%s %s - Enhanced ADB\n", prgname, PACKAGE_VERSION);
-    printf("\n");
-    printf("  %s shell [CMD ARGS...] - Improved adb shell.\n", prgname);
-    printf("\n");
-    printf("  %s rcmd CMD [ARGS...] - Run commands directly, without\n",
-           prgname);
-    printf("    using the shell.\n");
-    printf("\n");
-    printf("  Other commands forward to adb. See below.\n");
-    printf("\n");
-    fflush(stdout);
+    FILE* out = stdout;
+#ifndef __ANDROID__
+    const char* tmpf_name = NULL;
+    if (isatty(1)) {
+        out = xnamed_tempfile(&tmpf_name);
+        allow_inherit(fileno(out));
+    }
+#endif
 
-    /* adb help normally writes to stderr, so redirect to
-     * stdout for sanity. */
-    dup2(1, 2);
+    fprintf(out, "%s %s - Enhanced ADB\n", prgname, PACKAGE_VERSION);
+    fprintf(out, "\n");
+    fprintf(out, "  %s shell [CMD ARGS...] - Improved adb shell.\n", prgname);
+    fprintf(out, "\n");
+    fprintf(out, "  %s rcmd CMD [ARGS...] - Run commands directly, "
+            "without\n", prgname);
+    fprintf(out, "    using the shell.\n");
+    fprintf(out, "\n");
+    fprintf(out, "  Use %s rcmd -h for additional help.\n", prgname);
+    fprintf(out, "  Other commands forward to adb. See below.\n");
+    fprintf(out, "\n");
+    fflush(out);
+    system(xaprintf("adb help >& %d 2>&1", fileno(out)));
 
-    execlp("adb", "help", NULL);
-    die(EINVAL, "could not exec adb: %s", strerror(errno));
+#ifndef __ANDROID__
+    if (tmpf_name) {
+        view_with_pager(tmpf_name);
+    }
+#endif
 }
 
 static bool
@@ -127,6 +152,7 @@ real_main(int argc, char** argv)
                !strcmp(prgarg, "--help"))
     {
         usage();
+        return 0;
     } else {
         execvp("adb", argv);
         die(EINVAL, "could not exec adb: %s", strerror(errno));

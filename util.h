@@ -77,6 +77,7 @@ void xsocketpair(int domain, int type, int protocol,
                  int* s1, int* s2);
 int xdup(int fd);
 FILE* xfdopen(int fd, const char* mode);
+void allow_inherit(int fd);
 
 struct fdh {
     struct reslist* rl; // Owns both fd and fdh

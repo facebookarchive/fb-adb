@@ -1008,3 +1008,11 @@ xnamed_tempfile(const char** out_name)
     *out_name = name;
     return save->stream;
 }
+
+void
+allow_inherit(int fd)
+{
+    int fl = fcntl(fd, F_GETFD);
+    if (fl < 0 || fcntl(fd, F_SETFD, fl &~ FD_CLOEXEC) < 0)
+        die_errno("fcntl");
+}

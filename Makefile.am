@@ -35,6 +35,7 @@ libfb_adb_a_SOURCES = \
 	ringbuf.c \
 	ringbuf.h \
 	strutil.h \
+	strutil.c \
 	stubs.h \
 	termbits.c \
 	termbits.h \
