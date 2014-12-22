@@ -23,6 +23,7 @@ enum msg_type {
     MSG_WINDOW_SIZE,
     MSG_SHEX_HELLO,
     MSG_CMDLINE_ARGUMENT,
+    MSG_CMDLINE_ARGUMENT_JUMBO,
     MSG_CMDLINE_DEFAULT_SH,
     MSG_CMDLINE_DEFAULT_SH_LOGIN,
     MSG_EXEC_AS_ROOT,
@@ -105,6 +106,11 @@ struct msg_shex_hello {
 struct msg_cmdline_argument {
     struct msg msg;
     char value[0];
+};
+
+struct msg_cmdline_argument_jumbo {
+    struct msg msg;
+    uint32_t actual_size;
 };
 
 struct msg_exec_as_user {

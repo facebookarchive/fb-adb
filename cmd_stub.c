@@ -175,7 +175,6 @@ read_child_arglist(size_t expected,
         SCOPED_RESLIST(rl_read_arg);
         struct msg_cmdline_argument* m;
         struct msg* mhdr = read_msg(0, read_all_adb_encoded);
-        reslist_pop_nodestroy(rl_read_arg);
 
         const char* argval;
         size_t arglen;
@@ -201,8 +200,25 @@ read_child_arglist(size_t expected,
                 argval = xaprintf("-%s", argval);
 
             arglen = strlen(argval);
+        } else if (mhdr->type == MSG_CMDLINE_ARGUMENT_JUMBO) {
+            struct msg_cmdline_argument_jumbo* mj =
+                (struct msg_cmdline_argument_jumbo*) mhdr;
+
+            if (mhdr->size != sizeof (*mj))
+                die(ECOMM,
+                    "bad handshake: MSG_CMDLINE_ARGUMENT_JUMBO size %u != %u",
+                    (unsigned) mhdr->size,
+                    (unsigned) sizeof (*mj));
+
+            arglen = mj->actual_size;
+            void* buf = xalloc(arglen);
+            size_t nr_read = read_all_adb_encoded(0, buf, arglen);
+            if (nr_read != arglen)
+                die(ECOMM, "peer disconnected");
+            argval = buf;
         } else if (mhdr->type == MSG_CHDIR) {
             struct msg_chdir* mchd = (struct msg_chdir*) mhdr;
+            reslist_pop_nodestroy(rl_read_arg);
             cwd = xaprintf("%.*s",
                            (int) (mhdr->size - sizeof (*mchd)),
                            mchd->dir);
@@ -213,6 +229,11 @@ read_child_arglist(size_t expected,
                 "bad handshake: unknown init msg s=%u t=%u",
                 (unsigned) mhdr->size, (unsigned) mhdr->type);
         }
+
+        reslist_pop_nodestroy(rl_read_arg);
+        size_t allocsz;
+        if (SATADD(&allocsz, arglen, 1))
+            die(ECOMM, "bad handshake: argument length overflow");
 
         argv[argno] = xalloc(arglen + 1);
         memcpy(argv[argno], argval, arglen);

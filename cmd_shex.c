@@ -333,13 +333,25 @@ send_cmdline_argument(int fd, unsigned type, const void* val, size_t valsz)
     struct msg m;
     size_t totalsz;
 
-    if (SATADD(&totalsz, sizeof (m), valsz) || totalsz > UINT16_MAX)
+    if (SATADD(&totalsz, sizeof (m), valsz) || totalsz > UINT32_MAX)
         die(EINVAL, "command line argument too long");
 
-    m.type = type;
-    m.size = totalsz;
-    write_all_adb_encoded(fd, &m, sizeof (m));
-    write_all_adb_encoded(fd, val, valsz);
+    if (totalsz <= UINT16_MAX) {
+        m.type = type;
+        m.size = totalsz;
+        write_all_adb_encoded(fd, &m, sizeof (m));
+        write_all_adb_encoded(fd, val, valsz);
+    } else if (type == MSG_CMDLINE_ARGUMENT) {
+        struct msg_cmdline_argument_jumbo mj;
+        memset(&mj, 0, sizeof (mj));
+        mj.msg.type = MSG_CMDLINE_ARGUMENT_JUMBO;
+        mj.msg.size = sizeof (mj);
+        mj.actual_size = valsz;
+        write_all_adb_encoded(fd, &mj, sizeof (mj));
+        write_all_adb_encoded(fd, val, valsz);
+    } else {
+        die(EINVAL, "command line argument too long");
+    }
 }
 
 static void
