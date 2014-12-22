@@ -332,7 +332,8 @@ send_cmdline_argument(int fd, unsigned type, const void* val, size_t valsz)
 {
     struct msg m;
     size_t totalsz;
-    if (SATADD(&totalsz, sizeof (m), valsz) || totalsz > UINT32_MAX)
+
+    if (SATADD(&totalsz, sizeof (m), valsz) || totalsz > UINT16_MAX)
         die(EINVAL, "command line argument too long");
 
     m.type = type;
