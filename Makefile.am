@@ -25,6 +25,7 @@ libfb_adb_a_SOURCES = \
 	child.c \
 	child.h \
 	cmd_stub.c \
+	cmd_logw.c \
 	constants.h \
 	core.c \
 	core.h \

@@ -35,14 +35,14 @@
 #include "timestamp.h"
 #include "argv.h"
 #include "strutil.h"
+#include "cmd_shex.h"
 
 enum shex_mode {
     SHEX_MODE_SHELL,
     SHEX_MODE_RCMD,
-    SHEX_MODE_SU,
 };
 
-static const char usage[] = (
+static const char shex_usage[] = (
     "\n"
     "  -t\n"
     "  --force-tty\n"
@@ -99,7 +99,7 @@ print_usage(enum shex_mode smode)
                "run program on Android device; bypass shell\n",
                prgname);
 
-    fputs(usage, stdout);
+    fputs(shex_usage, stdout);
 }
 
 struct fb_adb_shex {
@@ -612,10 +612,19 @@ shex_main_common(enum shex_mode smode, int argc, const char** argv)
                 child_chdir = xstrdup(optarg);
                 break;
             case ':':
-                die(EINVAL, "missing option for -%c", optopt);
+                if (optopt == '\0') {
+                    die(EINVAL, "missing argument for %s", argv[optind-1]);
+                } else {
+                    die(EINVAL, "missing argument for -%c", optopt);
+                }
             case '?':
-                if (optopt != '?')
-                    die(EINVAL, "invalid option -%c", optopt);
+                if (optopt == '?') {
+                    // Fall through to help
+                } else if (optopt == '\0') {
+                    die(EINVAL, "invalid option %s", argv[optind-1]);
+                } else {
+                    die(EINVAL, "invalid option -%d", (int) optopt);
+                }
             case 'h':
                 print_usage(smode);
                 return 0;
@@ -682,7 +691,7 @@ shex_main_common(enum shex_mode smode, int argc, const char** argv)
 
     if (child_chdir)
         send_chdir(child->fd[0]->fd, child_chdir);
-    
+
     send_cmdline(child->fd[0]->fd, argc, argv, exename);
 
     struct fb_adb_shex shex;
@@ -785,4 +794,177 @@ int
 shex_main_rcmd(int argc, const char** argv)
 {
     return shex_main_common(SHEX_MODE_RCMD, argc, argv);
+}
+
+static const struct option*
+find_option_by_name(const struct option* options, const char* name)
+{
+    while (options->name) {
+        if (!strcmp(options->name, name)) {
+            return options;
+        }
+
+        options++;
+    }
+
+    return NULL;
+}
+
+int
+shex_wrapper(const char* wrapped_cmd,
+             const char* opts,
+             const struct option* longopts,
+             const char* usage,
+             const char** argv)
+{
+    const char* argv0 = argv[0];
+    const char* const* rcmd_args = empty_argv;
+    const char* const* remote_args = empty_argv;
+    const char* arg;
+    bool posix_correct = false;
+    const char* adb_opts = "des:p:H:P:";
+    char c;
+
+    if (opts != NULL) {
+        while (strchr("+:", opts[0])) {
+            if (opts[0] == '+')
+                posix_correct = true;
+            ++opts;
+        }
+
+#ifndef NDEBUG
+        for (const char* p = opts; *p; ++p) {
+            if (*p != ':' && strchr(adb_opts, *p)) {
+                assert(!"conflicting options in shex_wrapper!");
+            }
+        }
+#endif
+    }
+
+#define ADDARG(_dest, _arg)                                        \
+    ({*(_dest) = argv_concat(*(_dest),                             \
+                             (const char*[]) {(_arg), NULL},       \
+                            NULL);                                 \
+    })
+
+    ADDARG(&rcmd_args, *argv++);
+
+    // Split the argument list into arguments for rcmd and arguments
+    // for the remote command.
+
+    while ((arg = *argv++)) {
+        if ((posix_correct && arg[0] != '-') ||
+            (arg[0] == '-' && arg[1] == '-' && arg[2] == '\0'))
+        {
+            remote_args = argv_concat(remote_args, argv - 1, NULL);
+            break;
+        }
+
+        if (arg[0] != '-') {
+            ADDARG(&remote_args, arg);
+            continue;
+        }
+
+        if (arg[1] == '-') {
+            const char* longname = &arg[2];
+            const char* value = NULL;
+
+            if (strchr(longname, '=')) {
+                longname = xstrdup(longname);
+                char* eq = strchr(longname, '=');
+                *eq++ = '\0';
+                value = eq;
+            }
+
+            if (!strcmp(longname, "help")) {
+                fputs(usage, stdout);
+                return 0;
+            }
+            
+            const struct option* longopt =
+                ( longopts
+                  ? find_option_by_name(longopts, longname)
+                  : NULL );
+
+            if (longopt == NULL)
+                die(EINVAL, "invalid option --%s", longname);
+
+            if (value && !longopt->has_arg) {
+                die(EINVAL,
+                    "option --%s does not accept an argument",
+                    longname);
+
+            }
+
+            if (longopt->has_arg == 1 && !value) {
+                value = *argv++;
+                if (!value) {
+                    die(EINVAL,
+                        "no argument for option %s",
+                        longname);
+                }
+            }
+
+            ADDARG(&remote_args,
+                   ((value != NULL)
+                    ? xaprintf("--%s=%s", longname, value)
+                    : longname));
+
+            continue;
+        }
+
+        ++arg;
+        while ((c = *arg++)) {
+            bool rcmd = false;
+            const char* ap = NULL;
+
+            if (c == 'h' || c == '?') {
+                fputs(usage, stdout);
+                return 0;
+            }
+
+            if ((ap = strchr(adb_opts, c)))
+                rcmd = true;
+
+            if (!ap && opts)
+                ap = strchr(opts, c);
+
+            if (!ap)
+                die(EINVAL, "invalid option -%c", c);
+
+            bool has_arg = (ap[1] == ':');
+            const char* value = NULL;
+
+            if (has_arg && *arg) {
+                value = arg;
+                arg += strlen(value);
+            } else if (has_arg) {
+                value = *argv++;
+                if (!value)
+                    die(EINVAL, "no argument for option -%c", c);
+            }
+
+            ADDARG((rcmd ? &rcmd_args : &remote_args),
+                   xaprintf("-%c%s", c, value ?: ""));
+        }
+    }
+
+    const char* invoke_self_args[] = {
+        "-E/proc/self/exe",
+        argv0,
+        wrapped_cmd,
+        NULL
+    };
+
+    const char** nargv =
+        argv_concat(rcmd_args,
+                    invoke_self_args,
+                    remote_args,
+                    NULL);
+
+    return shex_main_common(SHEX_MODE_RCMD,
+                            argv_count(nargv),
+                            nargv);
+
+#undef ADDARG
 }

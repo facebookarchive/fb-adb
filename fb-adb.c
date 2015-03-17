@@ -18,13 +18,9 @@
 #include <sys/wait.h>
 #include "util.h"
 #include "strutil.h"
-
-extern int stub_main(int, const char**);
-
-#if FBADB_MAIN
-extern int shex_main(int, const char**);
-extern int shex_main_rcmd(int, const char**);
-#endif
+#include "cmd_shex.h"
+#include "cmd_stub.h"
+#include "cmd_logw.h"
 
 #ifndef __ANDROID__
 static void
@@ -72,6 +68,16 @@ usage(void)
         view_with_pager(tmpf_name);
     }
 #endif
+}
+
+int
+logw_wrapper_main(int argc, const char** argv)
+{
+    return shex_wrapper("logw",
+                        logw_opts,
+                        logw_longopts,
+                        logw_usage,
+                        argv);
 }
 
 static bool
@@ -147,6 +153,13 @@ real_main(int argc, char** argv)
     } else if (!strcmp(prgarg, "rcmd")) {
         sub_main = shex_main_rcmd;
 #endif
+    } else if (!strcmp(prgarg, "logw")) {
+#if FBADB_MAIN
+        sub_main = logw_wrapper_main;
+#else
+        sub_main = logw_main;
+#endif
+
     } else if (!strcmp(prgarg, "help") ||
                !strcmp(prgarg, "-h") ||
                !strcmp(prgarg, "--help"))
