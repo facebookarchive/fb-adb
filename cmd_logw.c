@@ -68,11 +68,12 @@ logw_main(int argc, const char** argv)
     int priority = ANDROID_LOG_INFO;
 
     for (;;) {
-        char c = getopt_long(argc,
+        int c = getopt_long(argc,
                              (char**) argv,
                              logw_opts,
                              logw_longopts,
                              NULL);
+
         if (c == -1)
             break;
 

@@ -547,11 +547,11 @@ shex_main_common(enum shex_mode smode, int argc, const char** argv)
     };
 
     for (;;) {
-        char c = getopt_long(argc,
-                             (char**) argv,
-                             "+:lhE:ftTdes:p:H:P:rUu:DC:",
-                             opts,
-                             NULL);
+        int c = getopt_long(argc,
+                            (char**) argv,
+                            "+:lhE:ftTdes:p:H:P:rUu:DC:",
+                            opts,
+                            NULL);
         if (c == -1)
             break;
 
