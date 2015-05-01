@@ -10,7 +10,9 @@
  */
 #pragma once
 #include <stddef.h>
+#include <stdbool.h>
 void lim_outc(char c, size_t *pos, char *buf, size_t bufsz);
 void lim_strcat(const char* s, size_t *pos, char *buf, size_t bufsz);
 void lim_shellquote(const char* word, size_t *pos, char *buf, size_t bufsz);
+bool shell_safe_word_p(const char* word);
 char* xshellquote(const char* word);

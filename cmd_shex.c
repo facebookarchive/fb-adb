@@ -237,44 +237,6 @@ add_cleanup_delete_device_tmpfile(const char* device_filename,
     cleanup_commit(cl, delete_device_tmpfile_cleanup, ddt);
 }
 
-static void
-rename_device_file(const char* src,
-                   const char* dst,
-                   const char* const* adb_args)
-{
-    const struct child_start_info csi = {
-        .flags = CHILD_NULL_STDIN | CHILD_MERGE_STDERR,
-        .exename = "adb",
-        .argv = argv_concat((const char*[]){"adb", NULL},
-                            adb_args,
-                            (const char*[]){"shell",
-                                    "mv",
-                                    "-f",
-                                    // Chosen not to require quoting
-                                    src,
-                                    // Chosen not to require quoting
-                                    dst,
-                                    "&&",
-                                    "echo",
-                                    "yes",
-                                    NULL}),
-    };
-
-    struct child* child = child_start(&csi);
-    char buf[256];
-    buf[0] = '\0';
-    size_t len = read_all(child->fd[1]->fd, buf, sizeof (buf)-1);
-    fdh_destroy(child->fd[1]);
-    (void) child_wait(child);
-    buf[len] = '\0';
-    if (strcmp(buf, "yes\r\n") != 0) {
-        while (len > 0 && isspace(buf[len - 1]))
-            --len;
-
-        die(ECOMM, "moving fb-adb to final location failed: %s", buf);
-    }
-}
-
 static struct child*
 start_stub_adb(bool force_send_stub,
                const char* const* adb_args,
@@ -316,8 +278,7 @@ start_stub_adb(bool force_send_stub,
 
         child_kill(child, SIGTERM);
         child_wait(child);
-        rename_device_file(tmp_adb, FB_ADB_REMOTE_FILENAME, adb_args);
-
+        adb_rename_file(tmp_adb, FB_ADB_REMOTE_FILENAME, adb_args);
         child = try_adb_stub(&csi, FB_ADB_REMOTE_FILENAME, uid, &err);
         if (!child)
             die(ECOMM, "trouble starting adb stub: %s", err);
