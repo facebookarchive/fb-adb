@@ -171,7 +171,7 @@ read_child_arglist(size_t expected,
                    const char** out_cwd)
 {
     char** argv;
-    const char* cwd = "/";
+    const char* cwd = NULL;
 
     if (expected >= SIZE_MAX / sizeof (*argv))
         die(EFBIG, "too many arguments");
