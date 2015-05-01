@@ -136,7 +136,11 @@ send_stub(const void* data, size_t datasz, const char* const* adb_args)
         die_errno("fwrite");
     if (fflush(tmpfile) == -1)
         die_errno("fflush");
-    if (fchmod(fileno(tmpfile), 0755) == -1)
+    // N.B. The device-side adb server helpfully copies the user
+    // permission bits to group and world, so if we were to make this
+    // file writable for us locally, we'd actually be making it
+    // world-writable on device!
+    if (fchmod(fileno(tmpfile), 0555 /* -r-xr-xr-x */) == -1)
         die_errno("fchmod");
     adb_send_file(tmpfilename, FB_ADB_REMOTE_FILENAME, adb_args);
 }
