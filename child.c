@@ -150,6 +150,9 @@ child_start(const struct child_start_info* csi)
         if (flags & CHILD_PTY_STDIN) {
             childfd[0] = xdup(pty_slave);
             parentfd[0] = xdup(pty_master);
+        } else if (flags & CHILD_NULL_STDIN) {
+            childfd[0] = xopen("/dev/null", O_RDONLY, 0);
+            parentfd[0] = xopen("/dev/null", O_WRONLY, 0);
         } else {
             xpipe(&childfd[0], &parentfd[0]);
         }
@@ -157,6 +160,9 @@ child_start(const struct child_start_info* csi)
         if (flags & CHILD_PTY_STDOUT) {
             childfd[1] = xdup(pty_slave);
             parentfd[1] = xdup(pty_master);
+        } else if (flags & CHILD_NULL_STDOUT) {
+            childfd[1] = xopen("/dev/null", O_WRONLY, 0);
+            parentfd[1] = xopen("/dev/null", O_RDONLY, 0);
         } else {
             xpipe(&parentfd[1], &childfd[1]);
         }
@@ -175,6 +181,9 @@ child_start(const struct child_start_info* csi)
         parentfd[2] = xdup(pty_master);
     } else if (flags & CHILD_INHERIT_STDERR) {
         childfd[2] = xdup(2);
+    } else if (flags & CHILD_NULL_STDERR) {
+        childfd[2] = xopen("/dev/null", O_WRONLY, 0);
+        parentfd[2] = xopen("/dev/null", O_RDONLY, 0);
     } else {
         xpipe(&parentfd[2], &childfd[2]);
     }
@@ -226,4 +235,11 @@ child_wait(struct child* child)
     }
 
     return child->status;
+}
+
+void
+child_kill(struct child* child, int signo)
+{
+    if (!child->dead_p && kill(child->pid, signo) == -1)
+        die_errno("kill");
 }

@@ -19,6 +19,9 @@
 #define CHILD_CTTY (1<<5)
 #define CHILD_SETSID (1<<6)
 #define CHILD_SOCKETPAIR_STDIO (1<<7)
+#define CHILD_NULL_STDIN (1<<8)
+#define CHILD_NULL_STDOUT (1<<9)
+#define CHILD_NULL_STDERR (1<<10)
 
 struct child_start_info {
     int flags;
@@ -42,3 +45,4 @@ struct child {
 
 struct child* child_start(const struct child_start_info* csi);
 int child_wait(struct child* c);
+void child_kill(struct child* c, int signo);
