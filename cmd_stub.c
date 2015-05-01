@@ -20,6 +20,11 @@
 #include <getopt.h>
 #include <sys/ioctl.h>
 #include <limits.h>
+
+#ifdef __ANDROID__
+#include <sys/system_properties.h>
+#endif
+
 #include "util.h"
 #include "child.h"
 #include "xmkraw.h"
@@ -292,11 +297,55 @@ re_exec_as_root()
     die_errno("execlp of su");
 }
 
+#ifdef __ANDROID__
+static unsigned
+api_level()
+{
+    char api_level_str[PROP_VALUE_MAX];
+    if (__system_property_get("ro.build.version.sdk", api_level_str) == 0)
+        die(ENOENT, "cannot query system API level");
+
+    return (unsigned) atoi(api_level_str);
+}
+#endif
+
 static void __attribute__((noreturn))
 re_exec_as_user(const char* username)
 {
-    execlp("run-as", "run-as", username, orig_argv0, "stub", NULL);
+#ifdef __ANDROID__
+
+    if (api_level() < 21) {
+        execlp("run-as", "run-as", username, orig_argv0, "stub", NULL);
+    } else {
+        // Work around brain-damaged SELinux-based security theater
+        // that prohibits execution of binaries directly from
+        // /data/local/tmp on Lollipop and above.  Instead, copy the
+        // binary to the application data directory (which is the
+        // current woring directory for processes launched via run-as)
+        // and run that copy.
+
+        // Small shell script we run below.  $1 is the name of the
+        // fb-adb binary; the rest of the arguments are arguments for
+        // fb-adb.
+        static const char selinux_workaround[] =
+            "{ { [ -f fb-adb ] && cmp fb-adb \"$1\" >/dev/null 2>&1; } "
+            "  || cp -f \"$1\" fb-adb; "
+            "} && shift && exec ./fb-adb \"$@\"";
+
+        execlp("run-as", "run-as", username,
+               "/system/bin/sh",
+               "-c",
+               selinux_workaround,
+               "selinux_workaround",
+               orig_argv0,
+               "stub",
+               NULL);
+    }
+
     die_errno("execlp of run-as");
+#else
+    die(ENOSYS, "re_exec_as_user works only under Android");
+#endif
 }
 
 int
