@@ -17,6 +17,7 @@
 #include <string.h>
 #include <sys/wait.h>
 #include <getopt.h>
+#include <ctype.h>
 #include <sys/ioctl.h>
 #include <termios.h>
 #include "util.h"
@@ -111,7 +112,7 @@ struct fb_adb_shex {
 static struct child*
 start_stub_local(void)
 {
-    struct child_start_info csi = {
+    const struct child_start_info csi = {
         .flags = CHILD_INHERIT_STDERR,
         .exename = orig_argv0,
         .argv = (const char*[]){orig_argv0, "stub", NULL},
@@ -127,7 +128,10 @@ start_stub_local(void)
 }
 
 static void
-send_stub(const void* data, size_t datasz, const char* const* adb_args)
+send_stub(const void* data,
+          size_t datasz,
+          const char* const* adb_args,
+          const char* adb_name)
 {
     SCOPED_RESLIST(rl);
     const char* tmpfilename;
@@ -142,11 +146,14 @@ send_stub(const void* data, size_t datasz, const char* const* adb_args)
     // world-writable on device!
     if (fchmod(fileno(tmpfile), 0555 /* -r-xr-xr-x */) == -1)
         die_errno("fchmod");
-    adb_send_file(tmpfilename, FB_ADB_REMOTE_FILENAME, adb_args);
+    adb_send_file(tmpfilename, adb_name, adb_args);
 }
 
 static struct child*
-try_adb_stub(struct child_start_info* csi, int* uid, char** err)
+try_adb_stub(const struct child_start_info* csi,
+             const char* adb_name,
+             int* uid,
+             char** err)
 {
     struct reslist* rl_stub = reslist_push_new();
     struct child* child = child_start(csi);
@@ -154,7 +161,8 @@ try_adb_stub(struct child_start_info* csi, int* uid, char** err)
     struct chat* cc = chat_new(child->fd[0]->fd, child->fd[1]->fd);
     chat_swallow_prompt(cc);
 
-    char* cmd = xaprintf("exec %s stub", FB_ADB_REMOTE_FILENAME);
+    // We choose adb_name such that it doesn't need to be quoted
+    char* cmd = xaprintf("exec %s stub", adb_name);
     unsigned promptw = 40;
     if (strlen(cmd) > promptw) {
         // The extra round trip sucks, but if we don't do this, mksh's
@@ -176,9 +184,93 @@ try_adb_stub(struct child_start_info* csi, int* uid, char** err)
     }
 
     reslist_pop_nodestroy(rl_stub);
+    child_kill(child, SIGTERM);
+    (void) child_wait(child);
     *err = xstrdup(resp);
     reslist_destroy(rl_stub);
     return NULL;
+}
+
+struct delete_device_tmpfile {
+    const char** adb_args;
+    char* device_filename;
+};
+
+static void
+delete_device_tmpfile_cleanup_1(void* data)
+{
+    struct delete_device_tmpfile* ddt = data;
+    const struct child_start_info csi = {
+        .flags = CHILD_NULL_STDIN | CHILD_NULL_STDOUT | CHILD_NULL_STDERR,
+        .exename = "adb",
+        .argv = argv_concat((const char*[]){"adb", NULL},
+                            ddt->adb_args,
+                            (const char*[]){"shell",
+                                    "rm",
+                                    "-f",
+                                    // Chosen not to require quoting
+                                    ddt->device_filename,
+                                    NULL}),
+    };
+
+    child_wait(child_start(&csi));
+}
+
+__attribute__((unused))
+static void
+delete_device_tmpfile_cleanup(void* data)
+{
+    SCOPED_RESLIST(rl_cleanup);
+    (void) catch_error(delete_device_tmpfile_cleanup_1, data, NULL);
+}
+
+static void
+add_cleanup_delete_device_tmpfile(const char* device_filename,
+                                  const char* const* adb_args)
+{
+    struct cleanup* cl = cleanup_allocate();
+    struct delete_device_tmpfile* ddt = xcalloc(sizeof (*ddt));
+    ddt->device_filename = xstrdup(device_filename);
+    ddt->adb_args = argv_concat_deepcopy(adb_args, NULL);
+    cleanup_commit(cl, delete_device_tmpfile_cleanup, ddt);
+}
+
+static void
+rename_device_file(const char* dst,
+                   const char* src,
+                   const char* const* adb_args)
+{
+    const struct child_start_info csi = {
+        .flags = CHILD_NULL_STDIN | CHILD_MERGE_STDERR,
+        .exename = "adb",
+        .argv = argv_concat((const char*[]){"adb", NULL},
+                            adb_args,
+                            (const char*[]){"shell",
+                                    "mv",
+                                    "-f",
+                                    // Chosen not to require quoting
+                                    src,
+                                    // Chosen not to require quoting
+                                    dst,
+                                    "&&",
+                                    "echo",
+                                    "yes",
+                                    NULL}),
+    };
+
+    struct child* child = child_start(&csi);
+    char buf[256];
+    buf[0] = '\0';
+    size_t len = read_all(child->fd[1]->fd, buf, sizeof (buf)-1);
+    fdh_destroy(child->fd[1]);
+    (void) child_wait(child);
+    buf[len] = '\0';
+    if (strcmp(buf, "yes\r\n") != 0) {
+        while (len > 0 && isspace(buf[len - 1]))
+            --len;
+
+        die(ECOMM, "moving fb-adb to final location failed: %s", buf);
+    }
 }
 
 static struct child*
@@ -186,7 +278,7 @@ start_stub_adb(bool force_send_stub,
                const char* const* adb_args,
                int* uid)
 {
-    struct child_start_info csi = {
+    const struct child_start_info csi = {
         .flags = CHILD_INHERIT_STDERR,
         .exename = "adb",
         .argv = argv_concat((const char*[]){"adb", NULL},
@@ -198,16 +290,30 @@ start_stub_adb(bool force_send_stub,
     struct child* child = NULL;
     char* err = NULL;
     if (!force_send_stub)
-        child = try_adb_stub(&csi, uid, &err);
+        child = try_adb_stub(&csi, FB_ADB_REMOTE_FILENAME, uid, &err);
 
-    size_t ns = nr_stubs;
-    for (unsigned i = 0; i < ns && !child; ++i) {
-        send_stub(stubs[i].data, stubs[i].size, adb_args);
-        child = try_adb_stub(&csi, uid, &err);
+    if (child == NULL) {
+        static const size_t random_suffix_bytes = 10;
+        char* tmp_adb = xaprintf(
+            "%s.%s",
+            FB_ADB_REMOTE_FILENAME,
+            hex_encode_bytes(
+                generate_random_bytes(random_suffix_bytes),
+                random_suffix_bytes));
+
+        add_cleanup_delete_device_tmpfile(tmp_adb, adb_args);
+
+        size_t ns = nr_stubs;
+        for (unsigned i = 0; i < ns && !child; ++i) {
+            send_stub(stubs[i].data, stubs[i].size, adb_args, tmp_adb);
+            child = try_adb_stub(&csi, tmp_adb, uid, &err);
+        }
+
+        if (!child)
+            die(ECOMM, "trouble starting adb stub: %s", err);
+
+        rename_device_file(FB_ADB_REMOTE_FILENAME, tmp_adb, adb_args);
     }
-
-    if (!child)
-        die(ECOMM, "trouble starting adb stub: %s", err);
 
     return child;
 }
@@ -884,7 +990,7 @@ shex_wrapper(const char* wrapped_cmd,
                 fputs(usage, stdout);
                 return 0;
             }
-            
+
             const struct option* longopt =
                 ( longopts
                   ? find_option_by_name(longopts, longname)
