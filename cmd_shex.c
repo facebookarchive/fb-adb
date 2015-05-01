@@ -161,6 +161,8 @@ try_adb_stub(const struct child_start_info* csi,
     struct chat* cc = chat_new(child->fd[0]->fd, child->fd[1]->fd);
     chat_swallow_prompt(cc);
 
+    *err = NULL;
+
     // We choose adb_name such that it doesn't need to be quoted
     char* cmd = xaprintf("exec %s stub", adb_name);
     unsigned promptw = 40;
@@ -236,8 +238,8 @@ add_cleanup_delete_device_tmpfile(const char* device_filename,
 }
 
 static void
-rename_device_file(const char* dst,
-                   const char* src,
+rename_device_file(const char* src,
+                   const char* dst,
                    const char* const* adb_args)
 {
     const struct child_start_info csi = {
@@ -312,7 +314,13 @@ start_stub_adb(bool force_send_stub,
         if (!child)
             die(ECOMM, "trouble starting adb stub: %s", err);
 
-        rename_device_file(FB_ADB_REMOTE_FILENAME, tmp_adb, adb_args);
+        child_kill(child, SIGTERM);
+        child_wait(child);
+        rename_device_file(tmp_adb, FB_ADB_REMOTE_FILENAME, adb_args);
+
+        child = try_adb_stub(&csi, FB_ADB_REMOTE_FILENAME, uid, &err);
+        if (!child)
+            die(ECOMM, "trouble starting adb stub: %s", err);
     }
 
     return child;
