@@ -183,10 +183,23 @@ cleanup_commit_close_fd(struct cleanup* cl, int fd)
     cleanup_commit(cl, fd_cleanup, (void*) (intptr_t) (fd));
 }
 
-static bool
-reslist_empty_p(struct reslist* rl)
+static void
+transfer_owned_resources(struct reslist* rl_to,
+                         struct reslist* rl_from)
 {
-    return LIST_EMPTY(&rl->contents);
+    LIST_HEAD(,resource) r_reversed = LIST_HEAD_INITIALIZER(&r_reversed);
+
+    while (!LIST_EMPTY(&rl_from->contents)) {
+        struct resource* r = LIST_FIRST(&rl_from->contents);
+        LIST_REMOVE(r, link);
+        LIST_INSERT_HEAD(&r_reversed, r, link);
+    }
+
+    while (!LIST_EMPTY(&r_reversed)) {
+        struct resource* r = LIST_FIRST(&r_reversed);
+        LIST_REMOVE(r, link);
+        LIST_INSERT_HEAD(&rl_to->contents, r, link);
+    }
 }
 
 bool
@@ -197,15 +210,14 @@ catch_error(void (*fn)(void* fndata),
     bool error = true;
     struct errhandler* old_errh = current_errh;
     struct errhandler errh;
-    errh.rl = reslist_push_new();
+    SCOPED_RESLIST(rl_cleanup);
+    errh.rl = rl_cleanup;
     errh.ei = ei;
     current_errh = &errh;
     if (sigsetjmp(errh.where, 1) == 0) {
         fn(fndata);
         error = false;
-        current_reslist = errh.rl->parent;
-        if (reslist_empty_p(errh.rl))
-            reslist_destroy(errh.rl);
+        transfer_owned_resources(rl_cleanup->parent, rl_cleanup);
     }
 
     current_errh = old_errh;
@@ -270,7 +282,6 @@ void die_oom(void)
         current_errh->ei->msg = "no memory";
     }
 
-    reslist_destroy(current_errh->rl);
     siglongjmp(current_errh->where, 1);
 }
 
@@ -291,7 +302,6 @@ diev(int err, const char* fmt, va_list args)
         }
     }
 
-    reslist_destroy(current_errh->rl);
     siglongjmp(current_errh->where, 1);
 }
 
