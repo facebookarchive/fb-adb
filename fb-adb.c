@@ -26,14 +26,9 @@
 static void
 view_with_pager(const char* filename)
 {
-    size_t qnamesz = 0;
-    lim_shellquote(filename, &qnamesz, NULL, 0);
-    char* qname = xalloc(qnamesz);
-    size_t pos = 0;
-    lim_shellquote(filename, &pos, qname, qnamesz);
     system(xaprintf("%s %s",
                     getenv("PAGER") ?: "less",
-                    qname));
+                    xshellquote(filename)));
 }
 #endif
 

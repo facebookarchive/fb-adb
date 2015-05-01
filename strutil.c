@@ -9,6 +9,7 @@
  *
  */
 #include "strutil.h"
+#include "util.h"
 
 void
 lim_outc(char c, size_t *pos, char *buf, size_t bufsz)
@@ -45,4 +46,15 @@ lim_shellquote(const char* word, size_t *pos, char *buf, size_t bufsz)
     }
 
     lim_strcat("'", pos, buf, bufsz);
+}
+
+char*
+xshellquote(const char* word)
+{
+    size_t bufsz = 0;
+    lim_shellquote(word, &bufsz, NULL, 0);
+    char* quoted = xalloc(bufsz);
+    size_t pos = 0;
+    lim_shellquote(word, &pos, quoted, bufsz);
+    return quoted;
 }
