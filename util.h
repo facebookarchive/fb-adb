@@ -183,3 +183,7 @@ FILE* xnamed_tempfile(const char** name);
 #endif
 
 void replace_with_dev_null(int fd);
+
+void* generate_random_bytes(size_t howmany);
+
+char* hex_encode_bytes(const void* bytes, size_t n);

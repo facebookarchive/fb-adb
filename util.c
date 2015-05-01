@@ -1016,3 +1016,39 @@ allow_inherit(int fd)
     if (fl < 0 || fcntl(fd, F_SETFD, fl &~ FD_CLOEXEC) < 0)
         die_errno("fcntl");
 }
+
+void*
+generate_random_bytes(size_t howmany)
+{
+    struct reslist* rl_buffer = reslist_push_new();
+    void* buffer = xalloc(howmany);
+    struct reslist* rl_urandom = reslist_push_new();
+    int ufd = xopen("/dev/urandom", O_RDONLY, 0);
+    size_t nr_read = read_all(ufd, buffer, howmany);
+    if (nr_read < howmany)
+        die(EINVAL, "too few bytes from random device");
+
+    reslist_pop_nodestroy(rl_buffer);
+    reslist_destroy(rl_urandom);
+    return buffer;
+}
+
+char*
+hex_encode_bytes(const void* bytes_in, size_t nr_bytes)
+{
+    const uint8_t* bytes = (const uint8_t*) bytes_in;
+    size_t nr_encoded_bytes = nr_bytes;
+    if (SATADD(&nr_encoded_bytes, nr_encoded_bytes, nr_bytes) ||
+        SATADD(&nr_encoded_bytes, nr_encoded_bytes, 1))
+    {
+        die(ERANGE, "nr_bytes too big");
+    }
+
+    char* buffer = xalloc(nr_encoded_bytes);
+    for (size_t i = 0; i < nr_bytes; ++i) {
+        sprintf(buffer + i*2, "%X%X", bytes[i] >> 4, bytes[i] & 0xF);
+    }
+
+    buffer[nr_encoded_bytes - 1] = '\0';
+    return buffer;
+}
