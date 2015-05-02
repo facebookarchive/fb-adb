@@ -16,8 +16,11 @@
 #include <string.h>
 #include <signal.h>
 #include <unistd.h>
+#include <stdint.h>
 #include <sys/socket.h>
 #include <sys/un.h>
+#include <sys/types.h>
+#include <limits.h>
 #include "child.h"
 
 struct internal_child_info {
@@ -242,4 +245,122 @@ child_kill(struct child* child, int signo)
 {
     if (!child->dead_p && kill(child->pid, signo) == -1)
         die_errno("kill");
+}
+
+static bool
+any_poll_active_p(const struct pollfd* p, size_t n)
+{
+    for (size_t i = 0; i < n; ++i)
+        if (p[i].fd != -1)
+            return true;
+
+    return false;
+}
+
+struct child_communication*
+child_communicate(
+    struct child* child,
+    const void* data_for_child_in,
+    size_t data_for_child_size)
+{
+    const uint8_t* data_for_child = data_for_child_in;
+    size_t bytes_consumed = 0;
+    size_t chunk_size = 512;
+
+    struct pollfd p[ARRAYSIZE(child->fd)];
+    memset(&p, 0, sizeof (p));
+
+    struct {
+        struct cleanup* cl;
+        uint8_t* buf;
+        size_t pos;
+        size_t sz;
+    } ob[ARRAYSIZE(child->fd)-1];
+
+    memset(&ob, 0, sizeof (ob));
+
+    for (int i = 0; i < ARRAYSIZE(p); ++i) {
+        int fd = child->fd[i]->fd;
+        fd_set_blocking_mode(fd, non_blocking);
+        p[i].fd = fd;
+        p[i].events = (i == 0) ? POLLIN : POLLOUT;
+    }
+
+    for (;;) {
+        if (p[0].fd != -1) {
+            size_t nr_to_write = data_for_child_size - bytes_consumed;
+            if (nr_to_write > 0) {
+                ssize_t nr_written =
+                    write(p[0].fd,
+                          data_for_child + bytes_consumed,
+                          XMIN(nr_to_write, (size_t) SSIZE_MAX));
+
+                if (nr_written == -1 && !error_temporary_p(errno))
+                    die_errno("write[child]");
+
+                bytes_consumed += XMAX(nr_written, 0);
+            }
+
+            if (bytes_consumed == data_for_child_size) {
+                fdh_destroy(child->fd[0]);
+                p[0].fd = -1;
+            }
+        }
+
+        for (size_t i = 0; i < ARRAYSIZE(ob); ++i) {
+            int fd = p[i+1].fd;
+            if (fd == -1)
+                continue;
+
+            if (ob[i].pos == ob[i].sz) {
+                struct cleanup* newcl = cleanup_allocate();
+                size_t newsz;
+                if (SATADD(&newsz, ob[i].sz, chunk_size))
+                    die(ERANGE, "too many bytes from child");
+
+                void* newbuf = realloc(ob[i].buf, newsz);
+                if (newbuf == NULL)
+                    die(ENOMEM, "could not allocate iobuf");
+
+                cleanup_commit(newcl, free, newbuf);
+                cleanup_forget(ob[i].cl);
+                ob[i].cl = newcl;
+                ob[i].buf = newbuf;
+                ob[i].sz = newsz;
+            }
+
+            size_t to_read = ob[i].sz - ob[i].pos;
+            ssize_t nr_read = read(fd, ob[i].buf + ob[i].pos, to_read);
+            if (nr_read == -1 && !error_temporary_p(errno))
+                die_errno("read[child:%d]", fd);
+
+            ob[i].pos += XMAX(0, nr_read);
+            if (nr_read == 0) {
+                fdh_destroy(child->fd[i+1]);
+                p[i+1].fd = -1;
+            }
+        }
+
+        if (!any_poll_active_p(p, ARRAYSIZE(p)))
+            break;
+
+        if (ppoll(p, ARRAYSIZE(p), NULL, NULL) == -1 && errno != EINTR)
+            die_errno("ppoll");
+    }
+
+    struct child_communication* com = xcalloc(sizeof (*com));
+    com->status = child_wait(child);
+    com->bytes_consumed = bytes_consumed;
+    for (size_t i = 0; i < ARRAYSIZE(ob); ++i) {
+        com->out[i].bytes = ob[i].buf;
+        com->out[i].nr = ob[i].pos;
+    }
+
+    return com;
+}
+
+bool
+child_status_success_p(int status)
+{
+    return WIFEXITED(status) && WEXITSTATUS(status) == 0;
 }
