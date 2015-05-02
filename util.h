@@ -52,7 +52,6 @@ void reslist_init_local(struct reslist* rl_local);
 void reslist_cleanup_local(struct reslist* rl_local);
 void reslist_pop_nodestroy(struct reslist* rl);
 void reslist_destroy(struct reslist* rl);
-struct reslist* reslist_current(void);
 
 #define PASTE(a,b) a##b
 
