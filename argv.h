@@ -15,3 +15,6 @@ size_t argv_count(const char* const* argv);
 const char** argv_concat(const char* const* argv1, ...);
 const char** argv_concat_deepcopy(const char* const* argv1, ...);
 extern const char* const empty_argv[];
+
+#define ARGV(...) ((const char*[]){__VA_ARGS__ , NULL})
+#define ARGV_CONCAT(...) argv_concat(__VA_ARGS__ , NULL)
