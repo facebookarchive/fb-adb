@@ -164,7 +164,21 @@ try_adb_stub(const struct child_start_info* csi,
     *err = NULL;
 
     // We choose adb_name such that it doesn't need to be quoted
-    char* cmd = xaprintf("exec %s stub", adb_name);
+    char* cmd = NULL;
+
+#ifndef NDEBUG
+    const char* remote_debug = getenv("FB_ADB_REMOTE_DEBUG");
+    if (remote_debug)
+        cmd = xaprintf("FB_ADB_DEBUG='%s' exec %s stub",
+                       remote_debug,
+                       adb_name);
+#endif
+
+    if (cmd == NULL)
+        cmd = xaprintf("exec %s stub", adb_name);
+
+    dbg("cmd for stub: [%s]", cmd);
+
     unsigned promptw = 40;
     if (strlen(cmd) > promptw) {
         // The extra round trip sucks, but if we don't do this, mksh's
