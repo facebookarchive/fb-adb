@@ -42,8 +42,12 @@ dbg_init(void)
         /* Noop */
     } else if (strcmp(dv, "1") == 0) {
         dbgout = fdopen(fileno(stderr), "w");
-    } else if (dv[0] == '>') {
+    } else if (dv[0] == '>' && dv[1] == '>') {
         dbgout = fopen(dv+1, "a");
+        if (dbgout != NULL)
+            dbglock_fd = fileno(dbgout);
+    } else if (dv[0] == '>') {
+        dbgout = fopen(dv+1, "w");
         if (dbgout != NULL)
             dbglock_fd = fileno(dbgout);
     }
