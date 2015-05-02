@@ -64,6 +64,7 @@ void reslist_destroy(struct reslist* rl);
 struct cleanup* cleanup_allocate(void);
 void cleanup_commit(struct cleanup* cl, cleanupfn fn, void* fndata);
 void cleanup_commit_close_fd(struct cleanup* cl, int fd);
+void cleanup_forget(struct cleanup* cl);
 
 __attribute__((malloc))
 void* xalloc(size_t sz);

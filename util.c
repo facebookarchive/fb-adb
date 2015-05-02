@@ -169,6 +169,15 @@ cleanup_commit(struct cleanup* cl,
     cl->fndata = fndata;
 }
 
+void
+cleanup_forget(struct cleanup* cl)
+{
+    if (cl != NULL) {
+        LIST_REMOVE(&cl->r, link);
+        free(cl);
+    }
+}
+
 static void
 fd_cleanup(void* arg)
 {
