@@ -11,6 +11,7 @@
 #include <assert.h>
 #include <stdio.h>
 #include <stdint.h>
+#include <stdarg.h>
 #include <limits.h>
 #include <errno.h>
 #include <string.h>
@@ -24,13 +25,14 @@
 #include <sys/queue.h>
 #include <libgen.h>
 #include <sys/socket.h>
+#include <sys/types.h>
+#include <sys/un.h>
 
 #ifndef SOCK_CLOEXEC
 #define SOCK_CLOEXEC O_CLOEXEC
 #endif
 
 #ifdef HAVE_KQUEUE
-#include <sys/types.h>
 #include <sys/event.h>
 #include <sys/time.h>
 #endif
@@ -331,6 +333,14 @@ die_errno(const char* fmt, ...)
     die(e, "%s: %s", xavprintf(fmt, args), strerror(e));
 }
 
+bool
+error_temporary_p(int errnum)
+{
+    return (errnum == EINTR ||
+            errnum == EAGAIN ||
+            errnum == EWOULDBLOCK);
+}
+
 int
 xopen(const char* pathname, int flags, mode_t mode)
 {
@@ -420,6 +430,45 @@ xpipe(int* read_end, int* write_end)
     cleanup_commit_close_fd(cl[1], fd[1]);
     *read_end = fd[0];
     *write_end = fd[1];
+}
+
+int
+xsocket(int domain, int type, int protocol)
+{
+    struct cleanup* cl = cleanup_allocate();
+    int s = socket(domain, type | SOCK_CLOEXEC, protocol);
+    if (s < 0)
+        die_errno("socket");
+
+    assert_cloexec(s);
+    cleanup_commit_close_fd(cl, s);
+    return s;
+}
+
+int
+xaccept(int server_socket)
+{
+    struct cleanup* cl = cleanup_allocate();
+    int s;
+
+    do {
+#ifdef HAVE_ACCEPT4
+        s = accept4(server_socket, NULL, NULL, SOCK_CLOEXEC);
+#else
+        s = accept(server_socket, NULL, NULL);
+#endif
+    } while (s == -1 && errno == EINTR);
+
+    if (s == -1)
+        die_errno("accept");
+
+#ifndef HAVE_ACCEPT4
+    merge_flags(s, O_CLOEXEC);
+#endif
+
+    assert_cloexec(s);
+    cleanup_commit_close_fd(cl, s);
+    return s;
 }
 
 void
@@ -565,6 +614,16 @@ char*
 xstrdup(const char* s)
 {
     return xaprintf("%s", s);
+}
+
+char*
+xstrndup(const char* s, size_t n)
+{
+    size_t nslen = strnlen(s, n);
+    char* ns = xalloc(nslen+1);
+    memcpy(ns, s, nslen);
+    ns[nslen] = '\0';
+    return ns;
 }
 
 static void
@@ -1070,4 +1129,43 @@ hex_encode_bytes(const void* bytes_in, size_t nr_bytes)
 
     buffer[nr_encoded_bytes - 1] = '\0';
     return buffer;
+}
+
+char*
+gen_hex_random(size_t nr_bytes)
+{
+    return hex_encode_bytes(generate_random_bytes(nr_bytes), nr_bytes);
+}
+
+void
+make_unix_socket_addr(const char* name,
+                      struct sockaddr_un** addr_out,
+                      socklen_t* addrlen_out)
+{
+    size_t name_length = strlen(name);
+    size_t addrlen = offsetof(struct sockaddr_un, sun_path);
+    if (SATADD(&addrlen, addrlen, name_length + 1))
+        die(EINVAL, "socket name too long");
+
+    struct sockaddr_un* n = xalloc(addrlen);
+    n->sun_family = AF_UNIX;
+    memcpy(n->sun_path, name, name_length + 1);
+
+    *addr_out = n;
+    *addrlen_out = addrlen;
+}
+
+void*
+first_non_null(void* s, ...)
+{
+    void* ret = s;
+    va_list args;
+    va_start(args, s);
+
+    while (ret == NULL)
+        ret = va_arg(args, void*);
+
+    va_end(args);
+    return ret;
+
 }

@@ -20,6 +20,8 @@
 #include <errno.h>
 #include <poll.h>
 #include <sys/queue.h>
+#include <sys/socket.h>
+#include <sys/un.h>
 #include "dbg.h"
 
 #ifndef ECOMM
@@ -73,6 +75,8 @@ void* xcalloc(size_t sz);
 
 int xopen(const char* pathname, int flags, mode_t mode);
 void xpipe(int* read_end, int* write_end);
+int xsocket(int domain, int type, int protocol);
+int xaccept(int server_socket);
 void xsocketpair(int domain, int type, int protocol,
                  int* s1, int* s2);
 int xdup(int fd);
@@ -93,6 +97,7 @@ __attribute__((malloc))
 char* xavprintf(const char* fmt, va_list args);
 __attribute__((malloc))
 char* xstrdup(const char* s);
+char* xstrndup(const char* s, size_t nr);
 
 typedef struct errinfo {
     int err;
@@ -111,6 +116,8 @@ __attribute__((noreturn,format(printf, 2, 3)))
 void die(int err, const char* fmt, ...);
 __attribute__((noreturn,format(printf, 1, 2)))
 void die_errno(const char* fmt, ...);
+
+bool error_temporary_p(int errnum);
 
 extern const char* orig_argv0;
 extern const char* prgname;
@@ -183,7 +190,13 @@ FILE* xnamed_tempfile(const char** name);
 #endif
 
 void replace_with_dev_null(int fd);
-
 void* generate_random_bytes(size_t howmany);
-
 char* hex_encode_bytes(const void* bytes, size_t n);
+char* gen_hex_random(size_t nr_bytes);
+
+struct sockaddr_un;
+void make_unix_socket_addr(const char* name,
+                           struct sockaddr_un** addr_out,
+                           socklen_t* addrlen_out);
+
+void* first_non_null(void* s, ...);
