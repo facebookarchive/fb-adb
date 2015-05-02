@@ -14,95 +14,115 @@
 #include <sys/wait.h>
 #include <errno.h>
 #include <string.h>
+#include <stdint.h>
 #include "adb.h"
 #include "child.h"
 #include "util.h"
 #include "argv.h"
 #include "strutil.h"
 
+static bool
+errend_p(char c)
+{
+    return c == '\0' || c == '\n' || c == '\r';
+}
+
+static const char*
+output2str(struct child_communication* com)
+{
+    const char* s = (const char*) com->out[0].bytes;
+    size_t nr_bytes = com->out[0].nr;
+    size_t endpos = 0;
+    static const char prefix[] = "error: ";
+
+    if (strlen(prefix) <= nr_bytes &&
+        strncmp(s, prefix, strlen(prefix)) == 0)
+    {
+        s += strlen(prefix);
+        nr_bytes -= strlen(prefix);
+    }
+
+    while (endpos < nr_bytes && !errend_p(s[endpos]))
+        ++endpos;
+
+    return xstrndup(s, endpos);
+}
+
+static struct child_communication*
+run_adb(const char* const* adb_args,
+        const char* args[])
+{
+    struct child_start_info csi = {
+        .flags = CHILD_MERGE_STDERR,
+        .exename = "adb",
+        .argv = ARGV_CONCAT(ARGV("adb"),
+                            adb_args ?: empty_argv,
+                            args ?: empty_argv)
+    };
+
+    return child_communicate(child_start(&csi), NULL, 0);
+}
+
 void
 adb_send_file(const char* local,
               const char* remote,
               const char* const* adb_args)
 {
-    SCOPED_RESLIST(rl_send_stub);
+    SCOPED_RESLIST(rl);
 
-    struct child_start_info csi = {
-        .flags = CHILD_MERGE_STDERR,
-        .exename = "adb",
-        .argv = argv_concat((const char*[]){"adb", NULL},
-                            adb_args ?: empty_argv,
-                            (const char*[]){"push", local, remote, NULL},
-                            NULL),
-    };
-    struct child* adb = child_start(&csi);
-    fdh_destroy(adb->fd[0]);
+    struct child_communication* com =
+        run_adb(adb_args, ARGV("push", local, remote));
 
-    char buf[512];
-    size_t len = read_all(adb->fd[1]->fd, buf, sizeof (buf));
-    fdh_destroy(adb->fd[1]);
-
-    int status = child_wait(adb);
-    if (!(WIFEXITED(status) && WEXITSTATUS(status) == 0)) {
-        if (len == sizeof (buf))
-            --len;
-
-        while (len > 0 && isspace(buf[len - 1]))
-            --len;
-
-        buf[len] = '\0';
-
-        char* epos = buf;
-        while (*epos != '\0' && isspace(*epos))
-            ++epos;
-
-        if (strncmp(epos, "error: ", strlen("error: ")) == 0) {
-            epos += strlen("error: ");
-            char* e = strchr(epos, '\n');
-            if (e) *e = '\0';
-        }
-
-        die(ECOMM, "adb error: %s", epos);
-    }
+    if (!child_status_success_p(com->status))
+        die(ECOMM, "adb error: %s", output2str(com));
 }
 
 void adb_rename_file(const char* old_name,
                      const char* new_name,
                      const char* const* adb_args)
 {
+    SCOPED_RESLIST(rl);
+
     if (!shell_safe_word_p(old_name))
         die(EINVAL, "invalid shell word: [%s]", old_name);
 
     if (!shell_safe_word_p(new_name))
         die(EINVAL, "invalid shell word: [%s]", new_name);
 
-    const struct child_start_info csi = {
-        .flags = CHILD_NULL_STDIN | CHILD_MERGE_STDERR,
-        .exename = "adb",
-        .argv = argv_concat((const char*[]){"adb", NULL},
-                            adb_args,
-                            (const char*[]){"shell",
-                                    "mv",
-                                    old_name,
-                                    new_name,
-                                    "&&",
-                                    "echo",
-                                    "yes",
-                                    NULL},
-                            NULL),
-    };
+    struct child_communication* com =
+        run_adb(adb_args,
+                ARGV("shell",
+                     "mv",
+                     old_name,
+                     new_name,
+                     "&&",
+                     "echo",
+                     "yes"));
 
-    struct child* child = child_start(&csi);
-    char buf[256];
-    buf[0] = '\0';
-    size_t len = read_all(child->fd[1]->fd, buf, sizeof (buf)-1);
-    fdh_destroy(child->fd[1]);
-    (void) child_wait(child);
-    buf[len] = '\0';
-    if (strcmp(buf, "yes\r\n") != 0) {
-        while (len > 0 && isspace(buf[len - 1]))
-            --len;
+    const char* output = output2str(com);
+    if (!child_status_success_p(com->status) || strcmp(output, "yes") != 0)
+        die(ECOMM, "moving fb-adb to final location failed: %s", output);
+}
 
-        die(ECOMM, "moving fb-adb to final location failed: %s", buf);
-    }
+void
+adb_add_forward(const char* local,
+                const char* remote,
+                const char* const* adb_args)
+{
+    struct child_communication* com =
+        run_adb(adb_args, ARGV("forward", local, remote));
+
+    if (!child_status_success_p(com->status))
+        die(ECOMM, "adb_add_forward failed: %s", output2str(com));
+}
+
+void
+adb_remove_forward(const char* local,
+                   const char* const* adb_args)
+{
+    struct child_communication* com =
+        run_adb(adb_args, ARGV("forward", "--remove", local));
+
+    if (!child_status_success_p(com->status))
+        die(ECOMM, "adb_remove_forward failed: %s", output2str(com));
 }

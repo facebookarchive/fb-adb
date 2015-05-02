@@ -17,5 +17,9 @@ void adb_rename_file(const char* old_name,
                      const char* new_name,
                      const char* const* adb_args);
 
-void adb_delete_file(const char* name,
+void adb_add_forward(const char* local,
+                     const char* remote,
                      const char* const* adb_args);
+
+void adb_remove_forward(const char* local,
+                        const char* const* adb_args);
