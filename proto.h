@@ -29,7 +29,11 @@ enum msg_type {
     MSG_EXEC_AS_ROOT,
     MSG_EXEC_AS_USER,
     MSG_CHDIR,
+    MSG_REBIND_TO_SOCKET,
+    MSG_LISTENING_ON_SOCKET,
 };
+
+#define MSG_MAX_SIZE UINT16_MAX
 
 struct msg {
     uint16_t size;
@@ -88,19 +92,19 @@ struct stream_information {
 struct msg_shex_hello {
     struct msg msg;
     uint64_t version;
-    uint32_t maxmsg;
     uint32_t stub_recv_bufsz;
     uint32_t stub_send_bufsz;
     uint32_t nr_argv;
-    uint8_t have_ws;
-    struct window_size ws;
     uint32_t ispeed;
     uint32_t ospeed;
+    uint16_t maxmsg;
+    struct window_size ws;
+    uint8_t have_ws;
     uint8_t posix_vdisable_value;
     uint8_t stdio_socket_p;
     uint8_t ctty_p;
     struct stream_information si[3];
-    struct term_control tctl[0];
+    struct term_control tctl[0]; // Must be last
 };
 
 struct msg_cmdline_argument {
@@ -121,6 +125,11 @@ struct msg_exec_as_user {
 struct msg_chdir {
     struct msg msg;
     char dir[0];
+};
+
+struct msg_rebind_to_socket {
+    struct msg msg;
+    char socket[0];
 };
 
 #pragma pack(pop)

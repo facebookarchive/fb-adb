@@ -472,6 +472,22 @@ xaccept(int server_socket)
 }
 
 void
+xconnect(int fd,
+         const struct sockaddr* addr,
+         socklen_t addrlen)
+{
+    int rc;
+
+    do {
+        rc = connect(fd, addr, addrlen);
+    } while (rc == -1 && errno == EINTR);
+
+    if (rc == -1)
+        die_errno("connect");
+}
+
+
+void
 xsocketpair(int domain, int type, int protocol,
             int* s1, int* s2)
 {
@@ -1169,3 +1185,4 @@ first_non_null(void* s, ...)
     return ret;
 
 }
+

@@ -10,9 +10,11 @@
  */
 #pragma once
 
+#define DEVICE_TEMP_DIR "/data/local/tmp"
+
 #ifdef __ANDROID__
 #define DEFAULT_SHELL "/system/bin/sh"
-#define DEFAULT_TEMP_DIR "/data/local/tmp"
+#define DEFAULT_TEMP_DIR DEVICE_TEMP_DIR
 #else
 #define DEFAULT_SHELL "/bin/sh"
 #define DEFAULT_TEMP_DIR "/tmp"
@@ -20,4 +22,4 @@
 
 #define DEFAULT_CMD_BUFSZ 4096
 #define DEFAULT_STREAM_BUFSZ 4096
-#define FB_ADB_REMOTE_FILENAME "/data/local/tmp/fb-adb"
+#define FB_ADB_REMOTE_FILENAME DEVICE_TEMP_DIR "/fb-adb"

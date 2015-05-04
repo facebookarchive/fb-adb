@@ -43,6 +43,39 @@ enum shex_mode {
     SHEX_MODE_RCMD,
 };
 
+struct childcom {
+    struct fdh* to_child;
+    struct fdh* from_child;
+    void (*writer)(int, const void*, size_t);
+};
+
+static void
+tc_write(const struct childcom* tc,
+         const void* buf,
+         size_t sz)
+{
+    tc->writer(tc->to_child->fd, buf, sz);
+}
+
+static void
+tc_sendmsg(const struct childcom* tc,
+           const struct msg* m)
+{
+    tc_write(tc, m, m->size);
+}
+
+static struct msg*
+tc_recvmsg(const struct childcom* tc)
+{
+    return read_msg(tc->from_child->fd, read_all);
+}
+
+static struct chat*
+tc_chat_new(const struct childcom* tc)
+{
+    return chat_new(tc->to_child->fd, tc->from_child->fd);
+}
+
 static const char shex_usage[] = (
     "\n"
     "  -t\n"
@@ -78,6 +111,12 @@ static const char shex_usage[] = (
     "  -C DIR\n"
     "  --chdir DIR\n"
     "    Change to DIR before executing child.\n"
+    "\n"
+    "  -S\n"
+    "  --socket-transport\n"
+    "    Connect over a forwarded socket instead of over the ADB shell\n"
+    "    protocol.  This mode may take longer to connect, but will\n"
+    "    create a higher-speed connection.\n"
     "\n"
     "  -h\n"
     "  --help\n"
@@ -115,7 +154,7 @@ start_stub_local(void)
     const struct child_start_info csi = {
         .flags = CHILD_INHERIT_STDERR,
         .exename = orig_argv0,
-        .argv = (const char*[]){orig_argv0, "stub", NULL},
+        .argv = ARGV(orig_argv0, "stub"),
     };
 
     struct child* child = child_start(&csi);
@@ -219,14 +258,13 @@ delete_device_tmpfile_cleanup_1(void* data)
     const struct child_start_info csi = {
         .flags = CHILD_NULL_STDIN | CHILD_NULL_STDOUT | CHILD_NULL_STDERR,
         .exename = "adb",
-        .argv = argv_concat((const char*[]){"adb", NULL},
+        .argv = ARGV_CONCAT(ARGV("adb"),
                             ddt->adb_args,
-                            (const char*[]){"shell",
-                                    "rm",
-                                    "-f",
-                                    // Chosen not to require quoting
-                                    ddt->device_filename,
-                                    NULL}),
+                            ARGV("shell",
+                                 "rm",
+                                 "-f",
+                                 // Chosen not to require quoting
+                                 ddt->device_filename)),
     };
 
     child_wait(child_start(&csi));
@@ -259,10 +297,7 @@ start_stub_adb(bool force_send_stub,
     const struct child_start_info csi = {
         .flags = CHILD_INHERIT_STDERR,
         .exename = "adb",
-        .argv = argv_concat((const char*[]){"adb", NULL},
-                            adb_args,
-                            (const char*[]){"shell", NULL},
-                            NULL)
+        .argv = ARGV_CONCAT(ARGV("adb"), adb_args, ARGV("shell")),
     };
 
     struct child* child = NULL;
@@ -271,13 +306,10 @@ start_stub_adb(bool force_send_stub,
         child = try_adb_stub(&csi, FB_ADB_REMOTE_FILENAME, uid, &err);
 
     if (child == NULL) {
-        static const size_t random_suffix_bytes = 10;
         char* tmp_adb = xaprintf(
             "%s.%s",
             FB_ADB_REMOTE_FILENAME,
-            hex_encode_bytes(
-                generate_random_bytes(random_suffix_bytes),
-                random_suffix_bytes));
+            gen_hex_random(10));
 
         add_cleanup_delete_device_tmpfile(tmp_adb, adb_args);
 
@@ -355,7 +387,7 @@ make_hello_msg(size_t cmd_bufsz,
     m->msg.type = MSG_SHEX_HELLO;
     m->version = build_time;
     m->nr_argv = nr_argv;
-    m->maxmsg = cmd_bufsz;
+    m->maxmsg = XMIN(cmd_bufsz, MSG_MAX_SIZE);
     m->stub_send_bufsz = cmd_bufsz;
     m->stub_recv_bufsz = cmd_bufsz;
     for (int i = 0; i < 3; ++i) {
@@ -421,7 +453,10 @@ handle_sigwinch(int signo)
 }
 
 static void
-send_cmdline_argument(int fd, unsigned type, const void* val, size_t valsz)
+send_cmdline_argument(const struct childcom* tc,
+                      unsigned type,
+                      const void* val,
+                      size_t valsz)
 {
     struct msg m;
     size_t totalsz;
@@ -429,19 +464,19 @@ send_cmdline_argument(int fd, unsigned type, const void* val, size_t valsz)
     if (SATADD(&totalsz, sizeof (m), valsz) || totalsz > UINT32_MAX)
         die(EINVAL, "command line argument too long");
 
-    if (totalsz <= UINT16_MAX) {
+    if (totalsz <= MSG_MAX_SIZE) {
         m.type = type;
         m.size = totalsz;
-        write_all_adb_encoded(fd, &m, sizeof (m));
-        write_all_adb_encoded(fd, val, valsz);
+        tc_write(tc, &m, sizeof (m));
+        tc_write(tc, val, valsz);
     } else if (type == MSG_CMDLINE_ARGUMENT) {
         struct msg_cmdline_argument_jumbo mj;
         memset(&mj, 0, sizeof (mj));
         mj.msg.type = MSG_CMDLINE_ARGUMENT_JUMBO;
         mj.msg.size = sizeof (mj);
         mj.actual_size = valsz;
-        write_all_adb_encoded(fd, &mj, sizeof (mj));
-        write_all_adb_encoded(fd, val, valsz);
+        tc_write(tc, &mj, sizeof (mj));
+        tc_write(tc, val, valsz);
     } else {
         die(EINVAL, "command line argument too long");
     }
@@ -478,12 +513,11 @@ make_shell_command_line(const char* shell,
     lim_format_shell_command_line(*argv, *argc, &pos, script, sz);
     script[pos] = '\0';
     *argc = 3;
-    *argv = argv_concat((const char*[]) {shell, "-c", script, NULL},
-                        NULL);
+    *argv = ARGV_CONCAT(ARGV(shell, "-c", script));
 }
 
 static void
-send_cmdline(int fd,
+send_cmdline(const struct childcom* tc,
              int argc,
              const char* const* argv,
              const char* exename)
@@ -491,29 +525,29 @@ send_cmdline(int fd,
     if (argc == 0) {
         /* Default interactive shell */
         if (exename == NULL)
-            send_cmdline_argument(fd, MSG_CMDLINE_DEFAULT_SH, NULL, 0);
+            send_cmdline_argument(tc, MSG_CMDLINE_DEFAULT_SH, NULL, 0);
         else
-            send_cmdline_argument(fd, MSG_CMDLINE_ARGUMENT,
+            send_cmdline_argument(tc, MSG_CMDLINE_ARGUMENT,
                                   exename, strlen(exename));
 
-        send_cmdline_argument(fd, MSG_CMDLINE_DEFAULT_SH_LOGIN, NULL, 0);
+        send_cmdline_argument(tc, MSG_CMDLINE_DEFAULT_SH_LOGIN, NULL, 0);
     } else {
         if (exename == NULL)
             exename = argv[0];
 
-        send_cmdline_argument(fd, MSG_CMDLINE_ARGUMENT,
+        send_cmdline_argument(tc, MSG_CMDLINE_ARGUMENT,
                               exename, strlen(exename));
 
         for (int i = 0; i < argc; ++i)
-            send_cmdline_argument(fd, MSG_CMDLINE_ARGUMENT,
+            send_cmdline_argument(tc, MSG_CMDLINE_ARGUMENT,
                                   argv[i], strlen(argv[i]));
     }
 }
 
 static void
-command_re_exec_as_root(struct child* child)
+command_re_exec_as_root(const struct childcom* tc)
 {
-    SCOPED_RESLIST(rl_re_exec_as_root);
+    SCOPED_RESLIST(rl);
 
     // Tell child to re-exec itself as root.  It'll send another hello
     // message, which we read below.
@@ -523,9 +557,9 @@ command_re_exec_as_root(struct child* child)
         .type = MSG_EXEC_AS_ROOT,
     };
 
-    write_all_adb_encoded(child->fd[0]->fd, &rmsg, rmsg.size);
+    tc_sendmsg(tc, &rmsg);
 
-    struct chat* cc = chat_new(child->fd[0]->fd, child->fd[1]->fd);
+    struct chat* cc = tc_chat_new(tc);
     char* resp = chat_read_line(cc);
     int n = -1;
     int uid;
@@ -540,7 +574,9 @@ command_re_exec_as_root(struct child* child)
 }
 
 static void
-command_re_exec_as_user(struct child* child, const char* username)
+command_re_exec_as_user(
+    const struct childcom* tc,
+    const char* username)
 {
     SCOPED_RESLIST(rl_re_exec_as_root);
 
@@ -550,16 +586,19 @@ command_re_exec_as_user(struct child* child, const char* username)
     struct msg_exec_as_user* m;
     size_t username_length = strlen(username);
     size_t alloc_size = sizeof (*m);
-    if (SATADD(&alloc_size, alloc_size, username_length))
+    if (SATADD(&alloc_size, alloc_size, username_length) ||
+        alloc_size > MSG_MAX_SIZE)
+    {
         die(EINVAL, "username too long");
+    }
 
     m = xcalloc(alloc_size);
     m->msg.size = alloc_size;
     m->msg.type = MSG_EXEC_AS_USER;
     memcpy(m->username, username, username_length);
-    write_all_adb_encoded(child->fd[0]->fd, m, m->msg.size);
+    tc_sendmsg(tc, &m->msg);
 
-    struct chat* cc = chat_new(child->fd[0]->fd, child->fd[1]->fd);
+    struct chat* cc = tc_chat_new(tc);
     char* resp = chat_read_line(cc);
     int n = -1;
     int uid;
@@ -572,7 +611,8 @@ command_re_exec_as_user(struct child* child, const char* username)
 }
 
 static void
-send_chdir(int fd, const char* child_chdir)
+send_chdir(const struct childcom* tc,
+           const char* child_chdir)
 {
     size_t dirsz;
     size_t totalsz;
@@ -580,8 +620,11 @@ send_chdir(int fd, const char* child_chdir)
 
     dirsz = strlen(child_chdir);
 
-    if (SATADD(&totalsz, dirsz, sizeof (mchd)) || totalsz > UINT16_MAX)
+    if (SATADD(&totalsz, dirsz, sizeof (mchd))
+        || totalsz > MSG_MAX_SIZE)
+    {
         die(EINVAL, "directory too long");
+    }
 
     memset(&mchd, 0, sizeof (mchd));
     mchd.msg.size = totalsz;
@@ -589,8 +632,115 @@ send_chdir(int fd, const char* child_chdir)
 
     dbg("sending chdir to [%s] %hu", child_chdir, mchd.msg.size);
 
-    write_all_adb_encoded(fd, &mchd, sizeof (mchd));
-    write_all_adb_encoded(fd, child_chdir, dirsz);
+    tc_write(tc, &mchd, sizeof (mchd));
+    tc_write(tc, child_chdir, dirsz);
+}
+
+struct cleanup_remove_forward {
+    const char* local;
+    const char* const* adb_args;
+};
+
+static void
+cleanup_remove_forward_1(void* data)
+{
+    struct cleanup_remove_forward* crf = data;
+    adb_remove_forward(crf->local, crf->adb_args);
+}
+
+static void
+cleanup_remove_forward(void* data)
+{
+    SCOPED_RESLIST(rl);
+    (void) catch_error(cleanup_remove_forward_1, data, NULL);
+}
+
+static struct cleanup_remove_forward*
+cleanup_remove_forward_alloc(const char* local,
+                             const char* const* adb_args)
+{
+    struct cleanup_remove_forward* crf = xcalloc(sizeof (*crf));
+    crf->local = xstrdup(local);
+    crf->adb_args = argv_concat_deepcopy(adb_args, NULL);
+    return crf;
+}
+
+static void
+send_rebind_to_socket_message(const struct childcom* tc,
+                              const char* device_socket)
+{
+    size_t device_socket_length = strlen(device_socket);
+    size_t msgsz;
+    struct msg_rebind_to_socket rm;
+
+    if (SATADD(&msgsz, sizeof (rm), device_socket_length) ||
+        msgsz > MSG_MAX_SIZE)
+    {
+        die(ERANGE, "socket name too long");
+    }
+
+    memset(&rm, 0, sizeof (rm));
+    rm.msg.type = MSG_REBIND_TO_SOCKET;
+    rm.msg.size = msgsz;
+    tc_write(tc, &rm.msg, sizeof (rm));
+    tc_write(tc, device_socket, device_socket_length);
+}
+
+static struct childcom*
+reconnect_over_socket(const struct childcom* tc,
+                      const char* const* adb_args)
+{
+    SCOPED_RESLIST(rl);
+
+    // N.B. We can't use reverse forwarding (having the stub connect
+    // to us) because Gingerbread doesn't support reverse forwarding.
+    // We need to wait for a reply from the child to ensure that we
+    // don't race against the stub's call to listen().
+
+    char* device_socket =
+        xaprintf("%s/fb-adb-conn-%s.sock",
+                 DEVICE_TEMP_DIR,
+                 gen_hex_random(10));
+
+    send_rebind_to_socket_message(tc, device_socket);
+    struct msg* reply = tc_recvmsg(tc);
+    if (reply->type != MSG_LISTENING_ON_SOCKET)
+        die(ECOMM, "child sent incorrect reply %u to socket bind",
+            (unsigned) reply->type);
+
+    char* host_socket =
+        xaprintf("%s/fb-adb-conn-%s.sock",
+                 (char*) first_non_null(
+                     getenv("TEMP"),
+                     getenv("TMP"),
+                     DEFAULT_TEMP_DIR),
+                 gen_hex_random(10));
+
+    char* remote = xaprintf("localfilesystem:%s", device_socket);
+    char* local = xaprintf("localfilesystem:%s", host_socket);
+
+    struct cleanup_remove_forward* crf =
+        cleanup_remove_forward_alloc(local, adb_args);
+
+    struct cleanup* crf_cl = cleanup_allocate();
+    adb_add_forward(local, remote, adb_args);
+    cleanup_commit(crf_cl, cleanup_remove_forward, crf);
+
+    // Connecting to the socket should connect to our peer
+    int scon = xsocket(AF_UNIX, SOCK_STREAM, 0);
+    struct sockaddr_un* addr;
+    socklen_t addrlen;
+    make_unix_socket_addr(host_socket, &addr, &addrlen);
+    xconnect(scon, (struct sockaddr*) addr, addrlen);
+
+    reslist_pop_nodestroy(rl);
+
+    struct childcom* ntc = xcalloc(sizeof (*ntc));
+    ntc->from_child = fdh_dup(scon);
+    ntc->to_child = fdh_dup(scon);
+    ntc->writer = write_all;
+    dbg("rebound stub connection local:%s remote:%s", local, remote);
+    return ntc;
 }
 
 static int
@@ -616,6 +766,7 @@ shex_main_common(enum shex_mode smode, int argc, const char** argv)
     char* want_user = NULL;
     bool want_ctty = true;
     char* child_chdir = NULL;
+    bool socket_transport = false;
 
     memset(&tty_flags, 0, sizeof (tty_flags));
     for (int i = 0; i < 3; ++i)
@@ -636,13 +787,14 @@ shex_main_common(enum shex_mode smode, int argc, const char** argv)
         { "socket", no_argument, NULL, 'U' },
         { "user", required_argument, NULL, 'u' },
         { "chdir", required_argument, NULL, 'C' },
+        { "socket-transport", no_argument, NULL, 'S', },
         { 0 }
     };
 
     for (;;) {
         int c = getopt_long(argc,
                             (char**) argv,
-                            "+:lhE:ftTdes:p:H:P:rUu:DC:",
+                            "+:lhE:ftTdes:p:H:P:rUu:DC:S",
                             opts,
                             NULL);
         if (c == -1)
@@ -674,21 +826,16 @@ shex_main_common(enum shex_mode smode, int argc, const char** argv)
                 break;
             case 'd':
             case 'e':
-                adb_args = argv_concat(
-                    adb_args,
-                    (const char*[]){xaprintf("-%c", c), NULL},
-                    NULL);
+                adb_args = ARGV_CONCAT(adb_args, ARGV(xaprintf("-%c", c)));
                 break;
             case 's':
             case 'p':
             case 'H':
             case 'P':
-                adb_args = argv_concat(
+                adb_args = ARGV_CONCAT(
                     adb_args,
-                    (const char*[]){xaprintf("-%c", c),
-                                    xstrdup(optarg),
-                                    NULL},
-                    NULL);
+                    ARGV(xaprintf("-%c", c),
+                         xstrdup(optarg)));
                 break;
             case 'U':
                 tty_mode = TTY_SOCKPAIR;
@@ -703,6 +850,9 @@ shex_main_common(enum shex_mode smode, int argc, const char** argv)
                 break;
             case 'C':
                 child_chdir = xstrdup(optarg);
+                break;
+            case 'S':
+                socket_transport = true;
                 break;
             case ':':
                 if (optopt == '\0') {
@@ -767,25 +917,47 @@ shex_main_common(enum shex_mode smode, int argc, const char** argv)
     struct child* child;
     int uid;
     if (local_mode) {
+        const char* thing_not_supported = NULL;
+
         if (want_root)
-            die(EINVAL, "root upgrade not supported in local mode");
+            thing_not_supported = "root update";
+
+        if (socket_transport)
+            thing_not_supported = "socket transport";
+
+        if (thing_not_supported)
+            die(EINVAL,
+                "%s not supported in local mode",
+                thing_not_supported);
+
         child = start_stub_local();
     } else {
         child = start_stub_adb(force_send_stub, adb_args, &uid);
     }
 
+    struct childcom tc_buf = {
+        .to_child = child->fd[0],
+        .from_child = child->fd[1],
+        .writer = write_all_adb_encoded,
+    };
+
+    struct childcom* tc = &tc_buf;
+
+    if (socket_transport)
+        tc = reconnect_over_socket(tc, adb_args);
+
     if (want_root && uid != 0)
-        command_re_exec_as_root(child);
+        command_re_exec_as_root(tc);
 
     if (want_user)
-        command_re_exec_as_user(child, want_user);
+        command_re_exec_as_user(tc, want_user);
 
-    write_all_adb_encoded(child->fd[0]->fd, hello_msg, hello_msg->msg.size);
+    tc_sendmsg(tc, &hello_msg->msg);
 
     if (child_chdir)
-        send_chdir(child->fd[0]->fd, child_chdir);
+        send_chdir(tc, child_chdir);
 
-    send_cmdline(child->fd[0]->fd, argc, argv, exename);
+    send_cmdline(tc, argc, argv, exename);
 
     struct fb_adb_shex shex;
     memset(&shex, 0, sizeof (shex));
@@ -797,11 +969,16 @@ shex_main_common(enum shex_mode smode, int argc, const char** argv)
     sh->nrch = 5;
     struct channel** ch = xalloc(sh->nrch * sizeof (*ch));
 
-    ch[FROM_PEER] = channel_new(child->fd[1], cmd_bufsz, CHANNEL_FROM_FD);
+    ch[FROM_PEER] = channel_new(tc->from_child,
+                                cmd_bufsz,
+                                CHANNEL_FROM_FD);
     ch[FROM_PEER]->window = UINT32_MAX;
 
-    ch[TO_PEER] = channel_new(child->fd[0], cmd_bufsz, CHANNEL_TO_FD);
-    ch[TO_PEER]->adb_encoding_hack = true;
+    ch[TO_PEER] = channel_new(tc->to_child,
+                              cmd_bufsz,
+                              CHANNEL_TO_FD);
+    ch[TO_PEER]->adb_encoding_hack =
+        (tc->writer == write_all_adb_encoded);
 
     ch[CHILD_STDIN] = channel_new(fdh_dup(0),
                                   our_stream_bufsz,
@@ -818,7 +995,6 @@ shex_main_common(enum shex_mode smode, int argc, const char** argv)
     ch[CHILD_STDERR] = channel_new(fdh_dup(2),
                                    our_stream_bufsz,
                                    CHANNEL_TO_FD);
-    ch[CHILD_STDERR]->track_window = true;
     ch[CHILD_STDERR]->track_bytes_written = true;
     ch[CHILD_STDERR]->bytes_written =
         ringbuf_room(ch[CHILD_STDERR]->rb);
@@ -862,6 +1038,7 @@ shex_main_common(enum shex_mode smode, int argc, const char** argv)
     }
 
     dbg("closing standard streams");
+    dbgch("upon closing", ch, sh->nrch);
 
     channel_close(ch[CHILD_STDIN]);
     channel_close(ch[CHILD_STDOUT]);
@@ -934,11 +1111,8 @@ shex_wrapper(const char* wrapped_cmd,
 #endif
     }
 
-#define ADDARG(_dest, _arg)                                        \
-    ({*(_dest) = argv_concat(*(_dest),                             \
-                             (const char*[]) {(_arg), NULL},       \
-                            NULL);                                 \
-    })
+#define ADDARG(_dest, _arg)                             \
+    (*(_dest) = ARGV_CONCAT(*(_dest), ARGV((_arg))))
 
     ADDARG(&rcmd_args, *argv++);
 
@@ -949,7 +1123,7 @@ shex_wrapper(const char* wrapped_cmd,
         if ((posix_correct && arg[0] != '-') ||
             (arg[0] == '-' && arg[1] == '-' && arg[2] == '\0'))
         {
-            remote_args = argv_concat(remote_args, argv - 1, NULL);
+            remote_args = ARGV_CONCAT(remote_args, argv - 1);
             break;
         }
 
@@ -1050,10 +1224,7 @@ shex_wrapper(const char* wrapped_cmd,
     };
 
     const char** nargv =
-        argv_concat(rcmd_args,
-                    invoke_self_args,
-                    remote_args,
-                    NULL);
+        ARGV_CONCAT(rcmd_args, invoke_self_args, remote_args);
 
     return shex_main_common(SHEX_MODE_RCMD,
                             argv_count(nargv),

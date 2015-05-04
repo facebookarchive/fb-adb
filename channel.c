@@ -218,7 +218,11 @@ channel_write(struct channel* c, const struct iovec* iov, unsigned nio)
 
     if (try_direct) {
         // If writev fails, just fall back to buffering path
-        directwrsz = XMAX(writev(c->fdh->fd, iov, nio), 0);
+        ssize_t res = writev(c->fdh->fd, iov, nio);
+        dbg("direct write dst:%p sz:%u result:%d %s",
+            c, (unsigned) totalsz, (int) res,
+            res == -1 ? strerror(errno) : "");
+        directwrsz = XMAX(res, 0);
         if (c->track_bytes_written)
             c->bytes_written += directwrsz;
     }

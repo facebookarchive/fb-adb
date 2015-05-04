@@ -175,6 +175,14 @@ Change to directory \fIdir\fR before running \fIcommand\fR or starting
 an interactive shell.
 
 .TP
+.BI \-S
+.TQ
+.BI \--socket-transport
+Connect over a forwarded socket instead of over the ADB shell
+protocol.  This mode may take longer to connect, but will create a
+higher-speed connection.
+
+.TP
 .BR \-h ", " \--help ", " help
 Display help output.
 

@@ -20,6 +20,8 @@
 #include <getopt.h>
 #include <sys/ioctl.h>
 #include <limits.h>
+#include <sys/socket.h>
+#include <sys/un.h>
 
 #ifdef __ANDROID__
 #include <sys/system_properties.h>
@@ -166,7 +168,8 @@ setup_pty(int master, int slave, void* arg)
 }
 
 static void
-read_child_arglist(size_t expected,
+read_child_arglist(reader rdr,
+                   size_t expected,
                    char*** out_argv,
                    const char** out_cwd)
 {
@@ -180,7 +183,7 @@ read_child_arglist(size_t expected,
     for (size_t argno = 0; argno < expected; ++argno) {
         SCOPED_RESLIST(rl_read_arg);
         struct msg_cmdline_argument* m;
-        struct msg* mhdr = read_msg(0, read_all_adb_encoded);
+        struct msg* mhdr = read_msg(0, rdr);
 
         const char* argval;
         size_t arglen;
@@ -218,16 +221,14 @@ read_child_arglist(size_t expected,
 
             arglen = mj->actual_size;
             void* buf = xalloc(arglen);
-            size_t nr_read = read_all_adb_encoded(0, buf, arglen);
+            size_t nr_read = rdr(0, buf, arglen);
             if (nr_read != arglen)
                 die(ECOMM, "peer disconnected");
             argval = buf;
         } else if (mhdr->type == MSG_CHDIR) {
             struct msg_chdir* mchd = (struct msg_chdir*) mhdr;
             reslist_pop_nodestroy(rl_read_arg);
-            cwd = xaprintf("%.*s",
-                           (int) (mhdr->size - sizeof (*mchd)),
-                           mchd->dir);
+            cwd = xstrndup(mchd->dir, mhdr->size - sizeof (*mchd));
             --argno;
             continue;
         } else {
@@ -252,7 +253,7 @@ read_child_arglist(size_t expected,
 }
 
 static struct child*
-start_child(struct msg_shex_hello* shex_hello)
+start_child(reader rdr, struct msg_shex_hello* shex_hello)
 {
     if (shex_hello->nr_argv < 2)
         die(ECOMM, "insufficient arguments given");
@@ -260,8 +261,10 @@ start_child(struct msg_shex_hello* shex_hello)
     SCOPED_RESLIST(rl_args);
     char** child_args;
     const char* child_chdir = NULL;
-    read_child_arglist(shex_hello->nr_argv,
-                       &child_args, &child_chdir);
+    read_child_arglist(rdr,
+                       shex_hello->nr_argv,
+                       &child_args,
+                       &child_chdir);
 
     reslist_pop_nodestroy(rl_args);
     struct child_start_info csi = {
@@ -348,6 +351,57 @@ re_exec_as_user(const char* username)
 #endif
 }
 
+static void
+cleanup_unlink_socket(void* socket_name)
+{
+    (void) unlink((const char*) socket_name);
+}
+
+static void
+send_socket_available_now_message()
+{
+    struct msg m;
+    memset(&m, 0, sizeof (m));
+    m.type = MSG_LISTENING_ON_SOCKET;
+    m.size = sizeof (m);
+    write_all(1, &m, sizeof (m));
+}
+
+static void
+rebind_to_socket(struct msg* mhdr)
+{
+    SCOPED_RESLIST(rl_rebind);
+
+    assert(mhdr->type == MSG_REBIND_TO_SOCKET);
+    struct msg_rebind_to_socket* rbmsg =
+        (struct msg_rebind_to_socket*) mhdr;
+
+    if (rbmsg->msg.size < sizeof (*rbmsg))
+        die(ECOMM, "invalid MSG_REBIND_TO_SOCKET length");
+
+    size_t socket_name_length = rbmsg->msg.size - sizeof (*rbmsg);
+    const char* socket_name = strndup(rbmsg->socket, socket_name_length);
+    int listening_socket = xsocket(AF_UNIX, SOCK_STREAM, 0);
+    struct sockaddr_un* addr;
+    socklen_t addrlen;
+
+    make_unix_socket_addr(socket_name, &addr, &addrlen);
+
+    struct cleanup* cl = cleanup_allocate();
+    if (bind(listening_socket, (struct sockaddr*) addr, addrlen) == -1)
+        die_errno("bind");
+
+    cleanup_commit(cl, cleanup_unlink_socket, (void*) socket_name);
+
+    if (listen(listening_socket, 1) == -1)
+        die_errno("listen");
+
+    send_socket_available_now_message();
+    int client = xaccept(listening_socket);
+    if (dup2(client, 0) == -1 || dup2(client, 1) == -1)
+        die_errno("dup2");
+}
+
 int
 stub_main(int argc, const char** argv)
 {
@@ -369,7 +423,18 @@ stub_main(int argc, const char** argv)
     fflush(stdout);
 
     struct msg_shex_hello* shex_hello;
-    struct msg* mhdr = read_msg(0, read_all_adb_encoded);
+    reader rdr = read_all_adb_encoded;
+
+    if (!isatty(0))
+        rdr = read_all;
+
+    struct msg* mhdr = read_msg(0, rdr);
+
+    if (mhdr->type == MSG_REBIND_TO_SOCKET) {
+        rebind_to_socket(mhdr);
+        rdr = read_all; // Yay! No more tty deobfuscation!
+        mhdr = read_msg(0, rdr);
+    }
 
     if (mhdr->type == MSG_EXEC_AS_ROOT)
         re_exec_as_root(); // Never returns
@@ -378,13 +443,7 @@ stub_main(int argc, const char** argv)
         struct msg_exec_as_user* umsg =
             (struct msg_exec_as_user*) mhdr;
         size_t username_length = umsg->msg.size - sizeof (*umsg);
-        if (username_length > INT_MAX)
-            die(ECOMM, "name length overflow");
-
-        const char* username =
-            xaprintf("%.*s",
-                     (int) username_length,
-                     umsg->username);
+        const char* username = xstrndup(umsg->username, username_length);
         re_exec_as_user(username); // Never returns
     }
 
@@ -396,7 +455,7 @@ stub_main(int argc, const char** argv)
 
     shex_hello = (struct msg_shex_hello*) mhdr;
 
-    struct child* child = start_child(shex_hello);
+    struct child* child = start_child(rdr, shex_hello);
     struct stub stub;
     memset(&stub, 0, sizeof (stub));
     stub.child = child;
@@ -412,7 +471,7 @@ stub_main(int argc, const char** argv)
                                 CHANNEL_FROM_FD);
 
     ch[FROM_PEER]->window = UINT32_MAX;
-    ch[FROM_PEER]->adb_encoding_hack = true;
+    ch[FROM_PEER]->adb_encoding_hack = !!(rdr == read_all_adb_encoded);
     replace_with_dev_null(0);
 
     ch[TO_PEER] = channel_new(fdh_dup(1),
@@ -471,7 +530,12 @@ stub_main(int argc, const char** argv)
     //
     // Clean exit: close standard handles and drain IO.  Peer still
     // has no idea that we're exiting.  Get exit status, send that to
-    // peer, then cleanly shut down the peer connection.
+    // peer, then wait for peer to shut down our connection.  N.B.
+    // it's important to wait for FROM_PEER to die after we close
+    // TO_PEER; ADB sometimes drops the last few bytes from a
+    // connection if we exit immediately after write, and waiting for
+    // our peer to close the control connection indicates that it's
+    // acknowledged receipt of our close-status message.
     //
 
     dbg("clean exit");
@@ -488,7 +552,6 @@ stub_main(int argc, const char** argv)
     channel_close(ch[TO_PEER]);
 
     PUMP_WHILE(sh, !channel_dead_p(ch[TO_PEER]));
-    channel_close(ch[FROM_PEER]);
     PUMP_WHILE(sh, !channel_dead_p(ch[FROM_PEER]));
     return 0;
 }

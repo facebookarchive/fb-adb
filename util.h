@@ -79,6 +79,7 @@ int xsocket(int domain, int type, int protocol);
 int xaccept(int server_socket);
 void xsocketpair(int domain, int type, int protocol,
                  int* s1, int* s2);
+void xconnect(int fd, const struct sockaddr*, socklen_t);
 int xdup(int fd);
 FILE* xfdopen(int fd, const char* mode);
 void allow_inherit(int fd);
