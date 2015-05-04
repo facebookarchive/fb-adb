@@ -636,35 +636,6 @@ send_chdir(const struct childcom* tc,
     tc_write(tc, child_chdir, dirsz);
 }
 
-struct cleanup_remove_forward {
-    const char* local;
-    const char* const* adb_args;
-};
-
-static void
-cleanup_remove_forward_1(void* data)
-{
-    struct cleanup_remove_forward* crf = data;
-    adb_remove_forward(crf->local, crf->adb_args);
-}
-
-static void
-cleanup_remove_forward(void* data)
-{
-    SCOPED_RESLIST(rl);
-    (void) catch_error(cleanup_remove_forward_1, data, NULL);
-}
-
-static struct cleanup_remove_forward*
-cleanup_remove_forward_alloc(const char* local,
-                             const char* const* adb_args)
-{
-    struct cleanup_remove_forward* crf = xcalloc(sizeof (*crf));
-    crf->local = xstrdup(local);
-    crf->adb_args = argv_concat_deepcopy(adb_args, NULL);
-    return crf;
-}
-
 static void
 send_rebind_to_socket_message(const struct childcom* tc,
                               const char* device_socket)
@@ -719,20 +690,16 @@ reconnect_over_socket(const struct childcom* tc,
     char* remote = xaprintf("localfilesystem:%s", device_socket);
     char* local = xaprintf("localfilesystem:%s", host_socket);
 
-    struct cleanup_remove_forward* crf =
-        cleanup_remove_forward_alloc(local, adb_args);
+    struct unlink_cleanup* ucl = unlink_cleanup_allocate(host_socket);
+    struct remove_forward_cleanup* crf =
+        remove_forward_cleanup_allocate(local, adb_args);
 
-    struct cleanup* crf_cl = cleanup_allocate();
     adb_add_forward(local, remote, adb_args);
-    cleanup_commit(crf_cl, cleanup_remove_forward, crf);
+    unlink_cleanup_commit(ucl);
+    remove_forward_cleanup_commit(crf);
 
-    // Connecting to the socket should connect to our peer
     int scon = xsocket(AF_UNIX, SOCK_STREAM, 0);
-    struct sockaddr_un* addr;
-    socklen_t addrlen;
-    make_unix_socket_addr(host_socket, &addr, &addrlen);
-    xconnect(scon, (struct sockaddr*) addr, addrlen);
-
+    xconnect(scon, make_addr_unix_filesystem(host_socket));
     reslist_pop_nodestroy(rl);
 
     struct childcom* ntc = xcalloc(sizeof (*ntc));

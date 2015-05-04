@@ -352,12 +352,6 @@ re_exec_as_user(const char* username)
 }
 
 static void
-cleanup_unlink_socket(void* socket_name)
-{
-    (void) unlink((const char*) socket_name);
-}
-
-static void
 send_socket_available_now_message()
 {
     struct msg m;
@@ -382,16 +376,10 @@ rebind_to_socket(struct msg* mhdr)
     size_t socket_name_length = rbmsg->msg.size - sizeof (*rbmsg);
     const char* socket_name = strndup(rbmsg->socket, socket_name_length);
     int listening_socket = xsocket(AF_UNIX, SOCK_STREAM, 0);
-    struct sockaddr_un* addr;
-    socklen_t addrlen;
 
-    make_unix_socket_addr(socket_name, &addr, &addrlen);
-
-    struct cleanup* cl = cleanup_allocate();
-    if (bind(listening_socket, (struct sockaddr*) addr, addrlen) == -1)
-        die_errno("bind");
-
-    cleanup_commit(cl, cleanup_unlink_socket, (void*) socket_name);
+    struct unlink_cleanup* ucl = unlink_cleanup_allocate(socket_name);
+    xbind(listening_socket, make_addr_unix_filesystem(socket_name));
+    unlink_cleanup_commit(ucl);
 
     if (listen(listening_socket, 1) == -1)
         die_errno("listen");

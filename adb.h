@@ -9,6 +9,8 @@
  *
  */
 #pragma once
+#include "util.h"
+
 void adb_send_file(const char* local,
                    const char* remote,
                    const char* const* adb_args);
@@ -23,3 +25,11 @@ void adb_add_forward(const char* local,
 
 void adb_remove_forward(const char* local,
                         const char* const* adb_args);
+
+struct remove_forward_cleanup;
+
+struct remove_forward_cleanup* remove_forward_cleanup_allocate(
+    const char* local,
+    const char* const* adb_args);
+
+void remove_forward_cleanup_commit(struct remove_forward_cleanup* rfc);

@@ -180,12 +180,37 @@ cleanup_forget(struct cleanup* cl)
     }
 }
 
+struct unlink_cleanup {
+    struct cleanup* cl;
+    char* filename;
+};
+
+static void
+unlink_cleanup_action(void* data)
+{
+    struct unlink_cleanup* ucl = data;
+    (void) unlink(ucl->filename);
+}
+
+struct unlink_cleanup*
+unlink_cleanup_allocate(const char* filename)
+{
+    struct unlink_cleanup* ucl = xcalloc(sizeof (*ucl));
+    ucl->cl = cleanup_allocate();
+    ucl->filename = xstrdup(filename);
+    return ucl;
+}
+
+void
+unlink_cleanup_commit(struct unlink_cleanup* ucl)
+{
+    cleanup_commit(ucl->cl, unlink_cleanup_action, ucl);
+}
+
 static void
 fd_cleanup(void* arg)
 {
-    int fd = (intptr_t) arg;
-    if (close(fd) == -1 && errno == EBADF)
-        abort();
+    xclose((intptr_t) arg);
 }
 
 void
@@ -354,6 +379,15 @@ xopen(const char* pathname, int flags, mode_t mode)
     return fd;
 }
 
+void
+xclose(int fd)
+{
+    // If close fails with EIO or EINTR error, it still closes the FD.
+    // Only EBADF indicates a failure to close something.
+    if (close(fd) == -1 && errno == EBADF)
+        die_errno("close");
+}
+
 __attribute__((unused))
 static int
 merge_flags(int fd, int flags)
@@ -470,22 +504,6 @@ xaccept(int server_socket)
     cleanup_commit_close_fd(cl, s);
     return s;
 }
-
-void
-xconnect(int fd,
-         const struct sockaddr* addr,
-         socklen_t addrlen)
-{
-    int rc;
-
-    do {
-        rc = connect(fd, addr, addrlen);
-    } while (rc == -1 && errno == EINTR);
-
-    if (rc == -1)
-        die_errno("connect");
-}
-
 
 void
 xsocketpair(int domain, int type, int protocol,
@@ -1076,11 +1094,14 @@ xnamed_tempfile_cleanup(void* arg)
 {
     struct xnamed_tempfile_save* save = arg;
 
+    if (save->fd != -1)
+        xclose(save->fd);
+
     if (save->stream)
         fclose(save->stream);
 
     if (save->name)
-        unlink(save->name);
+        (void) unlink(save->name);
 }
 
 FILE*
@@ -1090,15 +1111,16 @@ xnamed_tempfile(const char** out_name)
     char* name = xaprintf("%s/fb-adb-XXXXXX", DEFAULT_TEMP_DIR);
     struct cleanup* cl = cleanup_allocate();
     cleanup_commit(cl, xnamed_tempfile_cleanup, save);
-    int fd = mkostemp(name, O_CLOEXEC);
-    if (fd == -1)
+    save->fd = mkostemp(name, O_CLOEXEC);
+    if (save->fd == -1)
         die_errno("mkostemp");
 
     save->name = name;
-    save->stream = fdopen(fd, "r+");
+    save->stream = fdopen(save->fd, "r+");
     if (save->stream == NULL)
         die_errno("fdopen");
 
+    save->fd = -1; // stream owns it now
     *out_name = name;
     return save->stream;
 }
@@ -1153,22 +1175,56 @@ gen_hex_random(size_t nr_bytes)
     return hex_encode_bytes(generate_random_bytes(nr_bytes), nr_bytes);
 }
 
-void
-make_unix_socket_addr(const char* name,
-                      struct sockaddr_un** addr_out,
-                      socklen_t* addrlen_out)
+struct addr*
+make_addr_unix_filesystem(const char* filename)
 {
-    size_t name_length = strlen(name);
-    size_t addrlen = offsetof(struct sockaddr_un, sun_path);
-    if (SATADD(&addrlen, addrlen, name_length + 1))
+    size_t filename_length = strlen(filename);
+    size_t addrlen = offsetof(struct addr, addr_un.sun_path);
+    if (SATADD(&addrlen, addrlen, filename_length + 1))
         die(EINVAL, "socket name too long");
 
-    struct sockaddr_un* n = xalloc(addrlen);
-    n->sun_family = AF_UNIX;
-    memcpy(n->sun_path, name, name_length + 1);
+    struct addr* a = xalloc(addrlen);
+    a->size = addrlen;
+    a->addr_un.sun_family = AF_UNIX;
+    memcpy(a->addr_un.sun_path, filename, filename_length + 1);
+    return a;
+}
 
-    *addr_out = n;
-    *addrlen_out = addrlen;
+#ifdef __linux__
+struct addr*
+make_addr_unix_abstract(const void* bytes, size_t nr)
+{
+    size_t addrlen = offsetof(struct addr, addr_un.sun_path) + 1;
+    if (SATADD(&addrlen, addrlen, nr))
+        die(EINVAL, "socket name too long");
+
+    struct addr* a = xalloc(addrlen);
+    a->size = addrlen;
+    a->addr_un.sun_family = AF_UNIX;
+    a->addr_un.sun_path[0] = '\0';
+    memcpy(a->addr_un.sun_path+1, bytes, nr);
+    return a;
+}
+#endif
+
+void
+xconnect(int fd, const struct addr* addr)
+{
+    int rc;
+
+    do {
+        rc = connect(fd, &addr->addr, addr->size);
+    } while (rc == -1 && errno == EINTR);
+
+    if (rc == -1)
+        die_errno("connect");
+}
+
+void
+xbind(int fd, const struct addr* addr)
+{
+    if (bind(fd, &addr->addr, addr->size) == -1)
+        die_errno("bind");
 }
 
 void*

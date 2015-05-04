@@ -68,18 +68,22 @@ void cleanup_commit(struct cleanup* cl, cleanupfn fn, void* fndata);
 void cleanup_commit_close_fd(struct cleanup* cl, int fd);
 void cleanup_forget(struct cleanup* cl);
 
+struct unlink_cleanup;
+struct unlink_cleanup* unlink_cleanup_allocate(const char* filename);
+void unlink_cleanup_commit(struct unlink_cleanup* ucl);
+
 __attribute__((malloc))
 void* xalloc(size_t sz);
 __attribute__((malloc))
 void* xcalloc(size_t sz);
 
 int xopen(const char* pathname, int flags, mode_t mode);
+void xclose(int fd);
 void xpipe(int* read_end, int* write_end);
 int xsocket(int domain, int type, int protocol);
 int xaccept(int server_socket);
 void xsocketpair(int domain, int type, int protocol,
                  int* s1, int* s2);
-void xconnect(int fd, const struct sockaddr*, socklen_t);
 int xdup(int fd);
 FILE* xfdopen(int fd, const char* mode);
 void allow_inherit(int fd);
@@ -196,8 +200,27 @@ char* hex_encode_bytes(const void* bytes, size_t n);
 char* gen_hex_random(size_t nr_bytes);
 
 struct sockaddr_un;
-void make_unix_socket_addr(const char* name,
-                           struct sockaddr_un** addr_out,
-                           socklen_t* addrlen_out);
+enum addr_kind {
+    addr_unix_filesystem,
+#ifdef __linux__
+    addr_unix_abstract,
+#endif
+};
+
+struct addr {
+    socklen_t size;
+    union {
+        struct sockaddr addr;
+        struct sockaddr_un addr_un;
+    };
+};
+
+struct addr* make_addr_unix_filesystem(const char* pathname);
+#ifdef __linux__
+struct addr* make_addr_unix_abstract(const void* bytes, size_t nr);
+#endif
+
+void xconnect(int fd, const struct addr* addr);
+void xbind(int fd, const struct addr* addr);
 
 void* first_non_null(void* s, ...);

@@ -126,3 +126,41 @@ adb_remove_forward(const char* local,
     if (!child_status_success_p(com->status))
         die(ECOMM, "adb_remove_forward failed: %s", output2str(com));
 }
+
+struct remove_forward_cleanup {
+    struct cleanup* cl;
+    const char* local;
+    const char* const* adb_args;
+};
+
+static void
+remove_forward_cleanup_1(void* data)
+{
+    struct remove_forward_cleanup* crf = data;
+    adb_remove_forward(crf->local, crf->adb_args);
+}
+
+static void
+remove_forward_cleanup(void* data)
+{
+    SCOPED_RESLIST(rl);
+    (void) catch_error(remove_forward_cleanup_1, data, NULL);
+}
+
+struct remove_forward_cleanup*
+remove_forward_cleanup_allocate(
+    const char* local,
+    const char* const* adb_args)
+{
+    struct remove_forward_cleanup* crf = xcalloc(sizeof (*crf));
+    crf->cl = cleanup_allocate();
+    crf->local = xstrdup(local);
+    crf->adb_args = argv_concat_deepcopy(adb_args, NULL);
+    return crf;
+}
+
+void
+remove_forward_cleanup_commit(struct remove_forward_cleanup* rfc)
+{
+    cleanup_commit(rfc->cl, remove_forward_cleanup, rfc);
+}
