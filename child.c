@@ -105,7 +105,7 @@ child_start(const struct child_start_info* csi)
 {
     struct child* child = xcalloc(sizeof (*child));
     struct cleanup* cl_waiter = cleanup_allocate();
-    SCOPED_RESLIST(rl_local);
+    SCOPED_RESLIST(rl);
 
     int flags = csi->flags;
     int pty_master = -1;
@@ -191,7 +191,8 @@ child_start(const struct child_start_info* csi)
         xpipe(&parentfd[2], &childfd[2]);
     }
 
-    reslist_pop_nodestroy(rl_local);
+    WITH_CURRENT_RESLIST(rl->parent);
+
     child->flags = flags;
     child->deathsig = csi->deathsig;
     if (pty_master != -1)

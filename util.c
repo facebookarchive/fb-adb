@@ -22,7 +22,6 @@
 #include <sys/wait.h>
 #include <sys/syscall.h>
 #include <sys/uio.h>
-#include <sys/queue.h>
 #include <libgen.h>
 #include <sys/socket.h>
 #include <sys/types.h>
@@ -46,84 +45,92 @@
 
 struct errhandler {
     sigjmp_buf where;
-    struct reslist* rl;
+    struct reslist* msg_rl;
     struct errinfo* ei;
 
 };
 
-static struct reslist* current_reslist;
+static struct reslist* _reslist_current;
 static struct errhandler* current_errh;
 __attribute__((noreturn)) static void die_oom(void);
 const char* prgname;
 const char* orig_argv0;
-
 __attribute__((unused)) static void assert_cloexec(int fd);
 
+static bool
+reslist_empty_p(struct reslist* rl)
+{
+    return rl->head.next == &rl->head;
+}
+
+static struct resource*
+reslist_first(struct reslist* rl)
+{
+    return rl->head.next;
+}
+
 static void
-reslist_init(struct reslist* rl, unsigned type)
+reslist_insert_after(struct resource* pos, struct resource* r)
+{
+    assert(r->prev == NULL);
+    assert(r->next == NULL);
+    r->prev = pos;
+    r->next = pos->next;
+    pos->next = r;
+    r->next->prev = r;
+}
+
+static void
+reslist_insert_head(struct reslist* rl, struct resource* r)
+{
+    reslist_insert_after(&rl->head, r);
+}
+
+static void
+reslist_init(struct reslist* rl, struct reslist* parent, int type)
 {
     memset(rl, 0, sizeof (*rl));
     rl->r.type = type;
-    rl->parent = current_reslist;
-    LIST_INSERT_HEAD(&current_reslist->contents, &rl->r, link);
-    current_reslist = rl;
+    rl->head.prev = rl->head.next = &rl->head;
+    if (parent) {
+        rl->parent = parent;
+        reslist_insert_head(parent, &rl->r);
+    }
 }
-
-void
-reslist_init_local(struct reslist* rl_local)
-{
-    reslist_init(rl_local, RES_RESLIST_ONSTACK);
-}
-
-struct reslist*
-reslist_push_new(void)
-{
-    struct reslist* rl = malloc(sizeof (*rl));
-    if (rl == NULL)
-        die_oom();
-
-    reslist_init(rl, RES_RESLIST);
-    return rl;
-}
-
-bool
-reslist_on_chain_p(struct reslist* rl)
-{
-    struct reslist* crl = current_reslist;
-    while (crl && crl != rl)
-        crl = crl->parent;
-
-    return crl != NULL;
-}
-
-void
-reslist_pop_nodestroy(struct reslist* rl)
-{
-    assert(reslist_on_chain_p(rl));
-    current_reslist = rl->parent;
-}
-
 
 static void
-reslist_destroy_guts(struct reslist* rl)
+reslist_remove(struct resource* r)
 {
-    if (rl->parent) {
-        LIST_REMOVE(&rl->r, link);
-        rl->parent = NULL;
-    }
+    assert(r->prev != NULL);
+    assert(r->next != NULL);
+    r->prev->next = r->next;
+    r->next->prev = r->prev;
+#ifndef NDEBUG
+    r->prev = r->next = NULL;
+#endif
+}
 
-    while (!LIST_EMPTY(&rl->contents)) {
-        struct resource* r = LIST_FIRST(&rl->contents);
-        LIST_REMOVE(r, link);
-        if (r->type == RES_RESLIST || r->type == RES_RESLIST_ONSTACK) {
-            struct reslist* sub_rl = (struct reslist*) r;
-            sub_rl->parent = NULL;
-            reslist_destroy(sub_rl);
+static void
+cleanup_destroy(struct cleanup* cl)
+{
+    reslist_remove(&cl->r);
+    if (cl->fn)
+        (cl->fn)(cl->fndata); // XXX: abort if this function calls die()
+
+    free(cl);
+}
+
+static void
+empty_reslist(struct reslist* rl)
+{
+    while (!reslist_empty_p(rl)) {
+        struct resource* r = reslist_first(rl);
+        if (r->type == RES_RESLIST_ONHEAP
+            || r->type == RES_RESLIST_ONSTACK)
+        {
+            reslist_destroy((struct reslist*) r);
         } else {
-            struct cleanup* cl = (struct cleanup*) r;
-            if (cl->fn)
-                cl->fn(cl->fndata);
-            free(cl);
+            cleanup_destroy((struct cleanup*) r);
         }
     }
 }
@@ -131,30 +138,80 @@ reslist_destroy_guts(struct reslist* rl)
 void
 reslist_destroy(struct reslist* rl)
 {
-    reslist_destroy_guts(rl);
-    if (rl->r.type == RES_RESLIST)
+    empty_reslist(rl);
+    reslist_remove(&rl->r);
+    if (rl->r.type == RES_RESLIST_ONHEAP)
         free(rl);
 }
 
-void
-reslist_cleanup_local(struct reslist* rl_local)
+
+struct reslist*
+reslist_create(void)
 {
-    if (rl_local->parent) {
-        current_reslist = rl_local->parent;
-        reslist_destroy_guts(rl_local);
+    struct reslist* rl = malloc(sizeof (*rl));
+    if (rl == NULL)
+        die_oom();
+    reslist_init(rl, _reslist_current, RES_RESLIST_ONHEAP);
+    return rl;
+}
+
+void
+_reslist_scoped_push(struct reslist* rl)
+{
+    reslist_init(rl, _reslist_current, RES_RESLIST_ONSTACK);
+    _reslist_current = rl;
+}
+
+void
+_reslist_scoped_pop(struct reslist* rl)
+{
+    _reslist_current = rl->parent;
+    reslist_destroy(rl);
+}
+
+void
+_reslist_guard_push(struct reslist** saved_rl, struct reslist* rl)
+{
+    *saved_rl = _reslist_current;
+    _reslist_current = rl;
+}
+
+void
+_reslist_guard_pop(struct reslist** saved_rl)
+{
+    _reslist_current = *saved_rl;
+}
+
+
+void
+reslist_xfer(struct reslist* recipient, struct reslist* donor)
+{
+    if (!reslist_empty_p(donor)) {
+        struct resource* donor_first = donor->head.next;
+        struct resource* donor_last = donor->head.prev;
+
+        assert(donor_first->prev == &donor->head);
+        assert(donor_last->next == &donor->head);
+        assert(donor->head.next != &donor->head);
+        assert(donor->head.prev != &donor->head);
+
+        donor_last->next = recipient->head.next;
+        donor_first->prev = &recipient->head;
+        donor_last->next->prev = donor_last;
+        donor_first->prev->next = donor_first;
+        donor->head.next = donor->head.prev = &donor->head;
     }
 }
 
 struct cleanup*
 cleanup_allocate(void)
 {
-    struct cleanup* cl = malloc(sizeof (*cl));
+    struct cleanup* cl = calloc(1, sizeof (*cl));
     if (cl == NULL)
         die_oom();
 
-    memset(cl, 0, sizeof (*cl));
     cl->r.type = RES_CLEANUP;
-    LIST_INSERT_HEAD(&current_reslist->contents, &cl->r, link);
+    reslist_insert_head(_reslist_current, &cl->r);
     return cl;
 }
 
@@ -163,20 +220,21 @@ cleanup_commit(struct cleanup* cl,
                cleanupfn fn,
                void* fndata)
 {
-    /* Regardless of where the structure was when we allocated it, put
-     * it on top of the list now. */
-    LIST_REMOVE(&cl->r, link);
-    LIST_INSERT_HEAD(&current_reslist->contents, &cl->r, link);
+    // Regardless of where the structure was when we allocated it, put
+    // it on top of the stack now.
+    assert(cl->fn == NULL);
     cl->fn = fn;
     cl->fndata = fndata;
+    reslist_remove(&cl->r);
+    reslist_insert_head(_reslist_current, &cl->r);
 }
 
 void
 cleanup_forget(struct cleanup* cl)
 {
     if (cl != NULL) {
-        LIST_REMOVE(&cl->r, link);
-        free(cl);
+        cl->fn = NULL;
+        cleanup_destroy(cl);
     }
 }
 
@@ -219,41 +277,24 @@ cleanup_commit_close_fd(struct cleanup* cl, int fd)
     cleanup_commit(cl, fd_cleanup, (void*) (intptr_t) (fd));
 }
 
-static void
-transfer_owned_resources(struct reslist* rl_to,
-                         struct reslist* rl_from)
-{
-    LIST_HEAD(,resource) r_reversed = LIST_HEAD_INITIALIZER(&r_reversed);
-
-    while (!LIST_EMPTY(&rl_from->contents)) {
-        struct resource* r = LIST_FIRST(&rl_from->contents);
-        LIST_REMOVE(r, link);
-        LIST_INSERT_HEAD(&r_reversed, r, link);
-    }
-
-    while (!LIST_EMPTY(&r_reversed)) {
-        struct resource* r = LIST_FIRST(&r_reversed);
-        LIST_REMOVE(r, link);
-        LIST_INSERT_HEAD(&rl_to->contents, r, link);
-    }
-}
-
 bool
 catch_error(void (*fn)(void* fndata),
             void* fndata,
             struct errinfo* ei)
 {
+    SCOPED_RESLIST(rl);
     bool error = true;
     struct errhandler* old_errh = current_errh;
     struct errhandler errh;
-    SCOPED_RESLIST(rl_cleanup);
-    errh.rl = rl_cleanup;
+    errh.msg_rl = rl->parent;
     errh.ei = ei;
     current_errh = &errh;
     if (sigsetjmp(errh.where, 1) == 0) {
         fn(fndata);
+        reslist_xfer(rl->parent, rl);
         error = false;
-        transfer_owned_resources(rl_cleanup->parent, rl_cleanup);
+    } else {
+        __sync_synchronize();
     }
 
     current_errh = old_errh;
@@ -309,10 +350,7 @@ xcalloc(size_t sz)
 
 void die_oom(void)
 {
-    if (!current_errh)
-        abort();
-
-    current_reslist = current_errh->rl->parent;
+    assert(current_errh);
     if (current_errh->ei) {
         current_errh->ei->err = ENOMEM;
         current_errh->ei->msg = "no memory";
@@ -324,15 +362,13 @@ void die_oom(void)
 void
 diev(int err, const char* fmt, va_list args)
 {
-    if (!current_errh)
-        abort();
-
-    current_reslist = current_errh->rl->parent;
-    /* die_oom will DTRT on alloc failure.  */
-    struct errinfo* ei = current_errh->ei;
-    if (ei) {
+    assert(current_errh);
+    if (current_errh->ei) {
+        struct errinfo* ei = current_errh->ei;
         ei->err = err;
         if (ei->want_msg) {
+            WITH_CURRENT_RESLIST(current_errh->msg_rl);
+            // die_oom will DTRT on alloc failure.
             ei->msg = xavprintf(fmt, args);
             ei->prgname = xstrdup(prgname);
         }
@@ -571,11 +607,12 @@ xfdopen(int fd, const char* mode)
 struct fdh*
 fdh_dup(int fd)
 {
-    struct reslist* rl = reslist_push_new();
+    struct reslist* rl = reslist_create();
+    WITH_CURRENT_RESLIST(rl);
+
     struct fdh* fdh = xalloc(sizeof (*fdh));
     fdh->rl = rl;
     fdh->fd = xdup(fd);
-    reslist_pop_nodestroy(rl);
     return fdh;
 }
 
@@ -606,11 +643,12 @@ main(int argc, char** argv)
     struct main_info mi;
     mi.argc = argc;
     mi.argv = argv;
-    struct reslist dummy_top;
-    memset(&dummy_top, 0, sizeof (dummy_top));
-    current_reslist = &dummy_top;
+
+    struct reslist rl_top;
+    reslist_init(&rl_top, NULL, RES_RESLIST_ONSTACK);
+    _reslist_current = &rl_top;
+
     prgname = argv[0];
-    struct reslist* top_rl = reslist_push_new();
     dbg_init();
     dbglock_init();
     orig_argv0 = argv[0];
@@ -622,7 +660,7 @@ main(int argc, char** argv)
         fprintf(stderr, "%s: %s\n", ei.prgname, ei.msg);
     }
 
-    reslist_destroy(top_rl);
+    empty_reslist(&rl_top);
     return mi.ret;
 }
 
@@ -1136,16 +1174,13 @@ allow_inherit(int fd)
 void*
 generate_random_bytes(size_t howmany)
 {
-    struct reslist* rl_buffer = reslist_push_new();
     void* buffer = xalloc(howmany);
-    struct reslist* rl_urandom = reslist_push_new();
+    SCOPED_RESLIST(rl);
     int ufd = xopen("/dev/urandom", O_RDONLY, 0);
     size_t nr_read = read_all(ufd, buffer, howmany);
     if (nr_read < howmany)
         die(EINVAL, "too few bytes from random device");
 
-    reslist_pop_nodestroy(rl_buffer);
-    reslist_destroy(rl_urandom);
     return buffer;
 }
 
@@ -1241,4 +1276,3 @@ first_non_null(void* s, ...)
     return ret;
 
 }
-

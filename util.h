@@ -19,7 +19,6 @@
 #include <stdbool.h>
 #include <errno.h>
 #include <poll.h>
-#include <sys/queue.h>
 #include <sys/socket.h>
 #include <sys/un.h>
 #include "dbg.h"
@@ -30,17 +29,31 @@
 
 #define ARRAYSIZE(ar) (sizeof (ar) / sizeof (*(ar)))
 
+// Reslists own resources (or more precisely, they contain lists of
+// cleanup closures).  Every time we allocate a resource, we mark it
+// owned by the reslist named by _reslist_current.  reslist deallocate
+// their owned resources when they are destroyed.  Scoped reslists are
+// automatically destroyed when they go out of scope.  They go out of
+// scope either on normal return (in which case the compiler runs the
+// cleanup) or on die(), in which case the reslist machiney takes care
+// of running the cleanups.
+//
+// The only operations that can affect the _reslist_current are
+// SCOPED_RESLIST and WITH_CURRENT_RESLIST.
+
 typedef void (*cleanupfn)(void* data);
 
 struct resource {
-    enum { RES_RESLIST, RES_RESLIST_ONSTACK, RES_CLEANUP } type;
-    LIST_ENTRY(resource) link;
+    enum { RES_RESLIST_ONHEAP, RES_RESLIST_ONSTACK, RES_CLEANUP } type;
+    // Circular list
+    struct resource* prev;
+    struct resource* next;
 };
 
 struct reslist {
     struct resource r;
     struct reslist* parent;
-    LIST_HEAD(,resource) contents;
+    struct resource head;
 };
 
 struct cleanup {
@@ -49,60 +62,120 @@ struct cleanup {
     void* fndata;
 };
 
-struct reslist* reslist_push_new(void);
-void reslist_init_local(struct reslist* rl_local);
-void reslist_cleanup_local(struct reslist* rl_local);
-void reslist_pop_nodestroy(struct reslist* rl);
+// Create a new reslist owned by _reslist_current.
+// Does _not_ make the new reslist current.
+struct reslist* reslist_create(void);
+
+// Destroy a reslist.  Cleans up all resources owned by that reslist.
 void reslist_destroy(struct reslist* rl);
 
+// Transfer resources owned by resist DONOR to reslist RECIPIENT.
+// DONOR's resources are spliced in-order to the head of RECIPIENT.
+// That is, when RECIPIENT is destroyed, all of DONOR's resources are
+// cleaned up, and then all of RECIPIENT's.
+void reslist_xfer(struct reslist* recipient, struct reslist* donor);
+
+void _reslist_scoped_push(struct reslist* rl);
+void _reslist_scoped_pop(struct reslist* rl);
+
+void _reslist_guard_push(struct reslist** saved_rl, struct reslist* rl);
+void _reslist_guard_pop(struct reslist** saved_rl);
+
 #define PASTE(a,b) a##b
+#define GENSYM(sym) PASTE(sym, __LINE__)
 
-#define SCOPED_RESLIST(varname)                         \
-    __attribute__((cleanup(reslist_cleanup_local)))     \
-    struct reslist PASTE(varname,__);                   \
-    struct reslist* varname = &PASTE(varname,__);       \
-    reslist_init_local(varname);
+#define SCOPED_RESLIST(varname)                                 \
+    __attribute__((cleanup(_reslist_scoped_pop)))               \
+    struct reslist PASTE(varname,_reslist_);                    \
+    struct reslist* varname = &PASTE(varname,_reslist_);        \
+    _reslist_scoped_push(varname)
 
+#define WITH_CURRENT_RESLIST(_rl)                               \
+    __attribute__((cleanup(_reslist_guard_pop)))                \
+    struct reslist* GENSYM(_reslist_saved);                     \
+    _reslist_guard_push(&GENSYM(_reslist_saved), (_rl))
+
+// Each resource owned by a reslist is associated with a cleanup
+// function.  Adding a cleanup function requires allocating memory and
+// can fail.  To make sure we can clean up every resource we allocate,
+// we allocate a cleanup *before* the resource it owns, allocate the
+// resource, and commit the cleanup object to that resource.
+// The commit operation cannot fail.
+
+// Allocate a new cleanup object. The storage for the cleanup object
+// itself is owned by the current reslist (and is heap-allocated, and
+// so can fail), but the new cleanup owns no resource.
 struct cleanup* cleanup_allocate(void);
+
+// Commit the cleanup object to a resource.  The cleanup object must
+// have been previously allocated with cleanup_allocate.  A given
+// cleanup object can be committed to a resource once.  When a cleanup
+// object is allocated to a resource, it is re-inserted at the head of
+// the current reslist.  Reslists clean up their resources in reverse
+// order of insertion.
 void cleanup_commit(struct cleanup* cl, cleanupfn fn, void* fndata);
-void cleanup_commit_close_fd(struct cleanup* cl, int fd);
+
+// Deregister and deallocate the given cleanup object CL, but do not
+// run any cleanup functions to which CL may have been committed.
+// If CL is NULL, do nothing.
 void cleanup_forget(struct cleanup* cl);
 
+// Commit a cleanup object to closing the given file descriptor.
+void cleanup_commit_close_fd(struct cleanup* cl, int fd);
+
+// Allocate and commit a cleanup object that will unlink a file of the
+// given name.  Failure to unlink the file is ignored.
 struct unlink_cleanup;
 struct unlink_cleanup* unlink_cleanup_allocate(const char* filename);
 void unlink_cleanup_commit(struct unlink_cleanup* ucl);
 
+// Allocate memory owned by the current reslist.
 __attribute__((malloc))
 void* xalloc(size_t sz);
 __attribute__((malloc))
 void* xcalloc(size_t sz);
 
+// Open a file.  The returned file descriptor is owned by the
+// current reslist.
 int xopen(const char* pathname, int flags, mode_t mode);
+
+// Close a file descriptor.  Fail if FD is not an open file
+// descriptor.  Do not use to close file descriptors owned
+// by reslists.
 void xclose(int fd);
+
+// Allocate a pipe.  The file descriptors are owned by the
+// current reslits.
 void xpipe(int* read_end, int* write_end);
+
+// Allocate a socket.  The returned file descriptor is owned by the
+// current reslist.
 int xsocket(int domain, int type, int protocol);
+
+// Accept a connection.  The returned file descriptor is owned by the
+// current reslist.
 int xaccept(int server_socket);
+
+// Allocate a socket pair.  The returned file descriptors are owned by
+// the current reslist.
 void xsocketpair(int domain, int type, int protocol,
                  int* s1, int* s2);
+
+// Duplicate a file descriptor.  The new file descriptor is owned by
+// the current reslist.
 int xdup(int fd);
+
+// Open a file descriptor as a stream.  The returned FILE object is
+// owned by the current reslist.  It does _not_ own FD.  Instead, FILE
+// owns a new, duped file descriptor.
 FILE* xfdopen(int fd, const char* mode);
+
+// All file descriptors we allocate are configured to be
+// close-on-exit.  This routine allows FD to be inherited across exec.
 void allow_inherit(int fd);
 
-struct fdh {
-    struct reslist* rl; // Owns both fd and fdh
-    int fd;
-};
-
-struct fdh* fdh_dup(int fd);
-void fdh_destroy(struct fdh* fdh);
-
-__attribute__((malloc,format(printf, 1, 2)))
-char* xaprintf(const char* fmt, ...);
-__attribute__((malloc))
-char* xavprintf(const char* fmt, va_list args);
-__attribute__((malloc))
-char* xstrdup(const char* s);
-char* xstrndup(const char* s, size_t nr);
+// Code that fails calls die() or one of its variants below.
+// Control then flows to the nearest enclosing catch_error.
 
 typedef struct errinfo {
     int err;
@@ -111,6 +184,14 @@ typedef struct errinfo {
     unsigned want_msg : 1;
 } errinfo;
 
+// Call FN with FNDATA with an internal resource list as current.
+// If FN returns normally, transfer resources added to that resource
+// list to the resource list that was current at the time of
+// catch_error.  On error, destroy the resource list.  Return true on
+// normal return or false on error.  If EI is non-null, fill it on
+// error.  Strings are allocated on the resource list in effect at the
+// time catch_error is called.  If want_msg is zero, error strings are
+// not allocated, but ei->err is still set.
 bool catch_error(void (*fn)(void* fndata),
                  void* fndata,
                  struct errinfo* ei);
@@ -121,6 +202,31 @@ __attribute__((noreturn,format(printf, 2, 3)))
 void die(int err, const char* fmt, ...);
 __attribute__((noreturn,format(printf, 1, 2)))
 void die_errno(const char* fmt, ...);
+
+// A FDH (File Descriptor Handle) is a package of a file descriptor
+// and a reslist that owns it.  It allows us to allocate an file
+// descriptor owned by a reslist and close that file descriptor before
+// its owning reslist is destroyed.
+
+struct fdh {
+    struct reslist* rl; // Owns both fd and fdh
+    int fd;
+};
+
+// Duplicate an existing FD as an FDH
+struct fdh* fdh_dup(int fd);
+
+// Deallocate an FDH, closing its file descriptor.  FDH is invalid
+// after this call.
+void fdh_destroy(struct fdh* fdh);
+
+__attribute__((malloc,format(printf, 1, 2)))
+char* xaprintf(const char* fmt, ...);
+__attribute__((malloc))
+char* xavprintf(const char* fmt, va_list args);
+__attribute__((malloc))
+char* xstrdup(const char* s);
+char* xstrndup(const char* s, size_t nr);
 
 bool error_temporary_p(int errnum);
 

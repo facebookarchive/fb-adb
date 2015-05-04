@@ -148,9 +148,8 @@ try_adb_stub(const struct child_start_info* csi,
              int* uid,
              char** err)
 {
-    struct reslist* rl_stub = reslist_push_new();
+    SCOPED_RESLIST(rl);
     struct child* child = child_start(csi);
-    SCOPED_RESLIST(rl_local);
     struct chat* cc = chat_new(child->fd[0]->fd, child->fd[1]->fd);
     chat_swallow_prompt(cc);
 
@@ -188,15 +187,15 @@ try_adb_stub(const struct child_start_info* csi,
     uintmax_t ver;
     sscanf(resp, FB_ADB_PROTO_START_LINE "%n", &ver, uid, &n);
     if (n != -1 && build_time <= ver) {
-        reslist_pop_nodestroy(rl_stub);
+        reslist_xfer(rl->parent, rl);
         return child;
     }
 
-    reslist_pop_nodestroy(rl_stub);
     child_kill(child, SIGTERM);
     (void) child_wait(child);
+
+    WITH_CURRENT_RESLIST(rl->parent);
     *err = xstrdup(resp);
-    reslist_destroy(rl_stub);
     return NULL;
 }
 
@@ -654,8 +653,8 @@ reconnect_over_socket(const struct childcom* tc,
 
     int scon = xsocket(AF_UNIX, SOCK_STREAM, 0);
     xconnect(scon, make_addr_unix_filesystem(host_socket));
-    reslist_pop_nodestroy(rl);
 
+    WITH_CURRENT_RESLIST(rl->parent);
     struct childcom* ntc = xcalloc(sizeof (*ntc));
     ntc->from_child = fdh_dup(scon);
     ntc->to_child = fdh_dup(scon);

@@ -227,7 +227,7 @@ read_child_arglist(reader rdr,
             argval = buf;
         } else if (mhdr->type == MSG_CHDIR) {
             struct msg_chdir* mchd = (struct msg_chdir*) mhdr;
-            reslist_pop_nodestroy(rl_read_arg);
+            WITH_CURRENT_RESLIST(rl_read_arg->parent);
             cwd = xstrndup(mchd->dir, mhdr->size - sizeof (*mchd));
             --argno;
             continue;
@@ -237,7 +237,7 @@ read_child_arglist(reader rdr,
                 (unsigned) mhdr->size, (unsigned) mhdr->type);
         }
 
-        reslist_pop_nodestroy(rl_read_arg);
+        WITH_CURRENT_RESLIST(rl_read_arg->parent);
         size_t allocsz;
         if (SATADD(&allocsz, arglen, 1))
             die(ECOMM, "bad handshake: argument length overflow");
@@ -266,7 +266,8 @@ start_child(reader rdr, struct msg_shex_hello* shex_hello)
                        &child_args,
                        &child_chdir);
 
-    reslist_pop_nodestroy(rl_args);
+    WITH_CURRENT_RESLIST(rl_args->parent);
+
     struct child_start_info csi = {
         .flags = CHILD_SETSID,
         .exename = child_args[0],

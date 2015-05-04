@@ -136,7 +136,7 @@ AC_ARG_ENABLE([checking],
         [true],
         [enable_checking=no])
 if test "$enable_checking" = "yes"; then
-   true
+   CPPFLAGS="$CPPFLAGS -Werror"
 elif test "$enable_checking" = "no"; then
    CPPFLAGS="$CPPFLAGS -DNDEBUG=1"
 else
