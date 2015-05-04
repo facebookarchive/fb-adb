@@ -34,11 +34,18 @@
   --chdir DIR
     Change to DIR before executing child.
 
-  -S
-  --socket-transport
-    Connect over a forwarded socket instead of over the ADB shell
-    protocol.  This mode may take longer to connect, but will
-    create a higher-speed connection.
+  -X TRANSPORT
+  --transport TRANSPORT
+
+    Connect over the given transport.  The default is "shell".
+
+    "shell" means to run the fb-adb protocol over an "adb shell"
+    connection.  This method is the most reliable.
+
+    "unix" means to run the fb-adb protocol over an AF_UNIX socket
+    connection forwarded over ADB.  This method may transfer data
+    faster than the shell transport, but it is experimental may take
+    slightly longer to set up.
 
   -h
   --help

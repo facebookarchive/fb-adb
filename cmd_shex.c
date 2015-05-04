@@ -687,7 +687,7 @@ shex_main_common(enum shex_mode smode, int argc, const char** argv)
     char* want_user = NULL;
     bool want_ctty = true;
     char* child_chdir = NULL;
-    bool socket_transport = false;
+    bool unix_transport = false;
 
     memset(&tty_flags, 0, sizeof (tty_flags));
     for (int i = 0; i < 3; ++i)
@@ -708,7 +708,7 @@ shex_main_common(enum shex_mode smode, int argc, const char** argv)
         { "socket", no_argument, NULL, 'U' },
         { "user", required_argument, NULL, 'u' },
         { "chdir", required_argument, NULL, 'C' },
-        { "socket-transport", no_argument, NULL, 'S', },
+        { "transport", required_argument, NULL, 'X', },
         { 0 }
     };
 
@@ -772,8 +772,14 @@ shex_main_common(enum shex_mode smode, int argc, const char** argv)
             case 'C':
                 child_chdir = xstrdup(optarg);
                 break;
-            case 'S':
-                socket_transport = true;
+            case 'X':
+                if (strcmp(optarg, "shell") == 0)
+                    unix_transport = false;
+                else if (strcmp(optarg, "socket") == 0)
+                    unix_transport =true;
+                else
+                    die(EINVAL, "unknown transport %s", optarg);
+
                 break;
             case ':':
                 if (optopt == '\0') {
@@ -843,7 +849,7 @@ shex_main_common(enum shex_mode smode, int argc, const char** argv)
         if (want_root)
             thing_not_supported = "root update";
 
-        if (socket_transport)
+        if (unix_transport)
             thing_not_supported = "socket transport";
 
         if (thing_not_supported)
@@ -864,7 +870,7 @@ shex_main_common(enum shex_mode smode, int argc, const char** argv)
 
     struct childcom* tc = &tc_buf;
 
-    if (socket_transport)
+    if (unix_transport)
         tc = reconnect_over_socket(tc, adb_args);
 
     if (want_root && uid != 0)

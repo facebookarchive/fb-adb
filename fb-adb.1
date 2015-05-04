@@ -176,12 +176,18 @@ Change to directory \fIdir\fR before running \fIcommand\fR or starting
 an interactive shell.
 
 .TP
-.BI \-S
+.BI \-X " transport"
 .TQ
-.BI \--socket-transport
-Connect over a forwarded socket instead of over the ADB shell
-protocol.  This mode may take longer to connect, but will create a
-higher-speed connection.
+.BI \--transport " transport"
+Connect over the given transport.  The default is \fBshell\fR.
+
+\fBshell\fR means to run the \fBfb-adb\fR protocol over an
+"adb shell" connection.  This method is the most reliable.
+
+\fBunix\fR means to run the \fBfb-adb\fR protocol over an AF_UNIX
+socket connection forwarded over ADB.  This method may transfer data
+faster than the \fBshell\fR transport, but it is experimental may take
+slightly longer to set up.
 
 .TP
 .BR \-h ", " \--help ", " help
