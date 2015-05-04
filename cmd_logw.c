@@ -109,7 +109,7 @@ logw_main(int argc, const char** argv)
                 } else if (optopt == '\0') {
                     die(EINVAL, "invalid option %s", argv[optind-1]);
                 } else {
-                    die(EINVAL, "invalid option -%d", (int) optopt);
+                    die(EINVAL, "invalid option -%c", (int) optopt);
                 }
             case 'h':
                 fputs(logw_usage, stdout);

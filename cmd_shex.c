@@ -792,7 +792,7 @@ shex_main_common(enum shex_mode smode, int argc, const char** argv)
                 } else if (optopt == '\0') {
                     die(EINVAL, "invalid option %s", argv[optind-1]);
                 } else {
-                    die(EINVAL, "invalid option -%d", (int) optopt);
+                    die(EINVAL, "invalid option -%c", (int) optopt);
                 }
             case 'h':
                 print_usage(smode);
