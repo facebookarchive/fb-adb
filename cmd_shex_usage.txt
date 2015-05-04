@@ -1,0 +1,48 @@
+  -t
+  --force-tty
+    Allocate a PTY for remote command's standard streams
+    even when CMD is given
+
+  -T
+  --disable-tty
+    Never give the remote command a pseudo-terminal for its
+    standard streams.
+
+  -E EXENAME
+  --exename EXENAME
+    Run EXENAME on remote host.  Default is CMD, which becomes
+    argv[0] in any case.
+
+  -r
+  --root
+    Run remote command or shell as root.
+
+  -u USER
+  --user USER
+    Run remote command or shell as USER.
+
+  -U
+  --socket
+    Use a socketpair for child stdin and stdout.
+
+  -D
+  --no-ctty
+    Run child without a controlling terminal.  On disconnect,
+    child will not receive SIGHUP as it normally would.
+
+  -C DIR
+  --chdir DIR
+    Change to DIR before executing child.
+
+  -S
+  --socket-transport
+    Connect over a forwarded socket instead of over the ADB shell
+    protocol.  This mode may take longer to connect, but will
+    create a higher-speed connection.
+
+  -h
+  --help
+    Display this message.
+
+  -d, -e, -s, -p, -H, -P
+    Control the device to which fb-adb connects.  See adb help.

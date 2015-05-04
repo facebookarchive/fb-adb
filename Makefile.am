@@ -25,7 +25,9 @@ libfb_adb_a_SOURCES = \
 	child.c \
 	child.h \
 	cmd_stub.c \
+	cmd_stub.h \
 	cmd_logw.c \
+	cmd_logw.h \
 	constants.h \
 	core.c \
 	core.h \
@@ -65,6 +67,8 @@ termnames.h: termnames.h.in termnames.sed
 	$(SED) -Ef $(srcdir)/termnames.sed $< >$@
 
 CLEANFILES = termnames.h timestamp.c timestamp.c.tmp
+
+EXTRA_DIST =
 
 if BUILD_STUB
 include Makefile.am.stub

@@ -76,59 +76,6 @@ tc_chat_new(const struct childcom* tc)
     return chat_new(tc->to_child->fd, tc->from_child->fd);
 }
 
-static const char shex_usage[] = (
-    "\n"
-    "  -t\n"
-    "  --force-tty\n"
-    "    Allocate a PTY for remote command's standard streams\n"
-    "    even when CMD is given\n"
-    "\n"
-    "  -T\n"
-    "  --disable-tty\n"
-    "    Never give the remote command a pseudo-terminal for its\n"
-    "    standard streams.\n"
-    "\n"
-    "  -E EXENAME\n"
-    "  --exename EXENAME\n"
-    "    Run EXENAME on remote host.  Default is CMD, which becomes\n"
-    "    argv[0] in any case.\n"
-    "\n"
-    "  -r\n"
-    "  --root\n"
-    "    Run remote command or shell as root.\n"
-    "\n"
-    "  -u USER\n"
-    "  --user USER\n"
-    "    Run remote command or shell as USER.\n"
-    "\n"
-    "  -U\n"
-    "  --socket\n"
-    "    Use a socketpair for child stdin and stdout.\n"
-    "\n"
-    "  -D\n"
-    "  --no-ctty\n"
-    "    Run child without a controlling terminal.  On disconnect,\n"
-    "    child will not receive SIGHUP as it normally would.\n"
-    "\n"
-    "  -C DIR\n"
-    "  --chdir DIR\n"
-    "    Change to DIR before executing child.\n"
-    "\n"
-    "  -S\n"
-    "  --socket-transport\n"
-    "    Connect over a forwarded socket instead of over the ADB shell\n"
-    "    protocol.  This mode may take longer to connect, but will\n"
-    "    create a higher-speed connection.\n"
-    "\n"
-    "  -h\n"
-    "  --help\n"
-    "    Display this message.\n"
-    "\n"
-    "  -d, -e, -s, -p, -H, -P\n"
-    "    Control the device to which fb-adb connects.  See adb help.\n"
-    "\n"
-    );
-
 static void
 print_usage(enum shex_mode smode)
 {
@@ -141,7 +88,12 @@ print_usage(enum shex_mode smode)
                "run program on Android device; bypass shell\n",
                prgname);
 
-    fputs(shex_usage, stdout);
+    static const char usage_body[] = {
+#include "cmd_shex_usage.inc"
+    };
+
+    fputc('\n', stdout);
+    fwrite(usage_body, sizeof (usage_body), 1, stdout);
 }
 
 struct fb_adb_shex {
