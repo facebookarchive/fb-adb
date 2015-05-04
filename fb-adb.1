@@ -187,6 +187,31 @@ higher-speed connection.
 .BR \-h ", " \--help ", " help
 Display help output.
 
+.SH ENVIRONMENT VARIABLES
+
+.TP
+.BI ADB_SHELL_OLD_BEHAVIOR
+When set, \fBfb-adb\fR does not override any \fBadb\fR commands,
+exposing only new names for new commands.  Using this option,
+\fBfb-adb\fR can replace \fBadb\fR (perhaps on PATH) with no
+compatibility risk.
+
+.TP
+.BI FB_ADB_DEBUG
+This variable controls how \fBfb-adb\fR writes debug messages.  If it
+is "1", \fBfb-adb\fR writes debug messages to standard error.  If it
+is a string that begins with ">", \fBfb-adb\fR writes debug messages
+to the file whose names begins after the ">" (like a shell
+redirection).  If it is a string that begins with ">>", \fBfb-adb\fR
+appends to that file instead of overwriting it.  This environment
+variable only has an effect when \fBfb-adb\fR is compiled with the
+--enable-checking option.
+
+.TP
+.BI FB_ADB_REMOTE_DEBUG
+This option, set on the host system, becomes the value of
+\fBFB_ADB_DEBUG\fR on the target system.
+
 .SH BUGS
 
 \fBfb-adb\fR should present better error messages when it can't run a
