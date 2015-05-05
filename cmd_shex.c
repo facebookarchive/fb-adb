@@ -339,24 +339,23 @@ struct tty_flags {
 };
 
 struct msg_shex_hello*
-make_hello_msg(size_t cmd_bufsz,
-               size_t stub_stream_bufsz,
+make_hello_msg(size_t max_cmdsz,
+               size_t stdio_ringbufsz,
+               size_t command_ringbufsz,
                size_t nr_argv,
                struct tty_flags tty_flags[3])
 {
-    stub_stream_bufsz = XMIN(stub_stream_bufsz, (size_t) UINT32_MAX);
-
     struct msg_shex_hello* m;
     size_t sz = sizeof (*m) + nr_termbits * sizeof (m->tctl[0]);
     m = xcalloc(sz);
     m->msg.type = MSG_SHEX_HELLO;
     m->version = build_time;
     m->nr_argv = nr_argv;
-    m->maxmsg = XMIN(cmd_bufsz, MSG_MAX_SIZE);
-    m->stub_send_bufsz = stub_stream_bufsz;
-    m->stub_recv_bufsz = stub_stream_bufsz;
+    m->maxmsg = XMIN(max_cmdsz, MSG_MAX_SIZE);
+    m->stub_send_bufsz = command_ringbufsz;
+    m->stub_recv_bufsz = command_ringbufsz;
     for (int i = 0; i < 3; ++i) {
-        m->si[i].bufsz = stub_stream_bufsz;
+        m->si[i].bufsz = stdio_ringbufsz;
         m->si[i].pty_p = tty_flags[i].want_pty_p;
     }
 
@@ -731,9 +730,8 @@ reconnect_over_tcp_socket(const struct childcom* tc,
 static int
 shex_main_common(enum shex_mode smode, int argc, const char** argv)
 {
-    size_t cmd_bufsz = DEFAULT_CMD_BUFSZ;
-    size_t stub_stream_bufsz = DEFAULT_STREAM_RINGBUFSZ;
-    size_t our_stream_bufsz = DEFAULT_STREAM_RINGBUFSZ;
+    size_t max_cmdsz = DEFAULT_MAX_CMDSZ;
+    size_t command_ringbufsz = DEFAULT_STREAM_RINGBUFSZ;
     bool local_mode = false;
     enum { TTY_AUTO,
            TTY_SOCKPAIR,
@@ -897,12 +895,14 @@ shex_main_common(enum shex_mode smode, int argc, const char** argv)
     signal(SIGWINCH, handle_sigwinch);
 
     if (transport != transport_shell)
-        cmd_bufsz = DEFAULT_CMD_BUFSZ_SOCKET;
+        max_cmdsz = DEFAULT_MAX_CMDSZ_SOCKET;
 
+    size_t stdio_ringbufsz = max_cmdsz * 2;
     size_t args_to_send = XMAX((size_t) argc + 1, 2);
     struct msg_shex_hello* hello_msg =
-        make_hello_msg(cmd_bufsz,
-                       stub_stream_bufsz,
+        make_hello_msg(max_cmdsz,
+                       stdio_ringbufsz,
+                       command_ringbufsz,
                        args_to_send,
                        tty_flags);
 
@@ -965,36 +965,36 @@ shex_main_common(enum shex_mode smode, int argc, const char** argv)
     struct fb_adb_sh* sh = &shex.sh;
 
     sh->poll_mask = &orig_sigmask;
-    sh->max_outgoing_msg = cmd_bufsz;
+    sh->max_outgoing_msg = max_cmdsz;
     sh->process_msg = shex_process_msg;
     sh->nrch = 5;
     struct channel** ch = xalloc(sh->nrch * sizeof (*ch));
 
     ch[FROM_PEER] = channel_new(tc->from_child,
-                                our_stream_bufsz,
+                                command_ringbufsz,
                                 CHANNEL_FROM_FD);
     ch[FROM_PEER]->window = UINT32_MAX;
 
     ch[TO_PEER] = channel_new(tc->to_child,
-                              our_stream_bufsz,
+                              command_ringbufsz,
                               CHANNEL_TO_FD);
     ch[TO_PEER]->adb_encoding_hack =
         (tc->writer == write_all_adb_encoded);
 
     ch[CHILD_STDIN] = channel_new(fdh_dup(0),
-                                  our_stream_bufsz,
+                                  stdio_ringbufsz,
                                   CHANNEL_FROM_FD);
     ch[CHILD_STDIN]->track_window = true;
 
     ch[CHILD_STDOUT] = channel_new(fdh_dup(1),
-                                   our_stream_bufsz,
+                                   stdio_ringbufsz,
                                    CHANNEL_TO_FD);
     ch[CHILD_STDOUT]->track_bytes_written = true;
     ch[CHILD_STDOUT]->bytes_written =
         ringbuf_room(ch[CHILD_STDOUT]->rb);
 
     ch[CHILD_STDERR] = channel_new(fdh_dup(2),
-                                   our_stream_bufsz,
+                                   stdio_ringbufsz,
                                    CHANNEL_TO_FD);
     ch[CHILD_STDERR]->track_bytes_written = true;
     ch[CHILD_STDERR]->bytes_written =
