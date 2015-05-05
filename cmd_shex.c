@@ -165,6 +165,10 @@ try_adb_stub(const struct child_start_info* csi,
     char* cmd = NULL;
 
 #ifndef NDEBUG
+    const char* remote_wrapper = getenv("FB_ADB_REMOTE_WRAPPER");
+    if (remote_wrapper)
+        adb_name = xaprintf("%s %s", remote_wrapper, adb_name);
+
     const char* remote_debug = getenv("FB_ADB_REMOTE_DEBUG");
     if (remote_debug)
         cmd = xaprintf("FB_ADB_DEBUG='%s' exec %s stub",

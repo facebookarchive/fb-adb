@@ -218,6 +218,15 @@ variable only has an effect when \fBfb-adb\fR is compiled with the
 This option, set on the host system, becomes the value of
 \fBFB_ADB_DEBUG\fR on the target system.
 
+.TP
+.BI FB_ADB_REMOTE_WRAPPER
+This option, set on the host system, provides a program that wraps the
+execution of the stub on the remote system.  This environment variable
+has an effect only when the program is configured with
+--enable-checking.  An example:
+
+FB_ADB_REMOTE_WRAPPER='strace -o/data/local/tmp/foo'
+
 .SH BUGS
 
 \fBfb-adb\fR should present better error messages when it can't run a
