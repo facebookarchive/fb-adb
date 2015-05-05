@@ -404,6 +404,7 @@ rebind_to_socket(struct msg* mhdr)
             die(ENOENT, "xgetaddrinfo returned no addresses");
 
         client = xsocket(ai->ai_family, ai->ai_socktype, ai->ai_protocol);
+        disable_tcp_nagle(client);
         xconnect(client, addrinfo2addr(ai));
     } else {
         assert(!"missing socket type");

@@ -61,3 +61,5 @@ int xaccept(int server_socket);
 // the current reslist.
 void xsocketpair(int domain, int type, int protocol,
                  int* s1, int* s2);
+
+void disable_tcp_nagle(int fd);

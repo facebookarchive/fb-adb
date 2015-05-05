@@ -719,6 +719,7 @@ reconnect_over_tcp_socket(const struct childcom* tc,
 
     // XXX: fail here if child dies while we wait for connection
     int conn = xaccept(sock);
+    disable_tcp_nagle(conn);
 
     WITH_CURRENT_RESLIST(rl->parent);
     struct childcom* ntc = xcalloc(sizeof (*ntc));

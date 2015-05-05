@@ -1,3 +1,6 @@
+#include <sys/socket.h>
+#include <netinet/in.h>
+#include <netinet/tcp.h>
 #include "util.h"
 #include "net.h"
 
@@ -173,4 +176,11 @@ xsocketpair(int domain, int type, int protocol,
     cleanup_commit_close_fd(cl[1], fd[1]);
     *s1 = fd[0];
     *s2 = fd[1];
+}
+
+void
+disable_tcp_nagle(int fd)
+{
+    int on = 1;
+    xsetsockopt(fd, IPPROTO_TCP, TCP_NODELAY, &on, sizeof(on));
 }
