@@ -20,8 +20,10 @@
 #include <sys/socket.h>
 #include <sys/un.h>
 #include <sys/types.h>
+#include <assert.h>
 #include <limits.h>
 #include "child.h"
+#include "net.h"
 
 struct internal_child_info {
     int flags;

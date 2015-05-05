@@ -40,6 +40,7 @@
 #include "constants.h"
 #include "timestamp.h"
 #include "cmd_stub.h"
+#include "net.h"
 
 static void
 send_exit_message(int status, struct fb_adb_sh* sh)

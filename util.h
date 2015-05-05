@@ -20,9 +20,6 @@
 #include <time.h>
 #include <errno.h>
 #include <poll.h>
-#include <sys/socket.h>
-#include <sys/un.h>
-#include <netdb.h>
 #include "dbg.h"
 
 #ifndef ECOMM
@@ -158,19 +155,6 @@ void xclose(int fd);
 // Allocate a pipe.  The file descriptors are owned by the
 // current reslits.
 void xpipe(int* read_end, int* write_end);
-
-// Allocate a socket.  The returned file descriptor is owned by the
-// current reslist.
-int xsocket(int domain, int type, int protocol);
-
-// Accept a connection.  The returned file descriptor is owned by the
-// current reslist.
-int xaccept(int server_socket);
-
-// Allocate a socket pair.  The returned file descriptors are owned by
-// the current reslist.
-void xsocketpair(int domain, int type, int protocol,
-                 int* s1, int* s2);
 
 // Duplicate a file descriptor.  The new file descriptor is owned by
 // the current reslist.
@@ -316,42 +300,15 @@ void* generate_random_bytes(size_t howmany);
 char* hex_encode_bytes(const void* bytes, size_t n);
 char* gen_hex_random(size_t nr_bytes);
 
-struct sockaddr_un;
-enum addr_kind {
-    addr_unix_filesystem,
-#ifdef __linux__
-    addr_unix_abstract,
-#endif
-};
-
-struct addr {
-    socklen_t size;
-    union {
-        struct sockaddr addr;
-        struct sockaddr_un addr_un;
-    };
-};
-
-struct addr* make_addr_unix_filesystem(const char* pathname);
-#ifdef __linux__
-struct addr* make_addr_unix_abstract(const void* bytes, size_t nr);
-#endif
-
-struct addrinfo* xgetaddrinfo(const char* node,
-                              const char* service,
-                              const struct addrinfo* hints);
-
-struct addr* addrinfo2addr(const struct addrinfo* ai);
-
-void xconnect(int fd, const struct addr* addr);
-void xlisten(int fd, int backlog);
-void xbind(int fd, const struct addr* addr);
-void xsetsockopt(int fd, int level, int opname,
-                 void* optval, socklen_t optlen);
-
-void str2gaiargs(const char* inp, char** node, char** service);
-
 void* first_non_null(void* s, ...);
 bool string_starts_with_p(const char* string, const char* prefix);
 
 double xclock_gettime(clockid_t clk_id);
+
+#ifndef NDEBUG
+void assert_cloexec(int fd);
+#else
+# define assert_cloexec(_fd) ((void)(_fd))
+#endif
+
+int merge_O_CLOEXEC_into_fd_flags(int fd, int flags);

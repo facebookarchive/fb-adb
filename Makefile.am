@@ -45,7 +45,10 @@ libfb_adb_a_SOURCES = \
 	util.c \
 	util.h \
 	xmkraw.c \
-	xmkraw.h
+	xmkraw.h \
+	net.c \
+	net.h \
+	$(EMPTY)
 
 fb_adb_SOURCES =
 nodist_fb_adb_SOURCES = timestamp.c

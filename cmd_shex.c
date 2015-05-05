@@ -37,6 +37,7 @@
 #include "argv.h"
 #include "strutil.h"
 #include "cmd_shex.h"
+#include "net.h"
 
 enum shex_mode {
     SHEX_MODE_SHELL,
