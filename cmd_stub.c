@@ -469,6 +469,12 @@ stub_main(int argc, const char** argv)
     shex_hello = (struct msg_shex_hello*) mhdr;
 
     struct child* child = start_child(rdr, shex_hello);
+
+    // Child could be running arbitrary SIGHUP-ignoring code.  Do our
+    // best to kill it if we have to exit, but don't wait around
+    // for it.
+    child->skip_cleanup_wait = true;
+
     struct stub stub;
     memset(&stub, 0, sizeof (stub));
     stub.child = child;
@@ -519,6 +525,8 @@ stub_main(int argc, const char** argv)
                      !channel_dead_p(ch[CHILD_STDERR]))));
 
     if (channel_dead_p(ch[FROM_PEER]) || channel_dead_p(ch[TO_PEER])) {
+        dbg("abnormal exit: closing peer channels");
+
         //
         // If we lost our peer connection, make sure the child sees
         // SIGHUP instead of seeing its stdin close: just drain any
@@ -531,12 +539,17 @@ stub_main(int argc, const char** argv)
         channel_close(ch[FROM_PEER]);
         channel_close(ch[TO_PEER]);
 
+        dbg("waiting for peer channels to die");
+
         PUMP_WHILE(sh, (!channel_dead_p(ch[FROM_PEER]) ||
                         !channel_dead_p(ch[TO_PEER])));
 
         // Drain output buffers
+        dbg("closing child stdin");
         channel_close(ch[CHILD_STDIN]);
+        dbg("waiting for child stdin to close");
         PUMP_WHILE(sh, !channel_dead_p(ch[CHILD_STDIN]));
+        dbg("exiting");
         return 128 + SIGHUP;
     }
 

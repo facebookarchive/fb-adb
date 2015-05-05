@@ -82,8 +82,6 @@ child_cleanup(void* arg)
     struct child* child = arg;
     if (!child->dead_p) {
         if (child->pty_master == NULL) {
-            /* In the pty case, the system's automatic SIGHUP should
-             * take care of the killing.  */
             int sig = child->deathsig ?: SIGTERM;
             pid_t child_pid = child->pid;
             if (sig < 0) {
@@ -94,9 +92,15 @@ child_cleanup(void* arg)
 
             if (kill(child->pid, SIGTERM) < 0 && errno != ESRCH)
                 die_errno("kill(%d)", (int) child->pid);
+
+        } else {
+            /* In the pty case, the system's automatic SIGHUP should
+             * take care of the killing.  */
+            fdh_destroy(child->pty_master);
         }
 
-        child_wait(child);
+        if (!child->skip_cleanup_wait)
+            child_wait(child);
     }
 }
 

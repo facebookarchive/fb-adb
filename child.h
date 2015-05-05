@@ -39,6 +39,7 @@ struct child {
     pid_t pid;
     int status;
     unsigned dead_p : 1;
+    unsigned skip_cleanup_wait : 1;
     struct fdh* pty_master;
     struct fdh* fd[3];
 };
