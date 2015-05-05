@@ -45,7 +45,7 @@
 
 struct errhandler {
     sigjmp_buf where;
-    struct reslist* msg_rl;
+    struct reslist* rl;
     struct errinfo* ei;
 
 };
@@ -286,7 +286,7 @@ catch_error(void (*fn)(void* fndata),
     bool error = true;
     struct errhandler* old_errh = current_errh;
     struct errhandler errh;
-    errh.msg_rl = rl->parent;
+    errh.rl = rl;
     errh.ei = ei;
     current_errh = &errh;
     if (sigsetjmp(errh.where, 1) == 0) {
@@ -356,6 +356,7 @@ void die_oom(void)
         current_errh->ei->msg = "no memory";
     }
 
+    empty_reslist(current_errh->rl);
     siglongjmp(current_errh->where, 1);
 }
 
@@ -367,13 +368,14 @@ diev(int err, const char* fmt, va_list args)
         struct errinfo* ei = current_errh->ei;
         ei->err = err;
         if (ei->want_msg) {
-            WITH_CURRENT_RESLIST(current_errh->msg_rl);
+            WITH_CURRENT_RESLIST(current_errh->rl->parent);
             // die_oom will DTRT on alloc failure.
             ei->msg = xavprintf(fmt, args);
             ei->prgname = xstrdup(prgname);
         }
     }
 
+    empty_reslist(current_errh->rl);
     siglongjmp(current_errh->where, 1);
 }
 
