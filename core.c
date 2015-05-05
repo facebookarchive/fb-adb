@@ -264,7 +264,7 @@ void
 io_loop_do_io(struct fb_adb_sh* sh)
 {
     SCOPED_RESLIST(rl);
-    dbgch("before io_loop_do_io", sh->ch, sh->nrch);
+    dbgch("before polling", sh->ch, sh->nrch);
 
     struct channel** ch = sh->ch;
     unsigned nrch = sh->nrch;
@@ -276,11 +276,19 @@ io_loop_do_io(struct fb_adb_sh* sh)
     }
 
     if (work != 0) {
+#ifndef NDEBUG
+        double start = xclock_gettime(CLOCK_REALTIME);
+#endif
         if (ppoll(polls, nrch, NULL, sh->poll_mask) < 0
             && errno != EINTR)
         {
             die_errno("poll");
         }
+#ifndef NDEBUG
+        double elapsed = xclock_gettime(CLOCK_REALTIME) - start;
+        if (elapsed > 0.5)
+            dbg("long poll: took %g seconds", elapsed);
+#endif
     }
 
     for (unsigned chno = 0; chno < nrch; ++chno)

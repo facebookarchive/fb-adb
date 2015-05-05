@@ -1258,6 +1258,13 @@ xconnect(int fd, const struct addr* addr)
 }
 
 void
+xlisten(int fd, int backlog)
+{
+    if (listen(fd, backlog) == -1)
+        die_errno("listen");
+}
+
+void
 xbind(int fd, const struct addr* addr)
 {
     if (bind(fd, &addr->addr, addr->size) == -1)
@@ -1277,4 +1284,81 @@ first_non_null(void* s, ...)
     va_end(args);
     return ret;
 
+}
+
+static void
+xgetaddrinfo_cleanup(void* data)
+{
+    freeaddrinfo((struct addrinfo*) data);
+}
+
+struct addrinfo*
+xgetaddrinfo(const char* node,
+             const char* service,
+             const struct addrinfo* hints)
+{
+    int rc;
+    struct cleanup* cl = cleanup_allocate();
+    struct addrinfo* res = NULL;
+
+    do {
+        rc = getaddrinfo(node, service, hints, &res);
+    } while (rc == EAI_SYSTEM && errno == EINTR);
+
+    if (rc == EAI_SYSTEM)
+        die_errno("getaddrinfo");
+
+    if (rc != 0)
+        die(ENOENT, "getaddrinfo failed: %s", gai_strerror(rc));
+
+    cleanup_commit(cl, xgetaddrinfo_cleanup, res);
+    return res;
+}
+
+struct addr*
+addrinfo2addr(const struct addrinfo* ai)
+{
+    size_t allocsz = offsetof(struct addr, addr);
+    if (SATADD(&allocsz, allocsz, ai->ai_addrlen))
+        die(EINVAL, "address too long");
+
+    struct addr* a = xalloc(allocsz);
+    a->size = ai->ai_addrlen;
+    memcpy(&a->addr, ai->ai_addr, ai->ai_addrlen);
+    return a;
+}
+
+void
+xsetsockopt(int fd, int level, int opname,
+            void* optval, socklen_t optlen)
+{
+    if (setsockopt(fd, level, opname, optval, optlen) == -1)
+        die_errno("setsockopt");
+}
+
+bool
+string_starts_with_p(const char* string, const char* prefix)
+{
+    return strncmp(string, prefix, strlen(prefix)) == 0;
+}
+
+double
+xclock_gettime(clockid_t clk_id)
+{
+    struct timespec ts;
+    if (clock_gettime(clk_id, &ts) == -1)
+        die_errno("clock_gettime");
+
+    return (double) ts.tv_sec + (double) ts.tv_nsec / 1e9;
+}
+
+void
+str2gaiargs(const char* inp, char** node, char** service)
+{
+    const char* sep = strchr(inp, ',');
+    if (sep == NULL)
+        die(EINVAL, "bad network address \"%s\"", inp);
+
+    *node = xstrndup(inp, sep - inp);
+    *service = xstrdup(sep + 1);
 }

@@ -17,10 +17,12 @@
 #include <sys/types.h>
 #include <unistd.h>
 #include <stdbool.h>
+#include <time.h>
 #include <errno.h>
 #include <poll.h>
 #include <sys/socket.h>
 #include <sys/un.h>
+#include <netdb.h>
 #include "dbg.h"
 
 #ifndef ECOMM
@@ -326,7 +328,21 @@ struct addr* make_addr_unix_filesystem(const char* pathname);
 struct addr* make_addr_unix_abstract(const void* bytes, size_t nr);
 #endif
 
+struct addrinfo* xgetaddrinfo(const char* node,
+                              const char* service,
+                              const struct addrinfo* hints);
+
+struct addr* addrinfo2addr(const struct addrinfo* ai);
+
 void xconnect(int fd, const struct addr* addr);
+void xlisten(int fd, int backlog);
 void xbind(int fd, const struct addr* addr);
+void xsetsockopt(int fd, int level, int opname,
+                 void* optval, socklen_t optlen);
+
+void str2gaiargs(const char* inp, char** node, char** service);
 
 void* first_non_null(void* s, ...);
+bool string_starts_with_p(const char* string, const char* prefix);
+
+double xclock_gettime(clockid_t clk_id);

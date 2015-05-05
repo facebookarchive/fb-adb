@@ -367,7 +367,6 @@ rebind_to_socket(struct msg* mhdr)
 {
     SCOPED_RESLIST(rl_rebind);
 
-    assert(mhdr->type == MSG_REBIND_TO_SOCKET);
     struct msg_rebind_to_socket* rbmsg =
         (struct msg_rebind_to_socket*) mhdr;
 
@@ -375,18 +374,41 @@ rebind_to_socket(struct msg* mhdr)
         die(ECOMM, "invalid MSG_REBIND_TO_SOCKET length");
 
     size_t socket_name_length = rbmsg->msg.size - sizeof (*rbmsg);
-    const char* socket_name = strndup(rbmsg->socket, socket_name_length);
-    int listening_socket = xsocket(AF_UNIX, SOCK_STREAM, 0);
+    char* socket_name = strndup(rbmsg->socket, socket_name_length);
+    int client;
 
-    struct unlink_cleanup* ucl = unlink_cleanup_allocate(socket_name);
-    xbind(listening_socket, make_addr_unix_filesystem(socket_name));
-    unlink_cleanup_commit(ucl);
+    if (mhdr->type == MSG_REBIND_TO_UNIX_SOCKET) {
+        int listening_socket = xsocket(AF_UNIX, SOCK_STREAM, 0);
 
-    if (listen(listening_socket, 1) == -1)
-        die_errno("listen");
+        struct unlink_cleanup* ucl = unlink_cleanup_allocate(socket_name);
+        xbind(listening_socket, make_addr_unix_filesystem(socket_name));
+        unlink_cleanup_commit(ucl);
 
-    send_socket_available_now_message();
-    int client = xaccept(listening_socket);
+        if (listen(listening_socket, 1) == -1)
+            die_errno("listen");
+
+        send_socket_available_now_message();
+        client = xaccept(listening_socket);
+    } else if (mhdr->type == MSG_REBIND_TO_TCP_SOCKET) {
+        static const struct addrinfo hints = {
+            .ai_family = AF_INET,
+            .ai_socktype = SOCK_STREAM,
+        };
+
+        char* node;
+        char* service;
+        str2gaiargs(socket_name, &node, &service);
+        struct addrinfo* ai = xgetaddrinfo(node, service, &hints);
+        if (!ai)
+            die(ENOENT, "xgetaddrinfo returned no addresses");
+
+        client = xsocket(ai->ai_family, ai->ai_socktype, ai->ai_protocol);
+        xconnect(client, addrinfo2addr(ai));
+    } else {
+        assert(!"missing socket type");
+        __builtin_unreachable();
+    }
+
     if (dup2(client, 0) == -1 || dup2(client, 1) == -1)
         die_errno("dup2");
 }
@@ -419,7 +441,9 @@ stub_main(int argc, const char** argv)
 
     struct msg* mhdr = read_msg(0, rdr);
 
-    if (mhdr->type == MSG_REBIND_TO_SOCKET) {
+    if (mhdr->type == MSG_REBIND_TO_UNIX_SOCKET ||
+        mhdr->type == MSG_REBIND_TO_TCP_SOCKET)
+    {
         rebind_to_socket(mhdr);
         rdr = read_all; // Yay! No more tty deobfuscation!
         mhdr = read_msg(0, rdr);

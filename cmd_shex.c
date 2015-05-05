@@ -43,6 +43,12 @@ enum shex_mode {
     SHEX_MODE_RCMD,
 };
 
+enum transport {
+    transport_shell,
+    transport_unix,
+    transport_tcp,
+};
+
 struct childcom {
     struct fdh* to_child;
     struct fdh* from_child;
@@ -593,6 +599,7 @@ send_chdir(const struct childcom* tc,
 
 static void
 send_rebind_to_socket_message(const struct childcom* tc,
+                              enum msg_type type,
                               const char* device_socket)
 {
     size_t device_socket_length = strlen(device_socket);
@@ -606,15 +613,16 @@ send_rebind_to_socket_message(const struct childcom* tc,
     }
 
     memset(&rm, 0, sizeof (rm));
-    rm.msg.type = MSG_REBIND_TO_SOCKET;
+    rm.msg.type = type;
     rm.msg.size = msgsz;
     tc_write(tc, &rm.msg, sizeof (rm));
     tc_write(tc, device_socket, device_socket_length);
 }
 
 static struct childcom*
-reconnect_over_socket(const struct childcom* tc,
-                      const char* const* adb_args)
+reconnect_over_unix_socket(
+    const struct childcom* tc,
+    const char* const* adb_args)
 {
     SCOPED_RESLIST(rl);
 
@@ -628,7 +636,9 @@ reconnect_over_socket(const struct childcom* tc,
                  DEVICE_TEMP_DIR,
                  gen_hex_random(10));
 
-    send_rebind_to_socket_message(tc, device_socket);
+    send_rebind_to_socket_message(
+        tc, MSG_REBIND_TO_UNIX_SOCKET, device_socket);
+
     struct msg* reply = tc_recvmsg(tc);
     if (reply->type != MSG_LISTENING_ON_SOCKET)
         die(ECOMM, "child sent incorrect reply %u to socket bind",
@@ -654,6 +664,7 @@ reconnect_over_socket(const struct childcom* tc,
     remove_forward_cleanup_commit(crf);
 
     int scon = xsocket(AF_UNIX, SOCK_STREAM, 0);
+    // XXX: fail here if child dies while we connect
     xconnect(scon, make_addr_unix_filesystem(host_socket));
 
     WITH_CURRENT_RESLIST(rl->parent);
@@ -662,6 +673,54 @@ reconnect_over_socket(const struct childcom* tc,
     ntc->to_child = fdh_dup(scon);
     ntc->writer = write_all;
     dbg("rebound stub connection local:%s remote:%s", local, remote);
+    return ntc;
+}
+
+static struct childcom*
+reconnect_over_tcp_socket(const struct childcom* tc,
+                          const char* tcp_addr)
+{
+    SCOPED_RESLIST(rl);
+
+    static const struct addrinfo hints = {
+        .ai_family = AF_INET,
+        .ai_flags = AI_PASSIVE,
+        .ai_socktype = SOCK_STREAM,
+    };
+
+    char* node;
+    char* service;
+    str2gaiargs(tcp_addr, &node, &service);
+
+    struct addrinfo* ai = xgetaddrinfo(node, service, &hints);
+    if (!ai)
+        die(ENOENT, "xgetaddrinfo returned no addresses");
+
+    int sock = xsocket(ai->ai_family,
+                       ai->ai_socktype,
+                       ai->ai_protocol);
+
+    int v = 1;
+    xsetsockopt(sock, SOL_SOCKET, SO_REUSEADDR, &v, sizeof (v));
+
+    // Bind to TCP socket and start accepting connections
+    xbind(sock, addrinfo2addr(ai));
+    xlisten(sock, 1);
+
+    // Tell peer to connect to our socket
+    send_rebind_to_socket_message(
+        tc,
+        MSG_REBIND_TO_TCP_SOCKET,
+        tcp_addr);
+
+    // XXX: fail here if child dies while we wait for connection
+    int conn = xaccept(sock);
+
+    WITH_CURRENT_RESLIST(rl->parent);
+    struct childcom* ntc = xcalloc(sizeof (*ntc));
+    ntc->from_child = fdh_dup(conn);
+    ntc->to_child = fdh_dup(conn);
+    ntc->writer = write_all;
     return ntc;
 }
 
@@ -688,7 +747,8 @@ shex_main_common(enum shex_mode smode, int argc, const char** argv)
     char* want_user = NULL;
     bool want_ctty = true;
     char* child_chdir = NULL;
-    bool unix_transport = false;
+    enum transport transport = transport_shell;
+    const char* tcp_addr = NULL;
 
     memset(&tty_flags, 0, sizeof (tty_flags));
     for (int i = 0; i < 3; ++i)
@@ -774,12 +834,16 @@ shex_main_common(enum shex_mode smode, int argc, const char** argv)
                 child_chdir = xstrdup(optarg);
                 break;
             case 'X':
-                if (strcmp(optarg, "shell") == 0)
-                    unix_transport = false;
-                else if (strcmp(optarg, "socket") == 0)
-                    unix_transport =true;
-                else
+                if (strcmp(optarg, "shell") == 0) {
+                    transport = transport_shell;
+                } else if (strcmp(optarg, "socket") == 0) {
+                    transport = transport_unix;
+                } else if (string_starts_with_p(optarg, "tcp:")) {
+                    transport = transport_tcp;
+                    tcp_addr = optarg + strlen("tcp:");
+                } else {
                     die(EINVAL, "unknown transport %s", optarg);
+                }
 
                 break;
             case ':':
@@ -828,6 +892,9 @@ shex_main_common(enum shex_mode smode, int argc, const char** argv)
     sigprocmask(SIG_BLOCK, &blocked_signals, &orig_sigmask);
     signal(SIGWINCH, handle_sigwinch);
 
+    if (transport != transport_shell)
+        cmd_bufsz = DEFAULT_CMD_BUFSZ_SOCKET;
+
     size_t args_to_send = XMAX((size_t) argc + 1, 2);
     struct msg_shex_hello* hello_msg =
         make_hello_msg(cmd_bufsz,
@@ -850,8 +917,8 @@ shex_main_common(enum shex_mode smode, int argc, const char** argv)
         if (want_root)
             thing_not_supported = "root update";
 
-        if (unix_transport)
-            thing_not_supported = "socket transport";
+        if (transport != transport_shell)
+            thing_not_supported = "non-shell transport";
 
         if (thing_not_supported)
             die(EINVAL,
@@ -871,10 +938,10 @@ shex_main_common(enum shex_mode smode, int argc, const char** argv)
 
     struct childcom* tc = &tc_buf;
 
-    if (unix_transport) {
-        tc = reconnect_over_socket(tc, adb_args);
-        cmd_bufsz = DEFAULT_CMD_BUFSZ_SOCKET;
-    }
+    if (transport == transport_unix)
+        tc = reconnect_over_unix_socket(tc, adb_args);
+    else if (transport == transport_tcp)
+        tc = reconnect_over_tcp_socket(tc, tcp_addr);
 
     if (want_root && uid != 0)
         command_re_exec_as_root(tc);
