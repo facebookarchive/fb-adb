@@ -731,7 +731,6 @@ static int
 shex_main_common(enum shex_mode smode, int argc, const char** argv)
 {
     size_t max_cmdsz = DEFAULT_MAX_CMDSZ;
-    size_t command_ringbufsz = DEFAULT_STREAM_RINGBUFSZ;
     bool local_mode = false;
     enum { TTY_AUTO,
            TTY_SOCKPAIR,
@@ -897,6 +896,7 @@ shex_main_common(enum shex_mode smode, int argc, const char** argv)
     if (transport != transport_shell)
         max_cmdsz = DEFAULT_MAX_CMDSZ_SOCKET;
 
+    size_t command_ringbufsz = max_cmdsz * 4;
     size_t stdio_ringbufsz = max_cmdsz * 2;
     size_t args_to_send = XMAX((size_t) argc + 1, 2);
     struct msg_shex_hello* hello_msg =
