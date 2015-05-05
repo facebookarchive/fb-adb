@@ -18,6 +18,18 @@
 #include "ringbuf.h"
 #include "channel.h"
 
+// If non-zero, transfer as much data as possible between ringbuffers.
+// If zero, run the event loop (and do IO) between iterations.
+// Unclear which approach is better, so let's default the one that
+// lets us do bigger IOs.
+#ifndef BATCH_WORK_IF_POSSIBLE
+#define BATCH_WORK_IF_POSSIBLE 1
+#endif
+
+#ifndef TURN_INCREMENT
+#define TURN_INCREMENT 1
+#endif
+
 __attribute__((noreturn,format(printf,1,2)))
 static void
 die_proto_error(const char* fmt, ...)
@@ -188,39 +200,43 @@ xmit_acks(struct channel* c, unsigned chno, struct fb_adb_sh* sh)
     }
 }
 
-static void
+static unsigned
 xmit_data(struct channel* c,
           unsigned chno,
           struct fb_adb_sh* sh)
 {
-    if (c->dir != CHANNEL_FROM_FD)
-        return;
+    unsigned work_done = 0;
+    if (c->dir == CHANNEL_FROM_FD) {
+        size_t maxoutmsg = fb_adb_maxoutmsg(sh);
+        size_t avail = ringbuf_size(c->rb);
+        struct msg_channel_data m;
 
-    size_t maxoutmsg = fb_adb_maxoutmsg(sh);
-    size_t avail = ringbuf_size(c->rb);
-    struct msg_channel_data m;
-
-    if (maxoutmsg > sizeof (m) && avail > 0) {
-        size_t payloadsz = XMIN(avail, maxoutmsg - sizeof (m));
-        struct iovec iov[3] = {{ &m, sizeof (m) }};
-        ringbuf_readable_iov(c->rb, &iov[1], payloadsz);
-        memset(&m, 0, sizeof (m));
-        m.msg.type = MSG_CHANNEL_DATA;
-        m.channel = chno;
-        m.msg.size = iovec_sum(iov, ARRAYSIZE(iov));
-        assert(chno != 0);
-        dbgmsg(&m.msg, "send");
-        channel_write(sh->ch[TO_PEER], iov, ARRAYSIZE(iov));
-        ringbuf_note_removed(c->rb, payloadsz);
+        if (maxoutmsg > sizeof (m) && avail > 0) {
+            size_t payloadsz = XMIN(avail, maxoutmsg - sizeof (m));
+            struct iovec iov[3] = {{ &m, sizeof (m) }};
+            ringbuf_readable_iov(c->rb, &iov[1], payloadsz);
+            memset(&m, 0, sizeof (m));
+            m.msg.type = MSG_CHANNEL_DATA;
+            m.channel = chno;
+            m.msg.size = iovec_sum(iov, ARRAYSIZE(iov));
+            assert(chno != 0);
+            dbgmsg(&m.msg, "send");
+            channel_write(sh->ch[TO_PEER], iov, ARRAYSIZE(iov));
+            ringbuf_note_removed(c->rb, payloadsz);
+            work_done += 1;
+        }
     }
+
+    return work_done;
 }
 
-static void
+static unsigned
 xmit_eof(struct channel* c,
          unsigned chno,
          struct fb_adb_sh* sh)
 {
     struct msg_channel_close m;
+    unsigned work_done = 0;
 
     if (c->fdh == NULL &&
         c->sent_eof == false &&
@@ -234,7 +250,10 @@ xmit_eof(struct channel* c,
         dbgmsg(&m.msg, "send");
         channel_write(sh->ch[TO_PEER], &(struct iovec){&m, sizeof (m)}, 1);
         c->sent_eof = true;
+        work_done += 1;
     }
+
+    return work_done;
 }
 
 static void
@@ -303,6 +322,7 @@ io_loop_pump(struct fb_adb_sh* sh)
 
     struct channel** ch = sh->ch;
     unsigned chno;
+    unsigned i;
     unsigned nrch = sh->nrch;
     assert(nrch >= NR_SPECIAL_CH);
 
@@ -310,16 +330,29 @@ io_loop_pump(struct fb_adb_sh* sh)
     while (detect_msg(ch[FROM_PEER]->rb, &mhdr))
         sh->process_msg(sh, mhdr);
 
-    for (chno = 0; chno < nrch; ++chno)
+    for (i = 0; i < nrch; ++i) {
+        chno = (i + sh->turn) % nrch;
         xmit_acks(ch[chno], chno, sh);
-
-    for (chno = 0; chno < nrch; ++chno) {
-        if (chno > NR_SPECIAL_CH)
-            xmit_data(ch[chno], chno, sh);
-
-        do_pending_close(ch[chno]);
-        xmit_eof(ch[chno], chno, sh);
     }
+
+    sh->turn += TURN_INCREMENT;
+
+    unsigned work_done;
+    do {
+        work_done = 0;
+        for (i = 0; i < nrch; ++i) {
+            chno = (i + sh->turn) % nrch;
+            if (chno > NR_SPECIAL_CH)
+                work_done += xmit_data(ch[chno], chno, sh);
+
+            do_pending_close(ch[chno]);
+            work_done += xmit_eof(ch[chno], chno, sh);
+        }
+#if BATCH_WORK_IF_POSSIBLE == 0
+        work_done = 0;
+#endif
+        sh->turn += TURN_INCREMENT;
+    } while (work_done > 0);
 }
 
 void

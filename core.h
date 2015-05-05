@@ -27,6 +27,7 @@ struct fb_adb_sh {
     sigset_t* poll_mask;
     size_t max_outgoing_msg;
     unsigned nrch;
+    unsigned turn; // Round-robin fairness state
     struct channel** ch;
     void (*process_msg)(struct fb_adb_sh* sh, struct msg mhdr);
 };

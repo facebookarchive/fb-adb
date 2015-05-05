@@ -981,6 +981,18 @@ shex_main_common(enum shex_mode smode, int argc, const char** argv)
     ch[TO_PEER]->adb_encoding_hack =
         (tc->writer == write_all_adb_encoded);
 
+    // Here, we turn off the optimization that lets us writev(2)
+    // directly to TO_PEER when TO_PEER's ring buffer is empty.
+    // In principle, by disabling this optimization, we can coalesce
+    // outbound IOs into bigger chunks, since we combine lots of them
+    // into the outbound ring buffer before trying to empty that ring
+    // buffer into the socket buffer.
+    //
+    // IO timing is fraught, so let's just do this for now.
+    //
+
+    ch[TO_PEER]->always_buffer = true;
+
     ch[CHILD_STDIN] = channel_new(fdh_dup(0),
                                   stdio_ringbufsz,
                                   CHANNEL_FROM_FD);

@@ -498,6 +498,9 @@ stub_main(int argc, const char** argv)
                               CHANNEL_TO_FD);
     replace_with_dev_null(1);
 
+    // See comment in cmd_shex.c
+    ch[TO_PEER]->always_buffer = true;
+
     ch[CHILD_STDIN] = channel_new(child->fd[0],
                                   shex_hello->si[0].bufsz,
                                   CHANNEL_TO_FD);
