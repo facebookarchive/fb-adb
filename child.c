@@ -55,9 +55,13 @@ child_child_1(void* arg)
             die_errno("tcsetpgrp");
     }
 
-    sigset_t blocked;
-    sigemptyset(&blocked);
-    sigprocmask(SIG_SETMASK, &blocked, NULL);
+    for (int i = 0; i < NSIG; ++i)
+        signal(i, SIG_DFL);
+
+    sigset_t no_signals;
+    VERIFY(sigemptyset(&no_signals) == 0);
+    VERIFY(sigprocmask(SIG_SETMASK, &no_signals, NULL) == 0);
+
     execvp(ci->csi->exename, (char**) ci->csi->argv);
     die_errno("execvp(\"%s\")", ci->csi->exename);
 }
@@ -206,11 +210,17 @@ child_start(const struct child_start_info* csi)
     if ((flags & CHILD_INHERIT_STDERR) == 0)
         child->fd[2] = fdh_dup(parentfd[2]);
 
+    // We need to block all signals until the child calls signal(2) to
+    // reset its signal handlers to the default.  If we didn't, the
+    // child could run handlers we didn't expect.
+
+    sigset_t all_blocked;
+    sigset_t prev_blocked;
+
+    VERIFY(sigfillset(&all_blocked) == 0);
+    VERIFY(sigprocmask(SIG_SETMASK, &all_blocked, &prev_blocked) == 0);
+
     pid_t child_pid = fork();
-
-    if (child_pid == -1)
-        die_errno("fork");
-
     if (child_pid == 0) {
         struct internal_child_info ci = {
             .flags = flags,
@@ -219,8 +229,12 @@ child_start(const struct child_start_info* csi)
             .childfd = childfd,
         };
 
-        child_child(&ci);
+        child_child(&ci); // Never returns
     }
+
+    VERIFY(sigprocmask(SIG_SETMASK, &prev_blocked, NULL) == 0);
+    if (child_pid == -1)
+        die_errno("fork");
 
     child->pid = child_pid;
     cleanup_commit(cl_waiter, child_cleanup, child);

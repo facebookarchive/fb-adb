@@ -31,6 +31,15 @@
 
 #define ARRAYSIZE(ar) (sizeof (ar) / sizeof (*(ar)))
 
+// Suppress compiler warning about unused computation
+static inline bool verify_dummy(bool x) { return x; }
+
+#ifndef NDEBUG
+# define VERIFY(x) (verify_dummy(x))
+#else
+# define VERIFY(x) (assert(x))
+#endif
+
 // Reslists own resources (or more precisely, they contain lists of
 // cleanup closures).  Every time we allocate a resource, we mark it
 // owned by the reslist named by _reslist_current.  reslist deallocate
