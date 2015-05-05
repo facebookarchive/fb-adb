@@ -43,7 +43,7 @@ dbg_init(void)
     } else if (strcmp(dv, "1") == 0) {
         dbgout = fdopen(fileno(stderr), "w");
     } else if (dv[0] == '>' && dv[1] == '>') {
-        dbgout = fopen(dv+1, "a");
+        dbgout = fopen(dv+2, "a");
         if (dbgout != NULL)
             dbglock_fd = fileno(dbgout);
     } else if (dv[0] == '>') {
