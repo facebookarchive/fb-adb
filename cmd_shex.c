@@ -330,10 +330,12 @@ struct tty_flags {
 
 struct msg_shex_hello*
 make_hello_msg(size_t cmd_bufsz,
-               size_t stream_bufsz,
+               size_t stub_stream_bufsz,
                size_t nr_argv,
                struct tty_flags tty_flags[3])
 {
+    stub_stream_bufsz = XMIN(stub_stream_bufsz, (size_t) UINT32_MAX);
+
     struct msg_shex_hello* m;
     size_t sz = sizeof (*m) + nr_termbits * sizeof (m->tctl[0]);
     m = xcalloc(sz);
@@ -341,10 +343,10 @@ make_hello_msg(size_t cmd_bufsz,
     m->version = build_time;
     m->nr_argv = nr_argv;
     m->maxmsg = XMIN(cmd_bufsz, MSG_MAX_SIZE);
-    m->stub_send_bufsz = cmd_bufsz;
-    m->stub_recv_bufsz = cmd_bufsz;
+    m->stub_send_bufsz = stub_stream_bufsz;
+    m->stub_recv_bufsz = stub_stream_bufsz;
     for (int i = 0; i < 3; ++i) {
-        m->si[i].bufsz = stream_bufsz;
+        m->si[i].bufsz = stub_stream_bufsz;
         m->si[i].pty_p = tty_flags[i].want_pty_p;
     }
 
@@ -667,8 +669,8 @@ static int
 shex_main_common(enum shex_mode smode, int argc, const char** argv)
 {
     size_t cmd_bufsz = DEFAULT_CMD_BUFSZ;
-    size_t child_stream_bufsz = DEFAULT_STREAM_BUFSZ;
-    size_t our_stream_bufsz = DEFAULT_STREAM_BUFSZ;
+    size_t stub_stream_bufsz = DEFAULT_STREAM_RINGBUFSZ;
+    size_t our_stream_bufsz = DEFAULT_STREAM_RINGBUFSZ;
     bool local_mode = false;
     enum { TTY_AUTO,
            TTY_SOCKPAIR,
@@ -829,7 +831,7 @@ shex_main_common(enum shex_mode smode, int argc, const char** argv)
     size_t args_to_send = XMAX((size_t) argc + 1, 2);
     struct msg_shex_hello* hello_msg =
         make_hello_msg(cmd_bufsz,
-                       child_stream_bufsz,
+                       stub_stream_bufsz,
                        args_to_send,
                        tty_flags);
 
@@ -869,8 +871,10 @@ shex_main_common(enum shex_mode smode, int argc, const char** argv)
 
     struct childcom* tc = &tc_buf;
 
-    if (unix_transport)
+    if (unix_transport) {
         tc = reconnect_over_socket(tc, adb_args);
+        cmd_bufsz = DEFAULT_CMD_BUFSZ_SOCKET;
+    }
 
     if (want_root && uid != 0)
         command_re_exec_as_root(tc);
@@ -896,12 +900,12 @@ shex_main_common(enum shex_mode smode, int argc, const char** argv)
     struct channel** ch = xalloc(sh->nrch * sizeof (*ch));
 
     ch[FROM_PEER] = channel_new(tc->from_child,
-                                cmd_bufsz,
+                                our_stream_bufsz,
                                 CHANNEL_FROM_FD);
     ch[FROM_PEER]->window = UINT32_MAX;
 
     ch[TO_PEER] = channel_new(tc->to_child,
-                              cmd_bufsz,
+                              our_stream_bufsz,
                               CHANNEL_TO_FD);
     ch[TO_PEER]->adb_encoding_hack =
         (tc->writer == write_all_adb_encoded);
