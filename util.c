@@ -115,7 +115,7 @@ cleanup_destroy(struct cleanup* cl)
 {
     reslist_remove(&cl->r);
     if (cl->fn)
-        (cl->fn)(cl->fndata); // XXX: abort if this function calls die()
+        (cl->fn)(cl->fndata);
 
     free(cl);
 }
@@ -123,6 +123,13 @@ cleanup_destroy(struct cleanup* cl)
 static void
 empty_reslist(struct reslist* rl)
 {
+    // Reset current_errh to NULL so that failures inside cleanups are
+    // fatal --- just like throwing an exception in a destructor in
+    // C++.  Cleanups can use catch_error internally because
+    // catch_error saves, sets, and restores current_errh as well.
+    struct errhandler* saved_errh = current_errh;
+    current_errh = NULL;
+
     while (!reslist_empty_p(rl)) {
         struct resource* r = reslist_first(rl);
         if (r->type == RES_RESLIST_ONHEAP
@@ -133,6 +140,8 @@ empty_reslist(struct reslist* rl)
             cleanup_destroy((struct cleanup*) r);
         }
     }
+
+    current_errh = saved_errh;
 }
 
 void
@@ -350,6 +359,9 @@ xcalloc(size_t sz)
 
 void die_oom(void)
 {
+    if (current_errh == NULL)
+        abort();
+
     assert(current_errh);
     if (current_errh->ei) {
         current_errh->ei->err = ENOMEM;
@@ -363,7 +375,9 @@ void die_oom(void)
 void
 diev(int err, const char* fmt, va_list args)
 {
-    assert(current_errh);
+    if (current_errh == NULL)
+        abort();
+
     if (current_errh->ei) {
         struct errinfo* ei = current_errh->ei;
         ei->err = err;
