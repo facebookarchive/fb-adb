@@ -227,6 +227,7 @@ delete_device_tmpfile_cleanup_1(void* data)
         .argv = ARGV_CONCAT(ARGV("adb"),
                             ddt->adb_args,
                             ARGV("shell",
+                                 "</dev/null",
                                  "rm",
                                  "-f",
                                  // Chosen not to require quoting

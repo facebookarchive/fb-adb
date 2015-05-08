@@ -92,6 +92,7 @@ void adb_rename_file(const char* old_name,
     struct child_communication* com =
         run_adb(adb_args,
                 ARGV("shell",
+                     "</dev/null",
                      "mv",
                      old_name,
                      new_name,
