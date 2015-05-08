@@ -200,6 +200,7 @@ try_adb_stub(const struct child_start_info* csi,
     uintmax_t ver;
     sscanf(resp, FB_ADB_PROTO_START_LINE "%n", &ver, uid, &n);
     if (n != -1 && build_time <= ver) {
+        dbg("found good child version");
         reslist_xfer(rl->parent, rl);
         return child;
     }
@@ -512,6 +513,14 @@ send_cmdline(const struct childcom* tc,
     }
 }
 
+static bool
+clowny_samsung_debug_output_p(const char* line)
+{
+    return
+        string_starts_with_p(line, "Function: selinux_compare_spd_ram ,") ||
+        string_starts_with_p(line, "[DEBUG] ");
+}
+
 static void
 command_re_exec_as_root(const struct childcom* tc)
 {
@@ -528,7 +537,12 @@ command_re_exec_as_root(const struct childcom* tc)
     tc_sendmsg(tc, &rmsg);
 
     struct chat* cc = tc_chat_new(tc);
-    char* resp = chat_read_line(cc);
+    char* resp;
+
+    do {
+        resp = chat_read_line(cc);
+    } while (clowny_samsung_debug_output_p(resp));
+
     int n = -1;
     int uid;
     uintmax_t ver;
@@ -567,7 +581,12 @@ command_re_exec_as_user(
     tc_sendmsg(tc, &m->msg);
 
     struct chat* cc = tc_chat_new(tc);
-    char* resp = chat_read_line(cc);
+    char* resp;
+
+    do {
+        resp = chat_read_line(cc);
+    } while (clowny_samsung_debug_output_p(resp));
+
     int n = -1;
     int uid;
     uintmax_t ver;
