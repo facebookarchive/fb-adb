@@ -46,6 +46,7 @@ xconnect(int fd, const struct addr* addr)
     int rc;
 
     do {
+        WITH_IO_SIGNALS_ALLOWED();
         rc = connect(fd, &addr->addr, addr->size);
     } while (rc == -1 && errno == EINTR);
 
@@ -137,6 +138,7 @@ xaccept(int server_socket)
     int s;
 
     do {
+        WITH_IO_SIGNALS_ALLOWED();
 #ifdef HAVE_ACCEPT4
         s = accept4(server_socket, NULL, NULL, SOCK_CLOEXEC);
 #else

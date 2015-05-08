@@ -24,7 +24,7 @@ enum channel_names {
 };
 
 struct fb_adb_sh {
-    sigset_t* poll_mask;
+    sigset_t* poll_sigmask;
     size_t max_outgoing_msg;
     unsigned nrch;
     unsigned turn; // Round-robin fairness state

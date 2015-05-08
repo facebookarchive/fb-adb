@@ -136,10 +136,12 @@ send_stub(const void* data,
     SCOPED_RESLIST(rl);
     const char* tmpfilename;
     FILE* tmpfile = xnamed_tempfile(&tmpfilename);
+
     if (fwrite(data, datasz, 1, tmpfile) != 1)
         die_errno("fwrite");
     if (fflush(tmpfile) == -1)
         die_errno("fflush");
+
     // N.B. The device-side adb server helpfully copies the user
     // permission bits to group and world, so if we were to make this
     // file writable for us locally, we'd actually be making it
@@ -729,6 +731,15 @@ reconnect_over_tcp_socket(const struct childcom* tc,
     return ntc;
 }
 
+static void
+block_signal(int signo)
+{
+    sigset_t blocked_signals;
+    sigemptyset(&blocked_signals);
+    sigaddset(&blocked_signals, signo);
+    sigprocmask(SIG_BLOCK, &blocked_signals, NULL);
+}
+
 static int
 shex_main_common(enum shex_mode smode, int argc, const char** argv)
 {
@@ -740,8 +751,6 @@ shex_main_common(enum shex_mode smode, int argc, const char** argv)
            TTY_ENABLE,
            TTY_SUPER_ENABLE } tty_mode = TTY_AUTO;
 
-    sigset_t orig_sigmask;
-    sigset_t blocked_signals;
     const char* exename = NULL;
     bool force_send_stub = false;
     struct tty_flags tty_flags[3];
@@ -890,9 +899,12 @@ shex_main_common(enum shex_mode smode, int argc, const char** argv)
             tty_flags[i].want_pty_p = true;
         }
 
-    sigemptyset(&blocked_signals);
-    sigaddset(&blocked_signals, SIGWINCH);
-    sigprocmask(SIG_BLOCK, &blocked_signals, &orig_sigmask);
+    // Here, we want to arrange for SIGWINCH to be delivered only
+    // while we're blocked and waiting for IO.  N.B. do _not_ add
+    // SIGWINCH to signals_unblock_for_io.  We want to receive this
+    // signal only within ppoll.
+
+    block_signal(SIGWINCH);
     signal(SIGWINCH, handle_sigwinch);
 
     if (transport != transport_shell)
@@ -966,7 +978,21 @@ shex_main_common(enum shex_mode smode, int argc, const char** argv)
     memset(&shex, 0, sizeof (shex));
     struct fb_adb_sh* sh = &shex.sh;
 
-    sh->poll_mask = &orig_sigmask;
+    // Make sure that within ppoll, we atomically unblock SIGWINCH so
+    // that ppoll fails with EINTR and we don't lose any signals.
+    // N.B. changes to signals_unblock_for_io after this point will
+    // not be reflected in poll_sigmask, so don't change
+    // signals_unblock_for_io.
+
+    sigset_t poll_sigmask;
+    VERIFY(sigprocmask(SIG_BLOCK, NULL, &poll_sigmask) == 0);
+    sigdelset(&poll_sigmask, SIGWINCH);
+    for (int i = 1; i < NSIG; ++i)
+        if (sigismember(&signals_unblock_for_io, i)) {
+            sigdelset(&poll_sigmask, i);
+        }
+    sh->poll_sigmask = &poll_sigmask;
+
     sh->max_outgoing_msg = max_cmdsz;
     sh->process_msg = shex_process_msg;
     sh->nrch = 5;

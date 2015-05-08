@@ -77,7 +77,13 @@ channel_read_adb_hack(struct channel* c, size_t sz)
     while (nr_added < sz) {
         char buf[4096];
         size_t to_read = XMIN(sz - nr_added, sizeof (buf));
-        ssize_t chunksz = read(c->fdh->fd, buf, to_read);
+        ssize_t chunksz;
+
+        {
+            WITH_IO_SIGNALS_ALLOWED();
+            chunksz = read(c->fdh->fd, buf, to_read);
+        }
+
         if (chunksz < 0 && nr_added == 0)
             die_errno("read");
         if (chunksz < 1)
@@ -110,6 +116,7 @@ write_skip(int fd, const void* buf, size_t sz, size_t skip)
     assert(skip <= sz);
     buf = (const char*) buf + skip;
     sz -= skip;
+    WITH_IO_SIGNALS_ALLOWED();
     ssize_t nr_written = write(fd, buf, sz);
     if (nr_written >= 0)
         nr_written += skip;

@@ -86,7 +86,7 @@ static void
 child_cleanup(void* arg)
 {
     struct child* child = arg;
-    if (!child->dead_p) {
+    if (!child->dead) {
         if (child->pty_master == NULL) {
             int sig = child->deathsig ?: SIGTERM;
             pid_t child_pid = child->pid;
@@ -105,7 +105,7 @@ child_cleanup(void* arg)
             fdh_destroy(child->pty_master);
         }
 
-        if (!child->skip_cleanup_wait)
+        if (!child->skip_cleanup_wait && !signal_quit_in_progress)
             child_wait(child);
     }
 }
@@ -246,16 +246,71 @@ child_start(const struct child_start_info* csi)
 int
 child_wait(struct child* child)
 {
-    if (!child->dead_p) {
-        int ret;
-        do {
-            ret = waitpid(child->pid, &child->status, 0);
-        } while (ret < 0 && errno == EINTR);
+    int ret;
 
-        if (ret < 0)
+    // N.B. THE COMMENTED CODE BELOW IS WRONG.
+    //
+    // do {
+    //     WITH_IO_SIGNALS_ALLOWED();
+    //     ret = waitpid(child->pid, &child->status, 0);
+    // } while (ret < 0 && errno == EINTR);
+    //
+    // It looks correct, doesn't it?
+    //
+    // Consider what happens if we get a fatal signal, say SIGINT,
+    // immediately after a successful return from waitpid() and
+    // before we restore the signal mask that blocks SIGINT.
+    // SIGINT runs the global cleanup handlers, one of which calls
+    // kill() on our subprocess's PID.  (Normally, the assignment
+    // to child->dead below prevents our calling kill().)  When
+    // waitpid() completes successfully, the kernel frees the
+    // process table entry for the process waited on.  Between the
+    // waitpid() return and our call to kill(), another process
+    // can move into that process table slot, resulting in our
+    // subsequent kill() going to wrong process and killing an
+    // innocent program.
+    //
+    // Instead, we first block SIGCHLD (in addition to signals
+    // like SIGINT), then, _WITHOUT_ unblocking signals, call
+    // waitpid(..., WNOHANG).  If that succeeds, our child is dead
+    // and we remember its status.  If waitpid() indicates that
+    // our child is still running, we then call sigwait({SIGCHLD,
+    // SIGINT}); when the child dies, we loop around and call
+    // waitpid() again.  That waitpid() might fail if a different
+    // child died, or if we got a non-SIGCHLD signal, but
+    // eventually our child will die, waitpid() will succeed, and
+    // we'll exit the loop.
+    //
+
+    sigset_t block_during_poll;
+
+    if (!child->dead) {
+        sigemptyset(&block_during_poll);
+        for (int i = 1; i < NSIG; ++i)
+            if (!sigismember(&signals_unblock_for_io, i))
+                sigaddset(&block_during_poll, i);
+
+        sigdelset(&block_during_poll, SIGCHLD);
+    }
+
+    while (!child->dead) {
+        ret = waitpid(child->pid, &child->status, WNOHANG);
+        if (ret < 0) {
+            // waitpid will fail if child->pid isn't really our child;
+            // that means we have a bug somewhere, since it should be
+            // a zombie until we wait for it.
             die_errno("waitpid(%u)", (unsigned) child->pid);
+        }
 
-        child->dead_p = true;
+        if (ret > 0) {
+            child->dead = true;
+        } else {
+            if (pselect(0, NULL, NULL, NULL, NULL, &block_during_poll) < 0
+                && errno != EINTR)
+            {
+                die_errno("pselect");
+            }
+        }
     }
 
     return child->status;
@@ -264,7 +319,7 @@ child_wait(struct child* child)
 void
 child_kill(struct child* child, int signo)
 {
-    if (!child->dead_p && kill(child->pid, signo) == -1)
+    if (!child->dead && kill(child->pid, signo) == -1)
         die_errno("kill");
 }
 
@@ -365,7 +420,14 @@ child_communicate(
         if (!any_poll_active_p(p, ARRAYSIZE(p)))
             break;
 
-        if (ppoll(p, ARRAYSIZE(p), NULL, NULL) == -1 && errno != EINTR)
+        int rc;
+
+        {
+            WITH_IO_SIGNALS_ALLOWED();
+            rc = ppoll(p, ARRAYSIZE(p), NULL, NULL);
+        }
+
+        if (rc == -1 && errno != EINTR)
             die_errno("ppoll");
     }
 

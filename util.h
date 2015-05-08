@@ -20,6 +20,7 @@
 #include <time.h>
 #include <errno.h>
 #include <poll.h>
+#include <signal.h>
 #include "dbg.h"
 
 #ifndef ECOMM
@@ -312,3 +313,14 @@ void assert_cloexec(int fd);
 #endif
 
 int merge_O_CLOEXEC_into_fd_flags(int fd, int flags);
+
+extern sigset_t signals_unblock_for_io;
+extern int signal_quit_in_progress;
+
+void _unblock_io_unblocked_signals(sigset_t* saved);
+void _restore_io_unblocked_signals(sigset_t* saved);
+
+#define WITH_IO_SIGNALS_ALLOWED()                                       \
+    __attribute__((cleanup(_restore_io_unblocked_signals)))             \
+    sigset_t GENSYM(_saved_signals);                                    \
+    _unblock_io_unblocked_signals(&GENSYM(_saved_signals))

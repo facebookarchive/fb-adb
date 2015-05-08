@@ -106,6 +106,7 @@ read_all_adb_encoded(int fd, void* buf, size_t sz)
 
     while (nr_read < sz) {
         do {
+            WITH_IO_SIGNALS_ALLOWED();
             ret = read(fd, encbuf, XMIN(sz - nr_read, sizeof (encbuf)));
         } while (ret == -1 && errno == EINTR);
 

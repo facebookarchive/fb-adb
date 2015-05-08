@@ -119,7 +119,12 @@ ringbuf_read_in(struct ringbuf* rb, int fd, size_t sz)
     sz = XMIN(sz, SSIZE_MAX);
     assert(sz <= ringbuf_room(rb));
     struct ringbuf_io rio = ringbuf_io_region(rb, rb->nr_added, sz);
-    ssize_t ret = readv(fd, rio.v, ARRAYSIZE(rio.v));
+    ssize_t ret;
+    {
+        WITH_IO_SIGNALS_ALLOWED();
+        ret = readv(fd, rio.v, ARRAYSIZE(rio.v));
+    }
+
     if (ret < 0)
         die_errno("readv");
 
@@ -142,7 +147,13 @@ ringbuf_write_out(const struct ringbuf* rb, int fd, size_t sz)
     sz = XMIN(sz, SSIZE_MAX);
     assert(sz <= ringbuf_size(rb));
     struct ringbuf_io rio = ringbuf_io_region(rb, rb->nr_removed, sz);
-    ssize_t ret = writev(fd, rio.v, ARRAYSIZE(rio.v));
+    ssize_t ret;
+
+    {
+        WITH_IO_SIGNALS_ALLOWED();
+        ret = writev(fd, rio.v, ARRAYSIZE(rio.v));
+    }
+
     if (ret < 0)
         die_errno("writev");
 

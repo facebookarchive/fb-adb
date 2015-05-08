@@ -132,8 +132,10 @@ dbglock(void)
     if (dbglock_fd == -1)
         return;
 
-    if (dbglock_level++ == 0)
+    if (dbglock_level++ == 0) {
+        WITH_IO_SIGNALS_ALLOWED();
         flock(dbglock_fd, LOCK_EX);
+    }
 
     cleanup_commit(cleanup_allocate(), cleanup_dbglock, 0);
     errno = saved_errno;

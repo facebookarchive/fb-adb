@@ -46,11 +46,16 @@ struct errhandler {
 
 };
 
+static struct reslist reslist_top;
 static struct reslist* _reslist_current;
 static struct errhandler* current_errh;
 __attribute__((noreturn)) static void die_oom(void);
 const char* prgname;
 const char* orig_argv0;
+
+sigset_t signals_unblock_for_io;
+int signal_quit_in_progress;
+bool hack_defer_quit_signals;
 
 static bool
 reslist_empty_p(struct reslist* rl)
@@ -374,6 +379,11 @@ diev(int err, const char* fmt, va_list args)
     if (current_errh == NULL)
         abort();
 
+    {
+        // Give pending signals a chance to propagate
+        WITH_IO_SIGNALS_ALLOWED();
+    }
+
     if (current_errh->ei) {
         struct errinfo* ei = current_errh->ei;
         ei->err = err;
@@ -456,7 +466,7 @@ static void
 close_saving_errno(int fd)
 {
     int saved_errno = errno;
-    close(fd);
+    xclose(fd);
     errno = saved_errno;
 }
 
@@ -530,10 +540,75 @@ xdup(int fd)
     return newfd;
 }
 
+#ifdef HAVE_FOPENCOOKIE
+typedef ssize_t custom_stream_ssize_t;
+typedef size_t custom_stream_size_t;
+#else
+typedef int custom_stream_ssize_t;
+typedef int custom_stream_size_t;
+#endif
+
 static void
 xfopen_cleanup(void* arg)
 {
     fclose((FILE*) arg);
+}
+
+static int
+xfdopen_fd(void* cookie)
+{
+    return (int) (intptr_t) cookie;
+}
+
+static custom_stream_ssize_t
+xfdopen_read(void* cookie, char* buf, custom_stream_size_t size)
+{
+    assert(!hack_defer_quit_signals);
+    ssize_t ret;
+
+    hack_defer_quit_signals = true;
+    do {
+        WITH_IO_SIGNALS_ALLOWED();
+        ret = read(xfdopen_fd(cookie), buf, size);
+    } while (ret == -1 && errno == EINTR && !signal_quit_in_progress);
+    hack_defer_quit_signals = false;
+
+    if (ret == -1 && errno == EINTR && signal_quit_in_progress) {
+        raise(signal_quit_in_progress); // Queue signal
+        signal_quit_in_progress = 0;
+        errno = EIO; // Prevent retry
+    }
+
+    return ret;
+}
+
+static custom_stream_ssize_t
+xfdopen_write(void* cookie, const char* buf, custom_stream_size_t size)
+{
+    assert(!hack_defer_quit_signals);
+    ssize_t ret;
+
+    hack_defer_quit_signals = true;
+    do {
+        WITH_IO_SIGNALS_ALLOWED();
+        ret = write(xfdopen_fd(cookie), buf, size);
+    } while (ret == -1 && errno == EINTR && !signal_quit_in_progress);
+    hack_defer_quit_signals = false;
+
+    if (ret == -1 && errno == EINTR && signal_quit_in_progress) {
+        raise(signal_quit_in_progress); // Queue signal
+        signal_quit_in_progress = 0;
+        errno = EIO; // Prevent retry
+    }
+
+    return ret;
+}
+
+static int
+xfdopen_close(void* cookie)
+{
+    xclose(xfdopen_fd(cookie));
+    return 0;
 }
 
 FILE*
@@ -543,7 +618,28 @@ xfdopen(int fd, const char* mode)
     int newfd = fcntl(fd, F_DUPFD_CLOEXEC, fd);
     if (newfd == -1)
         die_errno("F_DUPFD_CLOEXEC");
-    FILE* f = fdopen(newfd, mode);
+
+    FILE* f = NULL;
+
+#if defined(HAVE_FOPENCOOKIE)
+    cookie_io_functions_t funcs = {
+        .read = xfdopen_read,
+        .write = xfdopen_write,
+        .seek = NULL,
+        .close = xfdopen_close,
+    };
+
+    f = fopencookie((void*) (intptr_t) newfd, mode, funcs);
+#elif defined(HAVE_FUNOPEN)
+    f = funopen((void*) (intptr_t) newfd,
+                xfdopen_read,
+                xfdopen_write,
+                NULL,
+                xfdopen_close);
+#else
+# error This platform has no custom stdio stream support
+#endif
+
     if (f == NULL) {
         close_saving_errno(newfd);
         die_errno("fdopen");
@@ -578,25 +674,86 @@ struct main_info {
     int ret;
 };
 
+static void
+quit_signal_sigaction(int signum, siginfo_t* info, void* context)
+{
+    signal_quit_in_progress = signum;
+    if (hack_defer_quit_signals)
+        return; // Caller promises to enqueue signal
+
+    empty_reslist(&reslist_top);
+    sigset_t our_signal;
+    VERIFY(sigemptyset(&our_signal) == 0);
+    VERIFY(sigaddset(&our_signal, signum) == 0);
+    VERIFY(sigprocmask(SIG_UNBLOCK, &our_signal, NULL) == 0);
+    // SA_RESETHAND ensures that we run the default handler here
+    raise(signum);
+    abort();
+}
+
+static void
+handle_sigchld(int signo)
+{
+    // Noop: we just need any handler
+}
+
 void
 main1(void* arg)
 {
     struct main_info* mi = arg;
+
+    // Give us a chance to do any critical cleanups before terminating
+    // due to a fatal signal.  The handlers run only in
+    // WITH_IO_SIGNALS_ALLOWED regions.  These regions can contain
+    // only pure system calls (because we say so) and do not have any
+    // locks held (because we say so), so handlers run in these
+    // regions have full access to the heap, the cleanup list, and
+    // other process-wide facilities.
+
+    static const int quit_signals[] = {
+        SIGHUP, SIGINT, SIGQUIT, SIGTERM
+    };
+
+    sigset_t to_block_mask;
+    sigemptyset(&to_block_mask);;
+    for (int i = 0; i < ARRAYSIZE(quit_signals); ++i)
+        sigaddset(&to_block_mask, quit_signals[i]);
+
+    // See comment in child.c.
+    VERIFY(signal(SIGCHLD, handle_sigchld) != SIG_ERR);
+    sigaddset(&to_block_mask, SIGCHLD);
+
+    VERIFY(sigprocmask(SIG_BLOCK, &to_block_mask, NULL) == 0);
+
+    sigset_t all_signals_mask;
+    VERIFY(sigfillset(&all_signals_mask) == 0);
+
+    for (int i = 0; i < ARRAYSIZE(quit_signals); ++i) {
+        struct sigaction sa;
+        memset(&sa, 0, sizeof (sa));
+        sa.sa_sigaction = quit_signal_sigaction;
+        sa.sa_mask = all_signals_mask;
+        sa.sa_flags = SA_RESETHAND | SA_SIGINFO;
+        VERIFY(sigaction(quit_signals[i], &sa, NULL) == 0);
+        sigaddset(&signals_unblock_for_io, quit_signals[i]);
+    }
+
     mi->ret = real_main(mi->argc, mi->argv);
 }
 
 int
 main(int argc, char** argv)
 {
-    signal(SIGPIPE, SIG_IGN);
+    VERIFY(signal(SIGPIPE, SIG_IGN) != SIG_ERR);
+
+    sigemptyset(&signals_unblock_for_io);
 
     struct main_info mi;
     mi.argc = argc;
     mi.argv = argv;
 
-    struct reslist rl_top;
-    reslist_init(&rl_top, NULL, RES_RESLIST_ONSTACK);
-    _reslist_current = &rl_top;
+    reslist_init(&reslist_top, NULL, RES_RESLIST_ONSTACK);
+    _reslist_current = &reslist_top;
 
     prgname = argv[0];
     dbg_init();
@@ -610,7 +767,7 @@ main(int argc, char** argv)
         fprintf(stderr, "%s: %s\n", ei.prgname, ei.msg);
     }
 
-    empty_reslist(&rl_top);
+    empty_reslist(&reslist_top);
     return mi.ret;
 }
 
@@ -734,6 +891,7 @@ read_all(int fd, void* buf, size_t sz)
 
     while (nr_read < sz) {
         do {
+            WITH_IO_SIGNALS_ALLOWED();
             ret = read(fd, &pos[nr_read], sz - nr_read);
         } while (ret == -1 && errno == EINTR);
 
@@ -758,6 +916,7 @@ write_all(int fd, const void* buf, size_t sz)
 
     while (nr_written < sz) {
         do {
+            WITH_IO_SIGNALS_ALLOWED();
             ret = write(fd, &pos[nr_written], sz - nr_written);
         } while (ret == -1 && errno == EINTR);
 
@@ -851,7 +1010,7 @@ ppoll_emulation(struct pollfd *fds, nfds_t nfds,
     out:
 
     if (sfd != -1)
-        close(sfd);
+        xclose(sfd);
 
     return ret;
 }
@@ -996,7 +1155,7 @@ ppoll(struct pollfd *fds, nfds_t nfds,
         if (ret == -1)
             saved_errno = errno;
 
-        close(kq);
+        xclose(kq);
 
         if (ret == -1)
             errno = saved_errno;
@@ -1007,11 +1166,7 @@ ppoll(struct pollfd *fds, nfds_t nfds,
 #endif
 
 #if !defined(HAVE_PPOLL) && defined(HAVE_PSELECT)
-int
-ppoll(struct pollfd *fds, nfds_t nfds,
-      const struct timespec *timeout_ts, const sigset_t *sigmask)
-{
-}
+# error Y U no safe poll
 #endif
 
 #ifndef HAVE_DUP3
@@ -1059,16 +1214,13 @@ mkostemp(char *template, int flags)
 void
 replace_with_dev_null(int fd)
 {
+    SCOPED_RESLIST(rl);
     int fd_flags = fcntl(fd, F_GETFD);
     if (fd_flags < 0)
         die_errno("F_GETFD");
-    int nfd = open("/dev/null", O_RDWR | O_CLOEXEC);
-    if (nfd == -1)
-        die_errno("open(\"/dev/null\")");
+    int nfd = xopen("/dev/null", O_RDWR | O_CLOEXEC, 0);
     if (dup3(nfd, fd, fd_flags & O_CLOEXEC) < 0)
         die_errno("dup3");
-
-    close(nfd);
 }
 
 struct xnamed_tempfile_save {
@@ -1086,7 +1238,7 @@ xnamed_tempfile_cleanup(void* arg)
         xclose(save->fd);
 
     if (save->stream)
-        fclose(save->stream);
+        (void) fclose(save->stream);
 
     if (save->name)
         (void) unlink(save->name);
@@ -1172,7 +1324,6 @@ first_non_null(void* s, ...)
 
     va_end(args);
     return ret;
-
 }
 
 bool
@@ -1200,4 +1351,18 @@ str2gaiargs(const char* inp, char** node, char** service)
 
     *node = xstrndup(inp, sep - inp);
     *service = xstrdup(sep + 1);
+}
+
+void
+_unblock_io_unblocked_signals(sigset_t* saved)
+{
+    if (!signal_quit_in_progress)
+        VERIFY(!sigprocmask(SIG_UNBLOCK, &signals_unblock_for_io, saved));
+}
+
+void
+_restore_io_unblocked_signals(sigset_t* saved)
+{
+    if (!signal_quit_in_progress)
+        VERIFY(!sigprocmask(SIG_SETMASK, saved, NULL));
 }
