@@ -10,4 +10,5 @@ Makefile
 Makefile.in
 termnames.h
 build/
+build.*/
 aclocal.m4
