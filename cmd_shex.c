@@ -199,7 +199,7 @@ try_adb_stub(const struct child_start_info* csi,
     int n = -1;
     uintmax_t ver;
     sscanf(resp, FB_ADB_PROTO_START_LINE "%n", &ver, uid, &n);
-    if (n != -1 && build_time <= ver) {
+    if (n != -1 && build_time == ver) {
         dbg("found good child version");
         reslist_xfer(rl->parent, rl);
         return child;
