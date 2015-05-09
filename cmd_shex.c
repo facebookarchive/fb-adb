@@ -20,6 +20,7 @@
 #include <ctype.h>
 #include <sys/ioctl.h>
 #include <termios.h>
+#include <sys/socket.h>
 #include "util.h"
 #include "child.h"
 #include "ringbuf.h"
@@ -626,13 +627,12 @@ send_chdir(const struct childcom* tc,
 }
 
 static void
-send_rebind_to_socket_message(const struct childcom* tc,
-                              enum msg_type type,
-                              const char* device_socket)
+send_rebind_to_unix_socket_message(const struct childcom* tc,
+                                   const char* device_socket)
 {
     size_t device_socket_length = strlen(device_socket);
     size_t msgsz;
-    struct msg_rebind_to_socket rm;
+    struct msg_rebind_to_unix_socket rm;
 
     if (SATADD(&msgsz, sizeof (rm), device_socket_length) ||
         msgsz > MSG_MAX_SIZE)
@@ -641,7 +641,7 @@ send_rebind_to_socket_message(const struct childcom* tc,
     }
 
     memset(&rm, 0, sizeof (rm));
-    rm.msg.type = type;
+    rm.msg.type = MSG_REBIND_TO_UNIX_SOCKET;
     rm.msg.size = msgsz;
     tc_write(tc, &rm.msg, sizeof (rm));
     tc_write(tc, device_socket, device_socket_length);
@@ -664,8 +664,7 @@ reconnect_over_unix_socket(
                  DEVICE_TEMP_DIR,
                  gen_hex_random(10));
 
-    send_rebind_to_socket_message(
-        tc, MSG_REBIND_TO_UNIX_SOCKET, device_socket);
+    send_rebind_to_unix_socket_message(tc, device_socket);
 
     struct msg* reply = tc_recvmsg(tc);
     if (reply->type != MSG_LISTENING_ON_SOCKET)
@@ -721,6 +720,9 @@ reconnect_over_tcp_socket(const struct childcom* tc,
     str2gaiargs(tcp_addr, &node, &service);
 
     struct addrinfo* ai = xgetaddrinfo(node, service, &hints);
+    while (ai && ai->ai_family != AF_INET && ai->ai_family != AF_INET6)
+        ai = ai->ai_next;
+
     if (!ai)
         die(ENOENT, "xgetaddrinfo returned no addresses");
 
@@ -735,11 +737,30 @@ reconnect_over_tcp_socket(const struct childcom* tc,
     xbind(sock, addrinfo2addr(ai));
     xlisten(sock, 1);
 
-    // Tell peer to connect to our socket
-    send_rebind_to_socket_message(
-        tc,
-        MSG_REBIND_TO_TCP_SOCKET,
-        tcp_addr);
+    if (ai->ai_family == AF_INET) {
+        struct msg_rebind_to_tcp4_socket m;
+        struct sockaddr_in* a = (struct sockaddr_in*) ai->ai_addr;
+        assert(ai->ai_addrlen == sizeof (*a));
+        memset(&m, 0, sizeof (m));
+        m.msg.type = MSG_REBIND_TO_TCP4_SOCKET;
+        m.msg.size = sizeof (m);
+        m.port = a->sin_port;
+        m.addr = a->sin_addr.s_addr;
+        tc_sendmsg(tc, &m.msg);
+    } else if (ai->ai_family == AF_INET6) {
+        struct msg_rebind_to_tcp6_socket m;
+        struct sockaddr_in6* a = (struct sockaddr_in6*) ai->ai_addr;
+        assert(ai->ai_addrlen == sizeof (*a));
+        memset(&m, 0, sizeof (m));
+        m.msg.type = MSG_REBIND_TO_TCP6_SOCKET;
+        m.msg.size = sizeof (m);
+        m.port = a->sin6_port;
+        memcpy(&m.addr, a->sin6_addr.s6_addr, 16);
+        tc_sendmsg(tc, &m.msg);
+    } else {
+        assert(!"invalid family");
+        __builtin_unreachable();
+    }
 
     // XXX: fail here if child dies while we wait for connection
     int conn = xaccept(sock);

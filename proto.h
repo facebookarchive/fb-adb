@@ -31,7 +31,8 @@ enum msg_type {
     MSG_EXEC_AS_USER,
     MSG_CHDIR,
     MSG_REBIND_TO_UNIX_SOCKET,
-    MSG_REBIND_TO_TCP_SOCKET,
+    MSG_REBIND_TO_TCP4_SOCKET,
+    MSG_REBIND_TO_TCP6_SOCKET,
     MSG_LISTENING_ON_SOCKET,
 };
 
@@ -137,9 +138,21 @@ struct msg_chdir {
     char dir[0];
 };
 
-struct msg_rebind_to_socket {
+struct msg_rebind_to_unix_socket {
     struct msg msg;
     char socket[0];
+};
+
+struct msg_rebind_to_tcp4_socket {
+    struct msg msg;
+    uint16_t port;
+    uint32_t addr; // Like in_addr
+};
+
+struct msg_rebind_to_tcp6_socket {
+    struct msg msg;
+    uint16_t port;
+    uint8_t addr[16]; // Like in6_addr
 };
 
 #pragma pack(pop)

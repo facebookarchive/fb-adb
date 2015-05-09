@@ -363,52 +363,93 @@ send_socket_available_now_message()
     write_all(1, &m, sizeof (m));
 }
 
+static int
+connect_peer_unix_socket(struct msg* mhdr)
+{
+    struct msg_rebind_to_unix_socket* rbmsg =
+        (struct msg_rebind_to_unix_socket*) mhdr;
+
+    if (rbmsg->msg.size < sizeof (*rbmsg))
+        die(ECOMM, "invalid MSG_REBIND_TO_UNIX_SOCKET length");
+
+    size_t socket_name_length = rbmsg->msg.size - sizeof (*rbmsg);
+    char* socket_name = strndup(rbmsg->socket, socket_name_length);
+    int listening_socket = xsocket(AF_UNIX, SOCK_STREAM, 0);
+
+    struct unlink_cleanup* ucl = unlink_cleanup_allocate(socket_name);
+    xbind(listening_socket, make_addr_unix_filesystem(socket_name));
+    unlink_cleanup_commit(ucl);
+
+    if (listen(listening_socket, 1) == -1)
+        die_errno("listen");
+
+    send_socket_available_now_message();
+    return xaccept(listening_socket);
+}
+
+static int
+connect_peer_tcp4_socket(struct msg* mhdr)
+{
+    struct msg_rebind_to_tcp4_socket* rbmsg =
+        (struct msg_rebind_to_tcp4_socket*) mhdr;
+
+    if (rbmsg->msg.size < sizeof (*rbmsg))
+        die(ECOMM, "invalid MSG_REBIND_TO_TCP4_SOCKET length");
+
+    int client = xsocket(AF_INET, SOCK_STREAM, 0);
+    disable_tcp_nagle(client);
+
+    struct addr addr;
+    memset(&addr, 0, sizeof (addr));
+    addr.size = sizeof (addr.addr_in);
+    addr.addr_in.sin_family = AF_INET;
+    addr.addr_in.sin_port = rbmsg->port;
+    addr.addr_in.sin_addr.s_addr = rbmsg->addr;
+    xconnect(client, &addr);
+    return client;
+}
+
+static int
+connect_peer_tcp6_socket(struct msg* mhdr)
+{
+    struct msg_rebind_to_tcp6_socket* rbmsg =
+        (struct msg_rebind_to_tcp6_socket*) mhdr;
+
+    if (rbmsg->msg.size < sizeof (*rbmsg))
+        die(ECOMM, "invalid MSG_REBIND_TO_TCP6_SOCKET length");
+
+    int client = xsocket(AF_INET, SOCK_STREAM, 0);
+    disable_tcp_nagle(client);
+
+    struct addr addr;
+    memset(&addr, 0, sizeof (addr));
+    addr.size = sizeof (addr.addr_in6);
+    addr.addr_in6.sin6_family = AF_INET6;
+    addr.addr_in6.sin6_port = rbmsg->port;
+    memcpy(addr.addr_in6.sin6_addr.s6_addr, rbmsg->addr, 16);
+    xconnect(client, &addr);
+    return client;
+}
+
 static void
 rebind_to_socket(struct msg* mhdr)
 {
     SCOPED_RESLIST(rl_rebind);
-
-    struct msg_rebind_to_socket* rbmsg =
-        (struct msg_rebind_to_socket*) mhdr;
-
-    if (rbmsg->msg.size < sizeof (*rbmsg))
-        die(ECOMM, "invalid MSG_REBIND_TO_SOCKET length");
-
-    size_t socket_name_length = rbmsg->msg.size - sizeof (*rbmsg);
-    char* socket_name = strndup(rbmsg->socket, socket_name_length);
     int client;
 
-    if (mhdr->type == MSG_REBIND_TO_UNIX_SOCKET) {
-        int listening_socket = xsocket(AF_UNIX, SOCK_STREAM, 0);
-
-        struct unlink_cleanup* ucl = unlink_cleanup_allocate(socket_name);
-        xbind(listening_socket, make_addr_unix_filesystem(socket_name));
-        unlink_cleanup_commit(ucl);
-
-        if (listen(listening_socket, 1) == -1)
-            die_errno("listen");
-
-        send_socket_available_now_message();
-        client = xaccept(listening_socket);
-    } else if (mhdr->type == MSG_REBIND_TO_TCP_SOCKET) {
-        static const struct addrinfo hints = {
-            .ai_family = AF_INET,
-            .ai_socktype = SOCK_STREAM,
-        };
-
-        char* node;
-        char* service;
-        str2gaiargs(socket_name, &node, &service);
-        struct addrinfo* ai = xgetaddrinfo(node, service, &hints);
-        if (!ai)
-            die(ENOENT, "xgetaddrinfo returned no addresses");
-
-        client = xsocket(ai->ai_family, ai->ai_socktype, ai->ai_protocol);
-        disable_tcp_nagle(client);
-        xconnect(client, addrinfo2addr(ai));
-    } else {
-        assert(!"missing socket type");
-        __builtin_unreachable();
+    switch (mhdr->type) {
+        case MSG_REBIND_TO_UNIX_SOCKET:
+            client = connect_peer_unix_socket(mhdr);
+            break;
+        case MSG_REBIND_TO_TCP4_SOCKET:
+            client = connect_peer_tcp4_socket(mhdr);
+            break;
+        case MSG_REBIND_TO_TCP6_SOCKET:
+            client = connect_peer_tcp6_socket(mhdr);
+            break;
+        default:
+            assert(!"missed socket message enumeration");
+            __builtin_unreachable();
     }
 
     if (dup2(client, 0) == -1 || dup2(client, 1) == -1)
@@ -444,7 +485,8 @@ stub_main(int argc, const char** argv)
     struct msg* mhdr = read_msg(0, rdr);
 
     if (mhdr->type == MSG_REBIND_TO_UNIX_SOCKET ||
-        mhdr->type == MSG_REBIND_TO_TCP_SOCKET)
+        mhdr->type == MSG_REBIND_TO_TCP4_SOCKET ||
+        mhdr->type == MSG_REBIND_TO_TCP6_SOCKET)
     {
         rebind_to_socket(mhdr);
         rdr = read_all; // Yay! No more tty deobfuscation!

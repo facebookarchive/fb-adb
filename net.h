@@ -13,6 +13,7 @@
 #include <sys/types.h>
 #include <sys/un.h>
 #include <netdb.h>
+#include <netinet/ip.h>
 
 struct sockaddr_un;
 enum addr_kind {
@@ -27,6 +28,8 @@ struct addr {
     union {
         struct sockaddr addr;
         struct sockaddr_un addr_un;
+        struct sockaddr_in addr_in;
+        struct sockaddr_in6 addr_in6;
     };
 };
 
