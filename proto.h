@@ -43,19 +43,19 @@ struct msg {
 
 struct msg_channel_data {
     struct msg msg;
-    uint32_t channel;
+    uint8_t channel;
     char data[0];
 };
 
 struct msg_channel_window {
     struct msg msg;
-    uint32_t channel;
     uint32_t window_delta;
+    uint8_t channel;
 };
 
 struct msg_channel_close {
     struct msg msg;
-    uint32_t channel;
+    uint8_t channel;
 };
 
 struct msg_error {
