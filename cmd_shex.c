@@ -804,7 +804,7 @@ shex_main_common(enum shex_mode smode, int argc, const char** argv)
         { "socket", no_argument, NULL, 'U' },
         { "user", required_argument, NULL, 'u' },
         { "chdir", required_argument, NULL, 'C' },
-        { "transport", required_argument, NULL, 'X', },
+        { "transport", required_argument, NULL, 'X' },
         { 0 }
     };
 
