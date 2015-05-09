@@ -48,6 +48,8 @@ libfb_adb_a_SOURCES = \
 	xmkraw.h \
 	net.c \
 	net.h \
+	lz4.c \
+	lz4.h \
 	$(EMPTY)
 
 fb_adb_SOURCES =
