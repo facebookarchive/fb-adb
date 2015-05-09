@@ -3,8 +3,11 @@
 #include <netinet/tcp.h>
 #include <string.h>
 #include <stdlib.h>
+#include <limits.h>
+#include <sys/wait.h>
 #include "util.h"
 #include "net.h"
+#include "child.h"
 
 #ifndef SOCK_CLOEXEC
 #define SOCK_CLOEXEC O_CLOEXEC
@@ -187,4 +190,165 @@ disable_tcp_nagle(int fd)
 {
     int on = 1;
     xsetsockopt(fd, IPPROTO_TCP, TCP_NODELAY, &on, sizeof(on));
+}
+
+struct write_all_or_die {
+    int fd;
+    const void* buf;
+    size_t sz;
+};
+
+static void
+write_all_or_die_1(void* data)
+{
+    struct write_all_or_die* waod = data;
+    write_all(waod->fd, waod->buf, waod->sz);
+}
+
+static void
+write_all_or_die(int fd, const void* buf, size_t sz)
+{
+    struct write_all_or_die waod = {
+        .fd = fd,
+        .buf = buf,
+        .sz = sz,
+    };
+
+    if (catch_error(write_all_or_die_1, &waod, NULL))
+        abort();
+}
+
+struct xgai {
+    const char* node;
+    const char* service;
+    const struct addrinfo* hints;
+};
+
+static void
+write_blob(int fd, const void* data, size_t sz)
+{
+    write_all(fd, &sz, sizeof (sz));
+    write_all(fd, data, sz);
+}
+
+static void
+xgai_preexec_1(void* data)
+{
+    struct xgai* xa = data;
+    int fd = STDOUT_FILENO;
+    for (struct addrinfo* ai =
+             xgetaddrinfo(xa->node, xa->service, xa->hints);
+         ai;
+         ai = ai->ai_next)
+    {
+        write_blob(fd, ai, sizeof (*ai));
+        write_blob(fd, ai->ai_addr, ai->ai_addrlen);
+        if (ai->ai_canonname)
+            write_blob(fd, ai->ai_canonname, strlen(ai->ai_canonname)+1);
+    }
+}
+
+static void
+xgai_preexec(void* data)
+{
+    sigset_t no_signals;
+    sigemptyset(&no_signals);
+    memcpy(&signals_unblock_for_io, &no_signals, sizeof (sigset_t));
+
+    struct errinfo ei = { .want_msg = true };
+    if (catch_error(xgai_preexec_1, data, &ei)) {
+        write_all_or_die(2, ei.msg, strlen(ei.msg));
+        _exit(1);
+    }
+
+    _exit(0);
+}
+
+static void*
+decode_blob(uint8_t** data_inout, size_t* sz_out, uint8_t* data_end)
+{
+    uint8_t* data = *data_inout;
+    size_t sz;
+    if (data_end - data < sizeof (sz))
+        die(ECOMM, "truncated data");
+
+    memcpy(&sz, data, sizeof (sz));
+    data += sizeof (sz);
+
+    if (data_end - data < sz)
+        die(ECOMM, "truncated data");
+
+    void* blob = data;
+    data += sz;
+
+    *data_inout = data;
+    *sz_out = sz;
+    return blob;
+}
+
+struct addrinfo*
+xgetaddrinfo_interruptible(
+    const char* node,
+    const char* service,
+    const struct addrinfo* hints)
+{
+    struct xgai xa = {
+        .node = node,
+        .service = service,
+        .hints = hints,
+    };
+
+    struct child_start_info csi = {
+        .flags = ( CHILD_NULL_STDIN ),
+        .pre_exec = xgai_preexec,
+        .pre_exec_data = &xa,
+    };
+
+    struct child_communication* com =
+        child_communicate(child_start(&csi), NULL, 0);
+
+    bool success = WIFEXITED(com->status) && WEXITSTATUS(com->status) == 0;
+    if (!success) {
+        if (WIFEXITED(com->status)) {
+            die(ENOENT,
+                "%.*s",
+                (int) XMIN(com->out[1].nr, INT_MAX),
+                com->out[1].bytes);
+        } else if (WIFSIGNALED(com->status)) {
+            die(ENOENT,
+                "getaddrinfo failed with signal %d",
+                WTERMSIG(com->status));
+        } else {
+            die(ENOENT, "unknown status from resolver process");
+        }
+    }
+
+    // Subprocesses supposedly succeeded.  Read from the serialized
+    // GAI information.
+
+    uint8_t* data = com->out[0].bytes;
+    uint8_t* data_end = data + com->out[0].nr;
+    struct addrinfo* ai_list = NULL;
+    struct addrinfo** next = &ai_list;
+
+    while (data < data_end) {
+        struct addrinfo* ai;
+        size_t sz;
+
+        ai = decode_blob(&data, &sz, data_end);
+        if (sz != sizeof (*ai))
+            die(ECOMM, "gai protocol error");
+
+        ai->ai_addr = decode_blob(&data, &sz, data_end);
+        if (sz != ai->ai_addrlen)
+            die(ECOMM, "gai protocol error");
+
+        if (ai->ai_canonname)
+            ai->ai_canonname = decode_blob(&data, &sz, data_end);
+
+        *next = ai;
+        next = &ai->ai_next;
+    }
+
+    return ai_list;
 }

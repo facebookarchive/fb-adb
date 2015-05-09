@@ -274,7 +274,12 @@ enum blocking_mode { blocking, non_blocking };
 enum blocking_mode fd_set_blocking_mode(int fd, enum blocking_mode mode);
 
 void hack_reopen_tty(int fd);
+
+// Read SZ bytes from FD into BUF, retrying on EINTR.
+// May return short read on EOF.
 size_t read_all(int fd, void* buf, size_t sz);
+
+// Write SZ bytes to FD, retrying on EINTR.
 void write_all(int fd, const void* buf, size_t sz);
 
 #ifndef HAVE_DUP3

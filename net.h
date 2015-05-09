@@ -38,9 +38,17 @@ struct addr* make_addr_unix_filesystem(const char* pathname);
 struct addr* make_addr_unix_abstract(const void* bytes, size_t nr);
 #endif
 
+// N.B. IO signals not unmasked during this call.
+// Use xgetaddrinfo_interruptible to make a getaddrinfo call that we
+// can reliably interrupt.
 struct addrinfo* xgetaddrinfo(const char* node,
                               const char* service,
                               const struct addrinfo* hints);
+
+struct addrinfo* xgetaddrinfo_interruptible(
+    const char* node,
+    const char* service,
+    const struct addrinfo* hints);
 
 struct addr* addrinfo2addr(const struct addrinfo* ai);
 

@@ -63,6 +63,9 @@ child_child_1(void* arg)
     VERIFY(sigemptyset(&no_signals) == 0);
     VERIFY(sigprocmask(SIG_SETMASK, &no_signals, NULL) == 0);
 
+    if (ci->csi->pre_exec)
+        ci->csi->pre_exec(ci->csi->pre_exec_data);
+
     execvp(ci->csi->exename, (char**) ci->csi->argv);
     die_errno("execvp(\"%s\")", ci->csi->exename);
 }

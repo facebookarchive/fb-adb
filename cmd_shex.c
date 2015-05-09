@@ -719,7 +719,9 @@ reconnect_over_tcp_socket(const struct childcom* tc,
     char* service;
     str2gaiargs(tcp_addr, &node, &service);
 
-    struct addrinfo* ai = xgetaddrinfo(node, service, &hints);
+    struct addrinfo* ai =
+        xgetaddrinfo_interruptible(node, service, &hints);
+
     while (ai && ai->ai_family != AF_INET && ai->ai_family != AF_INET6)
         ai = ai->ai_next;
 
