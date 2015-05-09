@@ -148,7 +148,8 @@ iovec_dbg(const struct iovec* iov, unsigned nio)
         char* b = (char*)iov[i].iov_base;
         size_t blen = iov[i].iov_len;
         for (unsigned j = 0; j < blen; ++j) {
-            dbg("  iov[%u][%u] c 0x%02x %c", i, j, b[j], isprint(b[j]) ? b[j] : '.');
+            dbg("  iov[%u][%u] c 0x%02x %c",
+                i, j, b[j], isprint(b[j]) ? b[j] : '.');
         }
     }
 
@@ -168,8 +169,16 @@ dbgmsg(struct msg* msg, const char* tag)
     switch (msg->type) {
         case MSG_CHANNEL_DATA: {
             struct msg_channel_data* m = (void*) msg;
-            dbg("%s MSG_CHANNEL_DATA ch=%s sz=%u, payloadsz=%zu",
+            dbg("%s MSG_CHANNEL_DATA ch=%s sz=%u payloadsz=%zu",
                 tag, chname(m->channel), m->msg.size, m->msg.size - sizeof (*m));
+            break;
+        }
+        case MSG_CHANNEL_DATA_LZ4: {
+            struct msg_channel_data_lz4* m = (void*) msg;
+            dbg(("%s MSG_CHANNEL_DATA_LZ4 ch=%s sz=%u "
+                 "payloadsz=%zu uncomp=%u"),
+                tag, chname(m->channel), m->msg.size, m->msg.size - sizeof (*m),
+                (unsigned) m->uncompressed_size);
             break;
         }
         case MSG_CHANNEL_WINDOW: {

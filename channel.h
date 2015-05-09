@@ -33,6 +33,7 @@ struct channel {
     unsigned track_window : 1;
     unsigned adb_encoding_hack : 1;
     unsigned leftover_escape : 2;
+    unsigned compress : 1;
 };
 
 struct channel* channel_new(struct fdh* fdh,

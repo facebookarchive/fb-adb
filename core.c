@@ -14,9 +14,12 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/uio.h>
+#include <limits.h>
 #include "core.h"
 #include "ringbuf.h"
 #include "channel.h"
+#include "constants.h"
+#include "lz4.h"
 
 // If non-zero, transfer as much data as possible between ringbuffers.
 // If zero, run the event loop (and do IO) between iterations.
@@ -98,6 +101,63 @@ fb_adb_sh_process_msg_channel_data(struct fb_adb_sh* sh,
 }
 
 static void
+fb_adb_sh_process_msg_channel_data_lz4(struct fb_adb_sh* sh,
+                                       struct msg_channel_data_lz4* m)
+{
+    unsigned nrch = sh->nrch;
+    struct channel* cmdch = sh->ch[FROM_PEER];
+
+    if (m->channel <= NR_SPECIAL_CH || m->channel > nrch)
+        die_proto_error("data: invalid channel %d", m->channel);
+
+    struct channel* c = sh->ch[m->channel];
+    if (c->dir == CHANNEL_FROM_FD)
+        die_proto_error("wrong channel direction ch=%u", m->channel);
+
+    size_t compressed_size = m->msg.size - sizeof (*m);
+
+    if (c->fdh == NULL) {
+        /* Channel already closed.  Just drop the write. */
+        ringbuf_note_removed(cmdch->rb, compressed_size);
+        return;
+    }
+
+    size_t uncompressed_size = m->uncompressed_size;
+
+    /* If we received more data than will fit in the receive
+     * buffer, peer didn't respect window requirements.  */
+    if (ringbuf_room(c->rb) < uncompressed_size)
+        die_proto_error("window desync");
+
+    struct iovec iov[2];
+    ringbuf_readable_iov(cmdch->rb, iov, compressed_size);
+
+    void* src_buffer;
+    if (iov[0].iov_len >= compressed_size) {
+        src_buffer = iov[0].iov_base;
+    } else {
+        src_buffer = alloca(compressed_size);
+        ringbuf_copy_out(cmdch->rb, src_buffer, compressed_size);
+    }
+
+    void* dst_buffer = alloca(uncompressed_size);
+    int ret = LZ4_decompress_safe(src_buffer,
+                                  dst_buffer,
+                                  compressed_size,
+                                  uncompressed_size);
+
+    if (ret == 0)
+        die_proto_error("invalid compressed data");
+
+    assert(ret == uncompressed_size);
+
+    iov[0].iov_base = dst_buffer;
+    iov[0].iov_len = uncompressed_size;
+    channel_write(c, iov, 1);
+    ringbuf_note_removed(cmdch->rb, compressed_size);
+}
+
+static void
 fb_adb_sh_process_msg_channel_window(struct fb_adb_sh* sh,
                                      struct msg_channel_window* m)
 {
@@ -158,6 +218,15 @@ fb_adb_sh_process_msg(struct fb_adb_sh* sh, struct msg mhdr)
         ringbuf_note_removed(cmdch->rb, sizeof (m));
         dbgmsg(&m.msg, "recv");
         fb_adb_sh_process_msg_channel_data(sh, &m);
+    } else if (mhdr.type == MSG_CHANNEL_DATA_LZ4) {
+        struct msg_channel_data_lz4 m;
+        if (mhdr.size < sizeof (m))
+            die_proto_error("wrong msg size %u", mhdr.size);
+
+        ringbuf_copy_out(cmdch->rb, &m, sizeof (m));
+        ringbuf_note_removed(cmdch->rb, sizeof (m));
+        dbgmsg(&m.msg, "recv");
+        fb_adb_sh_process_msg_channel_data_lz4(sh, &m);
     } else if (mhdr.type == MSG_CHANNEL_WINDOW) {
         struct msg_channel_window m;
         read_cmdmsg(sh, mhdr, &m, sizeof (m));
@@ -201,6 +270,109 @@ xmit_acks(struct channel* c, unsigned chno, struct fb_adb_sh* sh)
 }
 
 static unsigned
+xmit_data_uncompressed(struct channel* c,
+                       unsigned chno,
+                       struct channel* dst,
+                       size_t avail,
+                       size_t maxoutmsg)
+{
+    struct msg_channel_data m;
+    if (maxoutmsg < sizeof (m))
+        return 0;
+
+    size_t payloadsz = XMIN(avail, maxoutmsg - sizeof (m));
+    struct iovec iov[3] = {{ &m, sizeof (m) }};
+    ringbuf_readable_iov(c->rb, &iov[1], payloadsz);
+    memset(&m, 0, sizeof (m));
+    m.msg.type = MSG_CHANNEL_DATA;
+    m.msg.size = iovec_sum(iov, ARRAYSIZE(iov));
+    m.channel = chno;
+    assert(chno != 0);
+    dbgmsg(&m.msg, "send");
+    channel_write(dst, iov, ARRAYSIZE(iov));
+    ringbuf_note_removed(c->rb, payloadsz);
+    return 1;
+}
+
+static unsigned
+xmit_data_lz4(struct channel* c,
+              unsigned chno,
+              struct channel* dst,
+              size_t avail,
+              size_t maxoutmsg)
+{
+    struct msg_channel_data_lz4 m;
+    if (maxoutmsg < sizeof (m))
+        return 0;
+
+    int src_size = (int) XMIN(avail, (size_t) INT_MAX);
+    src_size = XMIN(src_size, MAX_COMPRESSION_BLOCK);
+    src_size = XMIN(src_size, UINT16_MAX);
+
+    assert(maxoutmsg <= INT_MAX + sizeof (m));
+    int dst_size = maxoutmsg - sizeof (m);
+    dst_size = XMIN(dst_size, LZ4_compressBound(src_size));
+
+    struct iovec iov[2];
+
+    void* src_buffer;
+    ringbuf_readable_iov(c->rb, &iov[0], src_size);
+    if (src_size <= iov[0].iov_len) {
+        src_buffer = iov[0].iov_base;
+    } else {
+        src_buffer = alloca(src_size);
+        memcpy(src_buffer, iov[0].iov_base, iov[0].iov_len);
+        memcpy((uint8_t*) src_buffer + iov[0].iov_len,
+               iov[1].iov_base,
+               iov[1].iov_len);
+    }
+
+    void* dst_buffer = alloca(dst_size);
+    int consumed_size = src_size;
+    int out_size = LZ4_compress_destSize(
+        src_buffer,
+        dst_buffer,
+        &consumed_size,
+        dst_size);
+
+    if (out_size == 0) {
+        dbg("compression failed");
+        return xmit_data_uncompressed(c, chno, dst, avail, maxoutmsg);
+    }
+
+    assert(0 <= consumed_size && consumed_size <= src_size);
+    assert(0 < out_size && out_size <= dst_size);
+
+    // If the compressed version isn't better than the uncompressed
+    // version, send the uncompressed version.
+    size_t equiv_uncompressed =
+        consumed_size + sizeof (struct msg_channel_data);
+
+    if (out_size + sizeof (m) >= equiv_uncompressed) {
+        return xmit_data_uncompressed(
+            c, chno, dst, consumed_size, maxoutmsg);
+    }
+
+    memset(&m, 0, sizeof (m));
+    m.msg.type = MSG_CHANNEL_DATA_LZ4;
+    m.msg.size = out_size + sizeof (m);
+    m.uncompressed_size = (unsigned) consumed_size;
+    m.channel = chno;
+
+    memset(&iov, 0, sizeof (iov));
+    iov[0].iov_base = &m;
+    iov[0].iov_len = sizeof (m);
+    iov[1].iov_base = dst_buffer;
+    iov[1].iov_len = out_size;
+
+    dbgmsg(&m.msg, "send-compressed");
+    channel_write(dst, iov, ARRAYSIZE(iov));
+    ringbuf_note_removed(c->rb, consumed_size);
+    return 1;
+}
+
+
+static unsigned
 xmit_data(struct channel* c,
           unsigned chno,
           struct fb_adb_sh* sh)
@@ -209,21 +381,18 @@ xmit_data(struct channel* c,
     if (c->dir == CHANNEL_FROM_FD) {
         size_t maxoutmsg = fb_adb_maxoutmsg(sh);
         size_t avail = ringbuf_size(c->rb);
-        struct msg_channel_data m;
 
-        if (maxoutmsg > sizeof (m) && avail > 0) {
-            size_t payloadsz = XMIN(avail, maxoutmsg - sizeof (m));
-            struct iovec iov[3] = {{ &m, sizeof (m) }};
-            ringbuf_readable_iov(c->rb, &iov[1], payloadsz);
-            memset(&m, 0, sizeof (m));
-            m.msg.type = MSG_CHANNEL_DATA;
-            m.channel = chno;
-            m.msg.size = iovec_sum(iov, ARRAYSIZE(iov));
-            assert(chno != 0);
-            dbgmsg(&m.msg, "send");
-            channel_write(sh->ch[TO_PEER], iov, ARRAYSIZE(iov));
-            ringbuf_note_removed(c->rb, payloadsz);
-            work_done += 1;
+        if (avail > 0) {
+            struct channel* dst = sh->ch[TO_PEER];
+
+            if (c->compress && avail >= MIN_COMPRESSION_BLOCK)
+                work_done =
+                    xmit_data_lz4(
+                        c, chno, dst, avail, maxoutmsg);
+            else
+                work_done =
+                    xmit_data_uncompressed(
+                        c, chno, dst, avail, maxoutmsg);
         }
     }
 

@@ -341,6 +341,7 @@ fill_window_size(int fd, struct window_size* ws)
 struct tty_flags {
     unsigned tty_p : 1;
     unsigned want_pty_p : 1;
+    unsigned compress : 1;
 };
 
 struct msg_shex_hello*
@@ -362,6 +363,7 @@ make_hello_msg(size_t max_cmdsz,
     for (int i = 0; i < 3; ++i) {
         m->si[i].bufsz = stdio_ringbufsz;
         m->si[i].pty_p = tty_flags[i].want_pty_p;
+        m->si[i].compress = tty_flags[i].compress;
     }
 
     m->posix_vdisable_value = _POSIX_VDISABLE;
@@ -781,6 +783,7 @@ shex_main_common(enum shex_mode smode, int argc, const char** argv)
     char* child_chdir = NULL;
     enum transport transport = transport_shell;
     const char* tcp_addr = NULL;
+    bool compress = !getenv("FB_ADB_NO_COMPRESSION");
 
     memset(&tty_flags, 0, sizeof (tty_flags));
     for (int i = 0; i < 3; ++i)
@@ -919,6 +922,10 @@ shex_main_common(enum shex_mode smode, int argc, const char** argv)
             tty_flags[i].want_pty_p = true;
         }
 
+    if (compress)
+        for (int i = 0; i < 3; ++i)
+            tty_flags[i].compress = true;
+
     // Here, we want to arrange for SIGWINCH to be delivered only
     // while we're blocked and waiting for IO.  N.B. do _not_ add
     // SIGWINCH to signals_unblock_for_io.  We want to receive this
@@ -1045,11 +1052,13 @@ shex_main_common(enum shex_mode smode, int argc, const char** argv)
                                   stdio_ringbufsz,
                                   CHANNEL_FROM_FD);
     ch[CHILD_STDIN]->track_window = true;
+    ch[CHILD_STDIN]->compress = compress;
 
     ch[CHILD_STDOUT] = channel_new(fdh_dup(1),
                                    stdio_ringbufsz,
                                    CHANNEL_TO_FD);
     ch[CHILD_STDOUT]->track_bytes_written = true;
+    ch[CHILD_STDOUT]->compress = compress;
     ch[CHILD_STDOUT]->bytes_written =
         ringbuf_room(ch[CHILD_STDOUT]->rb);
 
@@ -1057,6 +1066,7 @@ shex_main_common(enum shex_mode smode, int argc, const char** argv)
                                    stdio_ringbufsz,
                                    CHANNEL_TO_FD);
     ch[CHILD_STDERR]->track_bytes_written = true;
+    ch[CHILD_STDERR]->compress = compress;
     ch[CHILD_STDERR]->bytes_written =
         ringbuf_room(ch[CHILD_STDERR]->rb);
 

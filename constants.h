@@ -24,3 +24,11 @@
 
 #define DEFAULT_MAX_CMDSZ 4096
 #define DEFAULT_MAX_CMDSZ_SOCKET MSG_MAX_SIZE
+
+// The LZ4 format is designed to work with 64k blocks, so there's no
+// point letting it compress more.
+#define MAX_COMPRESSION_BLOCK 65536
+
+// LZ4 will emit all literals for blocks smaller than this value, so
+// don't bother attempting to compressing them.
+#define MIN_COMPRESSION_BLOCK 13

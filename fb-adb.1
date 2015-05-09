@@ -227,6 +227,13 @@ has an effect only when the program is configured with
 
 FB_ADB_REMOTE_WRAPPER='strace -o/data/local/tmp/foo'
 
+.TP
+.BI FB_ADB_NO_COMPRESSION
+This option, set on the host system, tells \fBfb-adb\fR to avoid its
+usual LZ4 stream compression.  LZ4 is fast enough that there are no
+practical disadvantages to disabling it, so this option is primarily
+useful for debugging.
+
 .SH BUGS
 
 \fBfb-adb\fR should present better error messages when it can't run a

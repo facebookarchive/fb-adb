@@ -507,6 +507,9 @@ stub_main(int argc, const char** argv)
                                   shex_hello->si[0].bufsz,
                                   CHANNEL_TO_FD);
 
+    if (shex_hello->si[0].compress)
+        ch[CHILD_STDIN]->compress = true;
+
     ch[CHILD_STDIN]->track_bytes_written = true;
     ch[CHILD_STDIN]->bytes_written =
         ringbuf_room(ch[CHILD_STDIN]->rb);
@@ -516,10 +519,16 @@ stub_main(int argc, const char** argv)
                                    CHANNEL_FROM_FD);
     ch[CHILD_STDOUT]->track_window = true;
 
+    if (shex_hello->si[1].compress)
+        ch[CHILD_STDOUT]->compress = true;
+
     ch[CHILD_STDERR] = channel_new(child->fd[2],
                                    shex_hello->si[2].bufsz,
                                    CHANNEL_FROM_FD);
     ch[CHILD_STDERR]->track_window = true;
+
+    if (shex_hello->si[2].compress)
+        ch[CHILD_STDERR]->compress = true;
 
     sh->ch = ch;
     io_loop_init(sh);

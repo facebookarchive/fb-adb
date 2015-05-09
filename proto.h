@@ -16,6 +16,7 @@
 
 enum msg_type {
     MSG_CHANNEL_DATA = 40,
+    MSG_CHANNEL_DATA_LZ4,
     MSG_CHANNEL_WINDOW,
     MSG_CHANNEL_CLOSE,
     MSG_CHILD_EXIT,
@@ -43,6 +44,13 @@ struct msg {
 
 struct msg_channel_data {
     struct msg msg;
+    uint8_t channel;
+    char data[0];
+};
+
+struct msg_channel_data_lz4 {
+    struct msg msg;
+    uint16_t uncompressed_size;
     uint8_t channel;
     char data[0];
 };
@@ -88,6 +96,7 @@ struct term_control {
 struct stream_information {
     uint32_t bufsz;
     unsigned pty_p : 1;
+    unsigned compress : 1;
 };
 
 struct msg_shex_hello {
