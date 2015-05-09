@@ -189,6 +189,21 @@ socket connection forwarded over ADB.  This method may transfer data
 faster than the \fBshell\fR transport, but it is experimental may take
 slightly longer to set up.
 
+\fBtcp:HOST,PORT\fR means to use a TCP socket to connect from the
+device to the host.  fb-adb automatically manages making the
+connection, but it cannot automatically figure out on what network
+address the device can reach the host.  You must tell it what address
+to bind to: HOST and PORT.  HOST and PORT are any strings accepted as
+the node and service arguments, respectively, to getaddr(3), and can
+by names or numbers.
+
+  Examples: "tcp:10.2.5.1,12345" and "tcp:myhost.example,gopher"
+
+This transport is typically much faster than the others: it
+bypasses adb completely.
+
+Note that traffic on this connection is unencrypted.
+
 .TP
 .BR \-h ", " \--help ", " help
 Display help output.
