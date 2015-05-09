@@ -540,6 +540,21 @@ xdup(int fd)
     return newfd;
 }
 
+int
+xdup3nc(int oldfd, int newfd, int flags)
+{
+    int rc;
+
+    do {
+        rc = dup3(oldfd, newfd, flags);
+    } while (rc < 0 && errno == EINTR);
+
+    if (rc < 0)
+        die_errno("dup3");
+
+    return rc;
+}
+
 #ifdef HAVE_FOPENCOOKIE
 typedef ssize_t custom_stream_ssize_t;
 typedef size_t custom_stream_size_t;
@@ -877,9 +892,7 @@ hack_reopen_tty(int fd)
     // loose.  Here, we reopen the tty so we can get a fresh file
     // object and control the blocking mode separately.
     SCOPED_RESLIST(rl_hack);
-    int nfd = xopen(xttyname(fd), O_RDWR | O_NOCTTY, 0);
-    if (dup3(nfd, fd, O_CLOEXEC) < 0)
-        die_errno("dup3");
+    xdup3nc(xopen(xttyname(fd), O_RDWR | O_NOCTTY, 0), fd, O_CLOEXEC);
 }
 
 size_t
@@ -1181,7 +1194,8 @@ dup3(int oldfd, int newfd, int flags)
         return -1;
     }
 
-    if (dup2(oldfd, newfd) < 0)
+    int rc = dup2(oldfd, newfd);
+    if (rc < 0)
         return -1;
 
     if (merge_O_CLOEXEC_into_fd_flags(newfd, flags) < 0) {
@@ -1219,8 +1233,7 @@ replace_with_dev_null(int fd)
     if (fd_flags < 0)
         die_errno("F_GETFD");
     int nfd = xopen("/dev/null", O_RDWR | O_CLOEXEC, 0);
-    if (dup3(nfd, fd, fd_flags & O_CLOEXEC) < 0)
-        die_errno("dup3");
+    xdup3nc(nfd, fd, fd_flags & O_CLOEXEC);
 }
 
 struct xnamed_tempfile_save {

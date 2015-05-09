@@ -38,10 +38,9 @@ child_child_1(void* arg)
 {
     struct internal_child_info* ci = arg;
 
-    /* dup2 resets O_CLOEXEC */
+    /* Resets O_CLOEXEC */
     for (int i = 0; i < 3; ++i)
-        if (dup2(ci->childfd[i], i) == -1)
-            die_errno("dup2(%d->%d)", ci->childfd[i], i);
+        xdup3nc(ci->childfd[i], i, 0);
 
     if (ci->csi->child_chdir && chdir(ci->csi->child_chdir) == -1)
         die_errno("chdir");

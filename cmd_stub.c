@@ -452,8 +452,8 @@ rebind_to_socket(struct msg* mhdr)
             __builtin_unreachable();
     }
 
-    if (dup2(client, 0) == -1 || dup2(client, 1) == -1)
-        die_errno("dup2");
+    xdup3nc(client, 0, 0);
+    xdup3nc(client, 1, 0);
 }
 
 int

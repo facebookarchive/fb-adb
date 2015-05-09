@@ -160,6 +160,7 @@ void xpipe(int* read_end, int* write_end);
 // Duplicate a file descriptor.  The new file descriptor is owned by
 // the current reslist.
 int xdup(int fd);
+int xdup3nc(int oldfd, int newfd, int flags);
 
 // Open a file descriptor as a stream.  The returned FILE object is
 // owned by the current reslist.  It does _not_ own FD.  Instead, FILE
