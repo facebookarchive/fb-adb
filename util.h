@@ -304,7 +304,9 @@ char* gen_hex_random(size_t nr_bytes);
 void* first_non_null(void* s, ...);
 bool string_starts_with_p(const char* string, const char* prefix);
 
+#ifdef HAVE_CLOCK_GETTIME
 double xclock_gettime(clockid_t clk_id);
+#endif
 
 #ifndef NDEBUG
 void assert_cloexec(int fd);

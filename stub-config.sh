@@ -18,6 +18,14 @@ for opt in "$@"; do
     elif [[ $opt = 'CC='* ]]; then
         # Stub will choose CC for cross-compile
         unset CC
+    elif [[ $opt = '--host='* ]]; then
+        true
+    elif [[ $opt = '--build='* ]]; then
+        true
+    elif [[ $opt = '--target='* ]]; then
+        true
+    elif [[ $opt = 'host_alias='* ]]; then
+        true
     else
         cfgopts+=("$opt")
     fi

@@ -1332,6 +1332,7 @@ string_starts_with_p(const char* string, const char* prefix)
     return strncmp(string, prefix, strlen(prefix)) == 0;
 }
 
+#ifdef HAVE_CLOCK_GETTIME
 double
 xclock_gettime(clockid_t clk_id)
 {
@@ -1341,6 +1342,7 @@ xclock_gettime(clockid_t clk_id)
 
     return (double) ts.tv_sec + (double) ts.tv_nsec / 1e9;
 }
+#endif
 
 void
 str2gaiargs(const char* inp, char** node, char** service)

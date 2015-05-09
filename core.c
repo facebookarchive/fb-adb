@@ -297,7 +297,7 @@ io_loop_do_io(struct fb_adb_sh* sh)
     }
 
     if (work != 0) {
-#ifndef NDEBUG
+#if !defined(NDEBUG) && defined(HAVE_CLOCK_GETTIME)
         double start = xclock_gettime(CLOCK_REALTIME);
 #endif
 
@@ -311,7 +311,7 @@ io_loop_do_io(struct fb_adb_sh* sh)
         if (rc < 0 && errno != EINTR)
             die_errno("poll");
 
-#ifndef NDEBUG
+#if !defined(NDEBUG) && defined(HAVE_CLOCK_GETTIME)
         double elapsed = xclock_gettime(CLOCK_REALTIME) - start;
         if (elapsed > 0.5)
             dbg("long poll: took %g seconds", elapsed);
