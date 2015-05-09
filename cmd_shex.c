@@ -762,6 +762,26 @@ block_signal(int signo)
     sigprocmask(SIG_BLOCK, &blocked_signals, NULL);
 }
 
+static void
+parse_transport(const char* s,
+                enum transport* transport,
+                const char** tcp_addr)
+{
+    if (strcmp(s, "shell") == 0) {
+        *transport = transport_shell;
+    } else if (strcmp(s, "socket") == 0) {
+        *transport = transport_unix;
+    } else if (string_starts_with_p(s, "tcp:")) {
+        *transport = transport_tcp;
+        const char* addrpart = s + strlen("tcp:");
+        if (!strchr(addrpart, ','))
+            die(EINVAL, "invalid tcp spec: no port");
+        *tcp_addr = addrpart;
+    } else {
+        die(EINVAL, "unknown transport %s", s);
+    }
+}
+
 static int
 shex_main_common(enum shex_mode smode, int argc, const char** argv)
 {
@@ -784,6 +804,10 @@ shex_main_common(enum shex_mode smode, int argc, const char** argv)
     enum transport transport = transport_shell;
     const char* tcp_addr = NULL;
     bool compress = !getenv("FB_ADB_NO_COMPRESSION");
+
+    const char* transport_env = getenv("FB_ADB_TRANSPORT");
+    if (transport_env)
+        parse_transport(transport_env, &transport, &tcp_addr);
 
     memset(&tty_flags, 0, sizeof (tty_flags));
     for (int i = 0; i < 3; ++i)
@@ -869,17 +893,7 @@ shex_main_common(enum shex_mode smode, int argc, const char** argv)
                 child_chdir = xstrdup(optarg);
                 break;
             case 'X':
-                if (strcmp(optarg, "shell") == 0) {
-                    transport = transport_shell;
-                } else if (strcmp(optarg, "socket") == 0) {
-                    transport = transport_unix;
-                } else if (string_starts_with_p(optarg, "tcp:")) {
-                    transport = transport_tcp;
-                    tcp_addr = optarg + strlen("tcp:");
-                } else {
-                    die(EINVAL, "unknown transport %s", optarg);
-                }
-
+                parse_transport(optarg, &transport, &tcp_addr);
                 break;
             case ':':
                 if (optopt == '\0') {
