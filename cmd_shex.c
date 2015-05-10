@@ -702,7 +702,7 @@ reconnect_over_unix_socket(
     return ntc;
 }
 
-static pid_t monitored_child_pid;
+static struct child* monitored_child;
 
 static void
 accept_die_on_sigchld_sigchld_action(
@@ -712,18 +712,19 @@ accept_die_on_sigchld_sigchld_action(
 {
     assert(signo == SIGCHLD);
 
-    if (info->si_pid == monitored_child_pid) {
-        monitored_child_pid = 0;
-        die(ECOMM, "child %d died", (int) info->si_pid);
+    if (child_poll_death(monitored_child)) {
+        pid_t pid = monitored_child->pid;
+        monitored_child = NULL;
+        die(ECOMM, "child %d died", (int) pid);
     }
 }
 
 static int
-accept_die_on_sigchld(int sock, pid_t pid)
+accept_die_on_sigchld(int sock, struct child* child)
 {
     SCOPED_RESLIST(rl);
 
-    if (monitored_child_pid != 0)
+    if (monitored_child != NULL)
         die(EINVAL, "only one monitored child supported");
 
     sigset_t all_signals;
@@ -739,20 +740,20 @@ accept_die_on_sigchld(int sock, pid_t pid)
     sigaction_restore_as_cleanup(SIGCHLD, &sa);
     save_signals_unblock_for_io();
     sigaddset(&signals_unblock_for_io, SIGCHLD);
-    monitored_child_pid = pid;
+    monitored_child = child;
 
     sigset_t pending;
     sigpending(&pending);
 
     WITH_CURRENT_RESLIST(rl->parent);
     int conn = xaccept(sock);
-    monitored_child_pid = 0;
+    monitored_child = NULL;
     return conn;
 }
 
 static struct childcom*
 reconnect_over_tcp_socket(const struct childcom* tc,
-                          pid_t child_pid,
+                          struct child* adb,
                           const char* tcp_addr)
 {
     SCOPED_RESLIST(rl);
@@ -812,7 +813,7 @@ reconnect_over_tcp_socket(const struct childcom* tc,
         __builtin_unreachable();
     }
 
-    int conn = accept_die_on_sigchld(sock, child_pid);
+    int conn = accept_die_on_sigchld(sock, adb);
 
     disable_tcp_nagle(conn);
 
@@ -1071,7 +1072,7 @@ shex_main_common(enum shex_mode smode, int argc, const char** argv)
     if (transport == transport_unix)
         tc = reconnect_over_unix_socket(tc, adb_args);
     else if (transport == transport_tcp)
-        tc = reconnect_over_tcp_socket(tc, child->pid, tcp_addr);
+        tc = reconnect_over_tcp_socket(tc, child, tcp_addr);
 
     if (want_root && uid != 0)
         command_re_exec_as_root(tc);

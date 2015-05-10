@@ -48,6 +48,7 @@ struct child {
 
 struct child* child_start(const struct child_start_info* csi);
 int child_wait(struct child* c);
+bool child_poll_death(struct child* c);
 void child_kill(struct child* c, int signo);
 
 struct child_communication {

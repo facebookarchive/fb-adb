@@ -245,6 +245,21 @@ child_start(const struct child_start_info* csi)
     return child;
 }
 
+bool
+child_poll_death(struct child* child)
+{
+    if (!child->dead) {
+        int ret = waitpid(child->pid, &child->status, WNOHANG);
+        if (ret < 0)
+            die_errno("waitpid");
+
+        if (ret > 0)
+            child->dead = true;
+    }
+
+    return child->dead;
+}
+
 int
 child_wait(struct child* child)
 {
@@ -272,16 +287,15 @@ child_wait(struct child* child)
     // subsequent kill() going to wrong process and killing an
     // innocent program.
     //
-    // Instead, we first block SIGCHLD (in addition to signals
-    // like SIGINT), then, _WITHOUT_ unblocking signals, call
-    // waitpid(..., WNOHANG).  If that succeeds, our child is dead
-    // and we remember its status.  If waitpid() indicates that
-    // our child is still running, we then call sigwait({SIGCHLD,
-    // SIGINT}); when the child dies, we loop around and call
-    // waitpid() again.  That waitpid() might fail if a different
-    // child died, or if we got a non-SIGCHLD signal, but
-    // eventually our child will die, waitpid() will succeed, and
-    // we'll exit the loop.
+    // Instead, we first block SIGCHLD (in addition to signals like
+    // SIGINT), then, _WITHOUT_ unblocking signals, call waitpid(...,
+    // WNOHANG).  If that succeeds, our child is dead and we remember
+    // its status.  If waitpid() indicates that our child is still
+    // running, we then call pselect(0, ..., {SIGCHLD, SIGINT}); when
+    // the child dies, we loop around and call waitpid() again.
+    // That waitpid() might fail if a different child died, or if we
+    // got a non-SIGCHLD signal, but eventually our child will die,
+    // waitpid() will succeed, and we'll exit the loop.
     //
 
     sigset_t block_during_poll;
