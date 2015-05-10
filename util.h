@@ -332,3 +332,6 @@ void _restore_io_unblocked_signals(sigset_t* saved);
     __attribute__((cleanup(_restore_io_unblocked_signals)))             \
     sigset_t GENSYM(_saved_signals);                                    \
     _unblock_io_unblocked_signals(&GENSYM(_saved_signals))
+
+void save_signals_unblock_for_io(void);
+void sigaction_restore_as_cleanup(int signo, struct sigaction* sa);

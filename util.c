@@ -1381,3 +1381,53 @@ _restore_io_unblocked_signals(sigset_t* saved)
     if (!signal_quit_in_progress)
         VERIFY(!sigprocmask(SIG_SETMASK, saved, NULL));
 }
+
+
+static void
+cleanup_save_signals_unblock_for_io(void* data)
+{
+    dbg("restoring signals_unblock_for_io");
+    memcpy(&signals_unblock_for_io, data, sizeof (sigset_t));
+}
+
+void
+save_signals_unblock_for_io(void)
+{
+    struct cleanup* cl = cleanup_allocate();
+    sigset_t* saved_signals_unblock_for_io =
+        xalloc(sizeof (*saved_signals_unblock_for_io));
+
+    memcpy(saved_signals_unblock_for_io,
+           &signals_unblock_for_io,
+           sizeof (sigset_t));
+
+    cleanup_commit(
+        cl,
+        cleanup_save_signals_unblock_for_io,
+        saved_signals_unblock_for_io);
+}
+
+struct cleanup_restore_sighandler {
+    int signo;
+    struct sigaction oldsa;
+};
+
+static void
+cleanup_restore_sighandler(void* info)
+{
+    struct cleanup_restore_sighandler* cs = info;
+    dbg("restoring sighandler");
+    VERIFY(sigaction(cs->signo, &cs->oldsa, NULL) == 0);
+}
+
+void
+sigaction_restore_as_cleanup(int signo, struct sigaction* sa)
+{
+    struct cleanup_restore_sighandler* cs = xalloc(sizeof (*cs));
+    struct cleanup* cl = cleanup_allocate();
+    cs->signo = signo;
+    if (sigaction(signo, sa, &cs->oldsa) != 0)
+        die_errno("sigaction");
+
+    cleanup_commit(cl, cleanup_restore_sighandler, cs);
+}

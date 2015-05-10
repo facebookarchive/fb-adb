@@ -691,7 +691,6 @@ reconnect_over_unix_socket(
     remove_forward_cleanup_commit(crf);
 
     int scon = xsocket(AF_UNIX, SOCK_STREAM, 0);
-    // XXX: fail here if child dies while we connect
     xconnect(scon, make_addr_unix_filesystem(host_socket));
 
     WITH_CURRENT_RESLIST(rl->parent);
@@ -703,8 +702,57 @@ reconnect_over_unix_socket(
     return ntc;
 }
 
+static pid_t monitored_child_pid;
+
+static void
+accept_die_on_sigchld_sigchld_action(
+    int signo,
+    siginfo_t* info,
+    void* context)
+{
+    assert(signo == SIGCHLD);
+
+    if (info->si_pid == monitored_child_pid) {
+        monitored_child_pid = 0;
+        die(ECOMM, "child %d died", (int) info->si_pid);
+    }
+}
+
+static int
+accept_die_on_sigchld(int sock, pid_t pid)
+{
+    SCOPED_RESLIST(rl);
+
+    if (monitored_child_pid != 0)
+        die(EINVAL, "only one monitored child supported");
+
+    sigset_t all_signals;
+    sigfillset(&all_signals);
+
+    struct sigaction sa = {
+        .sa_sigaction = accept_die_on_sigchld_sigchld_action,
+        .sa_flags = SA_SIGINFO,
+    };
+
+    memcpy(&sa.sa_mask, &all_signals, sizeof (sigset_t));
+
+    sigaction_restore_as_cleanup(SIGCHLD, &sa);
+    save_signals_unblock_for_io();
+    sigaddset(&signals_unblock_for_io, SIGCHLD);
+    monitored_child_pid = pid;
+
+    sigset_t pending;
+    sigpending(&pending);
+
+    WITH_CURRENT_RESLIST(rl->parent);
+    int conn = xaccept(sock);
+    monitored_child_pid = 0;
+    return conn;
+}
+
 static struct childcom*
 reconnect_over_tcp_socket(const struct childcom* tc,
+                          pid_t child_pid,
                           const char* tcp_addr)
 {
     SCOPED_RESLIST(rl);
@@ -764,8 +812,8 @@ reconnect_over_tcp_socket(const struct childcom* tc,
         __builtin_unreachable();
     }
 
-    // XXX: fail here if child dies while we wait for connection
-    int conn = xaccept(sock);
+    int conn = accept_die_on_sigchld(sock, child_pid);
+
     disable_tcp_nagle(conn);
 
     WITH_CURRENT_RESLIST(rl->parent);
@@ -1023,7 +1071,7 @@ shex_main_common(enum shex_mode smode, int argc, const char** argv)
     if (transport == transport_unix)
         tc = reconnect_over_unix_socket(tc, adb_args);
     else if (transport == transport_tcp)
-        tc = reconnect_over_tcp_socket(tc, tcp_addr);
+        tc = reconnect_over_tcp_socket(tc, child->pid, tcp_addr);
 
     if (want_root && uid != 0)
         command_re_exec_as_root(tc);
