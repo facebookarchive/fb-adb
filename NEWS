@@ -1,3 +1,23 @@
+Version 1.4
+-----------
+
+New features:
+
+ * Faster ADB-forwarded and TCP-based transit modes
+ * Environment variables for setting options
+ * logw command for writing logcat entries on device
+   (think of logger(1)).
+ * LZ4 compression of traffic
+ * Tuned buffer sizes for greater throughput
+
+Bugfixes:
+
+ * Build system now works properly in cross-compilation environment
+ * Stub is never world-writable while on device
+ * Clean up reliably on quit signals
+ * Avoid deadlock during hard shutdown when partial msg in buffer
+ * Safe concurrent stub uploading
+
 Version 1.2
 -----------
 
