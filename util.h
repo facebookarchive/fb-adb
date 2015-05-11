@@ -32,7 +32,7 @@
 // Suppress compiler warning about unused computation
 static inline bool verify_dummy(bool x) { return x; }
 
-#ifndef NDEBUG
+#ifdef NDEBUG
 # define VERIFY(x) (verify_dummy(x))
 #else
 # define VERIFY(x) (assert(x))
