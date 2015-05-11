@@ -334,8 +334,8 @@ re_exec_as_user(const char* username)
         // fb-adb.
         static const char selinux_workaround[] =
             "{ { [ -f fb-adb ] && cmp fb-adb \"$1\" >/dev/null 2>&1; } "
-            "  || cp -f \"$1\" fb-adb; "
-            "} && shift && exec ./fb-adb \"$@\"";
+            "  || { cp -f \"$1\" fb-adb.tmp.$$ && mv -f fb-adb.tmp.$$ fb-adb; }"
+            " } && shift && exec ./fb-adb \"$@\"";
 
         execlp("run-as", "run-as", username,
                "/system/bin/sh",
