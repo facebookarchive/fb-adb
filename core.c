@@ -507,6 +507,18 @@ io_loop_pump(struct fb_adb_sh* sh)
     while (detect_msg(ch[FROM_PEER]->rb, &mhdr))
         sh->process_msg(sh, mhdr);
 
+    // If FROM_PEER's fdh is closed, it's not going to ever receive
+    // more bytes, so empty its buffer and allow the closure
+    // to complete.
+
+    if (ch[FROM_PEER]->fdh == NULL
+        && ringbuf_size(ch[FROM_PEER]->rb) > 0)
+    {
+        dbg("dropping partial msg from dead peer");
+        ringbuf_note_removed(ch[FROM_PEER]->rb,
+                             ringbuf_size(ch[FROM_PEER]->rb));
+    }
+
     for (i = 0; i < nrch; ++i) {
         chno = (i + sh->turn) % nrch;
         xmit_acks(ch[chno], chno, sh);
