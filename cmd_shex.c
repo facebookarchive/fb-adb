@@ -907,7 +907,7 @@ shex_main_common(enum shex_mode smode, int argc, const char** argv)
     for (;;) {
         int c = getopt_long(argc,
                             (char**) argv,
-                            "+:lhE:ftTdes:p:H:P:rUu:DC:SX:",
+                            "+:lhE:ftTdes:p:H:P:rUu:DC:X:",
                             opts,
                             NULL);
         if (c == -1)
