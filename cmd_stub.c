@@ -452,8 +452,16 @@ rebind_to_socket(struct msg* mhdr)
             __builtin_unreachable();
     }
 
+    // Leak the old console file descriptor so our parent doesn't
+    // think we're died.  Deliberately allow the file descriptor to
+    // leak across exec.
+    int leaked = dup(2);
+    if (leaked == -1)
+        die_errno("dup");
+
     xdup3nc(client, 0, 0);
     xdup3nc(client, 1, 0);
+    xdup3nc(client, 2, 0);
 }
 
 int
