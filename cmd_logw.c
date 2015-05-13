@@ -139,7 +139,13 @@ logw_main(int argc, const char** argv)
     }
 
     msg[sz-1] = '\0';
-    return __android_log_write(priority, tag, msg);
+    int ret = __android_log_write(priority, tag, msg);
+    if (ret < 0) {
+        errno = -ret;
+        die_errno("__android_log_write");
+    }
+
+    return 0;
 }
 
 #endif
