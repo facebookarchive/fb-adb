@@ -86,7 +86,9 @@ AC_SUBST([PATH])
 
 AC_PROG_CC_C99
 AC_PROG_SED
-AC_PROG_RANLIB
+
+AC_CHECK_TOOLS(RANLIB, [gcc-ranlib ranlib])
+AC_CHECK_TOOLS(AR, [gcc-ar ar])
 AM_PROG_AR
 
 if test -z "$BUILD_STUB"; then
