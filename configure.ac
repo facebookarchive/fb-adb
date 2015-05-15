@@ -96,6 +96,14 @@ if test -z "$BUILD_STUB"; then
   if test -z "$XXD"; then
     AC_MSG_ERROR([xxd is required to build])
   fi
+
+  if test -n "$HOST_CFLAGS"; then
+     CFLAGS="$CFLAGS $HOST_CFLAGS"
+  fi
+
+  if test -n "$HOST_LDFLAGS"; then
+     CFLAGS="$CFLAGS $HOST_LDFLAGS"
+  fi
 fi
 
 AC_CHECK_FUNCS([ppoll signalfd4 dup3 mkostemp kqueue pipe2 ptsname])
