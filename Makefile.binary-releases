@@ -1,0 +1,30 @@
+# -*- makefile-gmake -*-
+# This makefile	builds release binaries for fb-adb
+# for some common configurations.
+
+TARGETS=x86_64-linux-gnu x86_64-apple-darwin12
+BUILD_DIRS=$(addprefix build.,$(TARGETS))
+FINAL_BINARIES=
+BUILD_DIR=build.$*
+CC=gcc
+CONFIG_FLAGS=
+CP=cp -f
+
+fb-adb.x86_64-apple-darwin12: CONFIG_FLAGS+=CC=$*-clang
+
+fb-adb.%:
+	type -p $(CC) # Make sure cross tools exist
+	rm -rf $(BUILD_DIR)
+	mkdir $(BUILD_DIR)
+	cd $(BUILD_DIR) && ../configure --host=$* $(CONFIG_FLAGS)
+	$(MAKE) -C $(BUILD_DIR)
+	$(CP) $(BUILD_DIR)/fb-adb $@
+
+all: $(addprefix fb-adb.,$(TARGETS))
+	echo Done building: binaries are $^
+
+clean:
+	rm -rf $(BUILD_DIRS)
+
+.DEFAULT_GOAL=all
+.DELETE_ON_ERROR:
