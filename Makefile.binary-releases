@@ -25,6 +25,7 @@ all: $(addprefix fb-adb.,$(TARGETS))
 
 clean:
 	rm -rf $(BUILD_DIRS)
+	rm -f $(addprefix fb-adb.,$(TARGETS))
 
 .DEFAULT_GOAL=all
 .DELETE_ON_ERROR:
