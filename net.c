@@ -1,3 +1,4 @@
+#include <sys/un.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <netinet/tcp.h>
@@ -9,8 +10,13 @@
 #include "net.h"
 #include "child.h"
 
-#ifndef SOCK_CLOEXEC
-#define SOCK_CLOEXEC O_CLOEXEC
+#if defined(__linux__) && !defined(SOCK_CLOEXEC)
+# define SOCK_CLOEXEC O_CLOEXEC
+#endif
+
+#if !defined(SUN_LEN) && defined(__linux__)
+# define SUN_LEN(ptr) ((size_t) (((struct sockaddr_un *) 0)->sun_path)  \
+                       + strlen ((ptr)->sun_path))
 #endif
 
 struct addr*
@@ -22,9 +28,10 @@ make_addr_unix_filesystem(const char* filename)
         die(EINVAL, "socket name too long");
 
     struct addr* a = xalloc(addrlen);
-    a->size = addrlen;
+    memset(a, 0, offsetof(struct addr, addr_un.sun_path));
     a->addr_un.sun_family = AF_UNIX;
     memcpy(a->addr_un.sun_path, filename, filename_length + 1);
+    a->size = SUN_LEN(&a->addr_un);
     return a;
 }
 
@@ -127,12 +134,22 @@ int
 xsocket(int domain, int type, int protocol)
 {
     struct cleanup* cl = cleanup_allocate();
-    int s = socket(domain, type | SOCK_CLOEXEC, protocol);
+
+#ifdef SOCK_CLOEXEC
+    type |= SOCK_CLOEXEC;
+#endif
+
+    int s = socket(domain, type, protocol);
     if (s < 0)
         die_errno("socket");
 
-    assert_cloexec(s);
     cleanup_commit_close_fd(cl, s);
+
+#ifdef SOCK_CLOEXEC
+    merge_O_CLOEXEC_into_fd_flags(s, O_CLOEXEC);
+#endif
+
+    assert_cloexec(s);
     return s;
 }
 
@@ -154,12 +171,13 @@ xaccept(int server_socket)
     if (s == -1)
         die_errno("accept");
 
+    cleanup_commit_close_fd(cl, s);
+
 #ifndef HAVE_ACCEPT4
     merge_O_CLOEXEC_into_fd_flags(s, O_CLOEXEC);
 #endif
 
     assert_cloexec(s);
-    cleanup_commit_close_fd(cl, s);
     return s;
 }
 
@@ -171,16 +189,25 @@ xsocketpair(int domain, int type, int protocol,
     cl[0] = cleanup_allocate();
     cl[1] = cleanup_allocate();
 
+#ifdef SOCK_CLOEXEC
     type |= SOCK_CLOEXEC;
+#endif
+
     int fd[2];
     if (socketpair(domain, type, protocol, fd) < 0)
         die_errno("socketpair");
 
+    cleanup_commit_close_fd(cl[0], fd[0]);
+    cleanup_commit_close_fd(cl[1], fd[1]);
+
+#ifndef SOCK_CLOEXEC
+    merge_O_CLOEXEC_into_fd_flags(fd[0], O_CLOEXEC);
+    merge_O_CLOEXEC_into_fd_flags(fd[1], O_CLOEXEC);
+#endif
+
     assert_cloexec(fd[0]);
     assert_cloexec(fd[1]);
 
-    cleanup_commit_close_fd(cl[0], fd[0]);
-    cleanup_commit_close_fd(cl[1], fd[1]);
     *s1 = fd[0];
     *s2 = fd[1];
 }
