@@ -145,7 +145,7 @@ xsocket(int domain, int type, int protocol)
 
     cleanup_commit_close_fd(cl, s);
 
-#ifdef SOCK_CLOEXEC
+#ifndef SOCK_CLOEXEC
     merge_O_CLOEXEC_into_fd_flags(s, O_CLOEXEC);
 #endif
 
