@@ -291,11 +291,11 @@ child_wait(struct child* child)
     // SIGINT), then, _WITHOUT_ unblocking signals, call waitpid(...,
     // WNOHANG).  If that succeeds, our child is dead and we remember
     // its status.  If waitpid() indicates that our child is still
-    // running, we then call pselect(0, ..., {SIGCHLD, SIGINT}); when
-    // the child dies, we loop around and call waitpid() again.
-    // That waitpid() might fail if a different child died, or if we
-    // got a non-SIGCHLD signal, but eventually our child will die,
-    // waitpid() will succeed, and we'll exit the loop.
+    // running, we then wait for signals; when the child dies, we loop
+    // around and call waitpid() again.  That waitpid() might fail if
+    // a different child died, or if we got a non-SIGCHLD signal, but
+    // eventually our child will die, waitpid() will succeed, and
+    // we'll exit the loop.
     //
 
     sigset_t block_during_poll;
@@ -321,11 +321,7 @@ child_wait(struct child* child)
         if (ret > 0) {
             child->dead = true;
         } else {
-            if (pselect(0, NULL, NULL, NULL, NULL, &block_during_poll) < 0
-                && errno != EINTR)
-            {
-                die_errno("pselect");
-            }
+            sigsuspend(&block_during_poll);
         }
     }
 
@@ -440,11 +436,11 @@ child_communicate(
 
         {
             WITH_IO_SIGNALS_ALLOWED();
-            rc = ppoll(p, ARRAYSIZE(p), NULL, NULL);
+            rc = poll(p, ARRAYSIZE(p), -1);
         }
 
         if (rc == -1 && errno != EINTR)
-            die_errno("ppoll");
+            die_errno("poll");
     }
 
     struct child_communication* com = xcalloc(sizeof (*com));

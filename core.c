@@ -471,7 +471,7 @@ io_loop_do_io(struct fb_adb_sh* sh)
 #endif
 
         if (sh->poll_sigmask) {
-            rc = ppoll(polls, nrch, NULL, sh->poll_sigmask);
+            rc = xppoll(polls, nrch, NULL, sh->poll_sigmask);
         } else {
             WITH_IO_SIGNALS_ALLOWED();
             rc = poll(polls, nrch, -1);

@@ -286,11 +286,30 @@ void write_all(int fd, const void* buf, size_t sz);
 int dup3(int oldfd, int newfd, int flags);
 #endif
 
-#ifndef HAVE_PPOLL
-int ppoll(struct pollfd *fds, nfds_t nfds,
-          const struct timespec *timeout_ts,
-          const sigset_t *sigmask);
+#define XPPOLL_LINUX_SYSCALL 1
+#define XPPOLL_KQUEUE 2
+#define XPPOLL_SYSTEM 3
+#define XPPOLL_STUPID_WRAPPER 4
+
+#if defined(__linux__)
+# define XPPOLL XPPOLL_LINUX_SYSCALL
+#elif defined(HAVE_KQUEUE)
+# define XPPOLL XPPOLL_KQUEUE
+#elif defined(HAVE_PPOLL)
+# define XPPOLL XPPOLL_SYSTEM
+# define XPPOLL_BROKEN 1
+#else
+# define XPPOLL XPPOLL_STUPID_WRAPPER
+# define XPPOLL_BROKEN 1
 #endif
+
+// See ppoll(2) or ppoll(3).  If XPPOLL_BROKEN is defined, this
+// routine may not atomically set SIGMASK and begin waiting, so you'll
+// need to arrange for some other wakeup mechanism to avoid racing
+// against signal delivery.
+int xppoll(struct pollfd *fds, nfds_t nfds,
+           const struct timespec *timeout_ts,
+           const sigset_t *sigmask);
 
 #ifndef HAVE_MKOSTEMP
 int mkostemp(char *template, int flags);

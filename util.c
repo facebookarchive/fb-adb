@@ -27,17 +27,18 @@
 #include <sys/types.h>
 #include <sys/un.h>
 
-#ifdef HAVE_KQUEUE
-#include <sys/event.h>
-#include <sys/time.h>
-#endif
-
 #ifdef HAVE_SIGNALFD_4
 #include <sys/signalfd.h>
 #endif
 
 #include "util.h"
 #include "constants.h"
+
+#if XPPOLL == XPPOLL_KQUEUE
+#include <sys/event.h>
+#include <sys/time.h>
+static int ppoll_kq = -1;
+#endif
 
 struct errhandler {
     sigjmp_buf where;
@@ -753,6 +754,12 @@ main1(void* arg)
         sigaddset(&signals_unblock_for_io, quit_signals[i]);
     }
 
+#if XPPOLL == XPPOLL_KQUEUE
+    ppoll_kq = kqueue(); // Not inherited across fork
+    if (ppoll_kq < 0)
+        die_errno("kqueue");
+#endif
+
     mi->ret = real_main(mi->argc, mi->argv);
 }
 
@@ -940,18 +947,7 @@ write_all(int fd, const void* buf, size_t sz)
     }
 }
 
-#if !defined(HAVE_PPOLL) && defined(__linux__)
-#define HAVE_PPOLL 1
-
-# if !defined(HAVE_SIGNALFD_4)
-# define SFD_CLOEXEC O_CLOEXEC
-int
-signalfd4(int fd, const sigset_t* mask, int flags)
-{
-    return syscall(__NR_signalfd4, fd, mask, flags);
-}
-#endif
-
+__attribute__((unused))
 static int
 timespec_to_ms(const struct timespec* ts)
 {
@@ -966,92 +962,37 @@ timespec_to_ms(const struct timespec* ts)
     return ts->tv_sec * 1000 + ts->tv_nsec / ns_per_ms;
 }
 
-static int
-ppoll_emulation(struct pollfd *fds, nfds_t nfds,
-                const struct timespec *timeout_ts,
-                const sigset_t *sigmask)
+#if XPPOLL == XPPOLL_LINUX_SYSCALL
+int
+xppoll(struct pollfd *fds, nfds_t nfds,
+       const struct timespec *timeout_ts, const sigset_t *sigmask)
 {
-    int ret = -1;
-    int sfd = -1;
-    sigset_t inverse_sigmask;
-    struct pollfd* xfds;
-    int pr;
-    int poll_timeout = timespec_to_ms(timeout_ts);
-
-    if (sigmask == NULL)
-        return poll(fds, nfds, poll_timeout);
-
-    sigemptyset(&inverse_sigmask);
-    for (int i = 0; i < NSIG; ++i)
-        if (!sigismember((sigset_t*) sigmask, i))
-            sigaddset(&inverse_sigmask, i);
-
-    if (nfds > INT_MAX ||
-        (nfds + 1) > SIZE_MAX / sizeof (*xfds))
-    {
-        errno = EINVAL;
-        goto out;
+    struct timespec timeout_local;
+    if (timeout_ts) {
+        memcpy(&timeout_local, timeout_ts, sizeof (*timeout_ts));
+        timeout_ts = &timeout_local;
     }
 
-    xfds = alloca((nfds + 1) * sizeof (*xfds));
-    memcpy(&xfds[1], fds, nfds);
-    memset(&xfds[0], 0, sizeof (xfds[0]));
-    xfds[0].fd = sfd;
-    xfds[0].events = POLLIN;
-
-    sfd = signalfd4(-1, &inverse_sigmask, SFD_CLOEXEC);
-    if (sfd == -1)
-        goto out;
-
-    pr = poll(xfds, nfds + 1, poll_timeout);
-    if (pr < 1)
-        goto out;
-
-    if (xfds[0].revents & POLLIN) {
-        // Got a signal.  Temporarily set sigprocmask to the one
-        // specified in order to give signals a shot at delivery.
-        sigset_t orig_sigmask;
-        sigprocmask(SIG_SETMASK, sigmask, &orig_sigmask);
-        sigprocmask(SIG_SETMASK, &orig_sigmask, NULL);
-        errno = EINTR;
-        goto out;
-    }
-
-    memcpy(fds, &xfds[1], nfds);
-    ret = 0;
-
-    out:
-
-    if (sfd != -1)
-        xclose(sfd);
-
-    return ret;
+    return syscall(__NR_ppoll, fds, nfds, timeout_ts, sigmask, _NSIG/8);
 }
-
+#elif XPPOLL == XPPOLL_KQUEUE
 int
-ppoll(struct pollfd *fds, nfds_t nfds,
-      const struct timespec *timeout_ts, const sigset_t *sigmask)
-{
-    int ret = syscall(__NR_ppoll, fds, nfds, timeout_ts, sigmask);
-    if (ret == -1 && errno == ENOSYS)
-        return ppoll_emulation(fds, nfds, timeout_ts, sigmask);
-    return ret;
-}
-#endif
-
-#if !defined(HAVE_PPOLL) && defined(HAVE_KQUEUE)
-#define HAVE_PPOLL 1
-int
-ppoll(struct pollfd *fds, nfds_t nfds,
-      const struct timespec *timeout_ts, const sigset_t *sigmask)
+xppoll(struct pollfd *fds, nfds_t nfds,
+       const struct timespec *timeout_ts, const sigset_t *sigmask)
 {
     int ret = -1;
-    int kq = kqueue();
-    if (kq < 0)
-        goto out;
+    int kq = ppoll_kq;
+
+    assert(kq != -1); // Should have initialized in main()
 
     sigset_t oldmask;
     size_t nr_events = 0;
+    struct kevent* events = NULL;
+    struct kevent* revents = NULL;
+    int nret;
+    int nr_installed_events = 0;
+    int saved_errno;
+
     for (unsigned fdno = 0; fdno < nfds; ++fdno) {
         if (fds[fdno].fd == -1)
             continue;
@@ -1076,15 +1017,17 @@ ppoll(struct pollfd *fds, nfds_t nfds,
         goto out;
     }
 
-    struct kevent* events = alloca(sizeof (*events) * nr_events);
+    events = alloca(sizeof (*events) * nr_events);
     memset(events, 0, sizeof (*events) * nr_events);
+    revents = alloca(sizeof (*revents) * nr_events);
+
     int evno = 0;
 
     for (int sig = 1; sigmask != NULL && sig < NSIG; ++sig) {
         if (!sigismember(sigmask, sig)) {
             struct kevent* kev = &events[evno++];
             kev->ident = sig;
-            kev->flags = EV_ADD;
+            kev->flags = EV_ADD | EV_RECEIPT;
             kev->filter = EVFILT_SIGNAL;
         }
     }
@@ -1096,7 +1039,7 @@ ppoll(struct pollfd *fds, nfds_t nfds,
         if (fds[fdno].events & POLLIN) {
             struct kevent* kev = &events[evno++];
             kev->ident = fds[fdno].fd;
-            kev->flags = EV_ADD;
+            kev->flags = EV_ADD | EV_RECEIPT;
             kev->filter = EVFILT_READ;
             kev->udata = &fds[fdno];
         }
@@ -1104,23 +1047,73 @@ ppoll(struct pollfd *fds, nfds_t nfds,
         if (fds[fdno].events & POLLOUT) {
             struct kevent* kev = &events[evno++];
             kev->ident = fds[fdno].fd;
-            kev->flags = EV_ADD;
+            kev->flags = EV_ADD | EV_RECEIPT;
             kev->filter = EVFILT_WRITE;
             kev->udata = &fds[fdno];
 
         }
     }
 
-    if (sigmask)
+    // Register event filters, but don't receive any events yet.
+
+    nret = kevent(kq, events, nr_events, revents, nr_events, 0);
+    if (nret < 0) {
+        if (errno != EINTR)
+            dbg("kevent itself failed: %d", nret);
+        goto out;
+    }
+
+    int nr_invalid_fds = 0;
+    ret = 0;
+    for (evno = 0; evno < nret; ++evno) {
+        if ((revents[evno].flags & EV_ERROR) == 0)
+            abort();
+        if (revents[evno].data == 0) {
+            struct kevent* undo_event = &events[nr_installed_events++];
+            memset(undo_event, 0, sizeof (*undo_event));
+            undo_event->ident = revents[evno].ident;
+            undo_event->filter = revents[evno].filter;
+            undo_event->flags = EV_DELETE;
+        } else if (revents[evno].udata != NULL) {
+            struct pollfd* fd = revents[evno].udata;
+            fd->revents = POLLNVAL;
+            ++nr_invalid_fds;
+        } else {
+            errno = revents[evno].data;
+            ret = -1;
+        }
+    }
+
+    if (ret != 0)
+        goto out;
+
+    ret = -1;
+
+    if (nr_invalid_fds > 0) {
+        ret = nr_invalid_fds;
+        goto out;
+    }
+
+    // EVFILT_SIGNAL doesn't trigger for signals that were already
+    // pending before kqueue(2), so we need to explicitly check
+    // whether any were pending.  We allowed these signals to be
+    // delivered with SIG_SETMASK, so the EINTR return just reflects
+    // the signal delivery that already happened.
+
+    if (sigmask) {
+        sigset_t pending;
+        sigpending(&pending);
         sigprocmask(SIG_SETMASK, sigmask, &oldmask);
+        for (int sig = 1; sig < NSIG; ++sig) {
+            if (sigismember(&pending, sig) && !sigismember(sigmask, sig)) {
+                sigprocmask(SIG_SETMASK, &oldmask, NULL);
+                errno = EINTR;
+                goto out;
+            }
+        }
+    }
 
-    int nret = kevent(kq,
-                      events,
-                      nr_events,
-                      events,
-                      nr_events,
-                      timeout_ts);
-
+    nret = kevent(kq, NULL, 0, revents, nr_events, timeout_ts);
     if (sigmask)
         sigprocmask(SIG_SETMASK, &oldmask, NULL);
 
@@ -1163,24 +1156,42 @@ ppoll(struct pollfd *fds, nfds_t nfds,
 
     out:
 
-    if (kq != -1) {
-        int saved_errno;
-        if (ret == -1)
-            saved_errno = errno;
+    saved_errno = errno;
+    do {
+        nret = kevent(kq, events, nr_installed_events,
+                      revents, nr_events, NULL);
+    } while (nret == -1 && errno == EINTR);
 
-        xclose(kq);
+    if (nret < 0)
+        abort(); // Deleting filters should never fail
 
-        if (ret == -1)
-            errno = saved_errno;
-    }
+    errno = saved_errno;
 
     return ret;
 }
-#endif
+#elif XPPOLL == XPPOLL_SYSTEM
+int
+xppoll(struct pollfd *fds, nfds_t nfds,
+       const struct timespec *timeout_ts, const sigset_t *sigmask)
+{
+    return ppoll(fds, nfds, timeout_ts, sigmask);
+}
+#elif XPPOLL == XPPOLL_STUPID_WRAPPER
+int
+xppoll(struct pollfd *fds, nfds_t nfds,
+       const struct timespec *timeout_ts, const sigset_t *sigmask)
+{
+    int ret;
+    sigset_t saved_sigmask;
 
-#if !defined(HAVE_PPOLL) && defined(HAVE_PSELECT)
-# error Y U no safe poll
-#endif
+    sigprocmask(SIG_SETMASK, sigmask, &saved_sigmask);
+    ret = poll(fds, nfds, timespec_to_ms(timeout_ts));
+    sigprocmask(SIG_SETMASK, &saved_sigmask, NULL);
+    return ret;
+}
+#else
+# error Y U no decent signal handling
+#endif /* xppoll implementation */
 
 #ifndef HAVE_DUP3
 int
