@@ -98,9 +98,7 @@ child_cleanup(void* arg)
                 child_pid = -child_pid;
             }
 
-            if (kill(child->pid, SIGTERM) < 0 && errno != ESRCH)
-                die_errno("kill(%d)", (int) child->pid);
-
+            (void) kill(child_pid, sig);
         } else {
             /* In the pty case, the system's automatic SIGHUP should
              * take care of the killing.  */
