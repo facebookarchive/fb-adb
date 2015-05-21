@@ -1073,7 +1073,7 @@ xppoll(struct pollfd *fds, nfds_t nfds,
             memset(undo_event, 0, sizeof (*undo_event));
             undo_event->ident = revents[evno].ident;
             undo_event->filter = revents[evno].filter;
-            undo_event->flags = EV_DELETE;
+            undo_event->flags = EV_DELETE | EV_RECEIPT;
         } else if (revents[evno].udata != NULL) {
             struct pollfd* fd = revents[evno].udata;
             fd->revents = POLLNVAL;
@@ -1127,7 +1127,7 @@ xppoll(struct pollfd *fds, nfds_t nfds,
     bool sig_happened = false;
 
     for (evno = 0; evno < nret; ++evno) {
-        struct kevent* kev = &events[evno];
+        struct kevent* kev = &revents[evno];
         if (kev->filter == EVFILT_READ ||
             kev->filter == EVFILT_WRITE)
         {
@@ -1140,6 +1140,7 @@ xppoll(struct pollfd *fds, nfds_t nfds,
         }
 
         if (kev->filter == EVFILT_SIGNAL) {
+            assert(key->data != 0);
             dbg("got signal %d", (int) kev->data);
             sig_happened = true;
         }
