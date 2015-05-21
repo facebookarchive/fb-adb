@@ -1140,7 +1140,7 @@ xppoll(struct pollfd *fds, nfds_t nfds,
         }
 
         if (kev->filter == EVFILT_SIGNAL) {
-            assert(key->data != 0);
+            assert(kev->data != 0);
             dbg("got signal %d", (int) kev->data);
             sig_happened = true;
         }
