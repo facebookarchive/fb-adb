@@ -84,7 +84,7 @@ fi
 AM_INIT_AUTOMAKE([-Wall -Werror foreign])
 AC_SUBST([PATH])
 
-AC_PROG_CC_C99
+AC_PROG_CC
 AC_PROG_SED
 
 AC_CHECK_TOOLS(RANLIB, [gcc-ranlib ranlib])
