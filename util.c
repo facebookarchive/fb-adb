@@ -1066,8 +1066,12 @@ xppoll(struct pollfd *fds, nfds_t nfds,
     int nr_invalid_fds = 0;
     ret = 0;
     for (evno = 0; evno < nret; ++evno) {
-        if ((revents[evno].flags & EV_ERROR) == 0)
+        if ((revents[evno].flags & EV_ERROR) == 0) {
+            dbg("did not get EV_ERROR from revents as expected: "
+                "flags: 0x%08x", (unsigned) revents[evno].flags);
             abort();
+        }
+
         if (revents[evno].data == 0) {
             struct kevent* undo_event = &events[nr_installed_events++];
             memset(undo_event, 0, sizeof (*undo_event));
@@ -1163,8 +1167,10 @@ xppoll(struct pollfd *fds, nfds_t nfds,
                       revents, nr_events, NULL);
     } while (nret == -1 && errno == EINTR);
 
-    if (nret < 0)
+    if (nret < 0) {
+        dbg("deleting filters failed with errno %d", errno);
         abort(); // Deleting filters should never fail
+    }
 
     errno = saved_errno;
 
