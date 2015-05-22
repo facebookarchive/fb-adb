@@ -72,10 +72,59 @@ void
 chat_swallow_prompt(struct chat* cc)
 {
     /* 100% reliable prompt detection */
-    char c;
-    do {
-        c = chat_getc(cc);
-    } while (c != '#' && c != '$');
+    unsigned csi_arg = 0;
+    enum { S_NORMAL, S_AFTER_ESC, S_AFTER_CSI } state = S_NORMAL;
+
+    for (;;) {
+        char c = chat_getc(cc);
+        if (c == '#' || c == '$')
+            break;
+
+        // Some systems run resize(1), part of busybox, when an
+        // interactive shell connects.  The state machine below looks
+        // for status queries from this program and replies with a
+        // fake answer.  Ignoring the query leads to busybox waiting
+        // three seconds for an answer before giving up.
+
+        switch (state) {
+            default:
+            case S_NORMAL:
+                if (c == '\033')
+                    state = S_AFTER_ESC;
+                break;
+
+            case S_AFTER_ESC:
+                if (c == '[') {
+                    state = S_AFTER_CSI;
+                    csi_arg = 0;
+                } else {
+                    state = S_NORMAL;
+                }
+
+                break;
+
+            case S_AFTER_CSI:
+                if ('0' <= c && c <= '9') {
+                    csi_arg = 10 * csi_arg + c-'0';
+                } else if (c == 'n') {
+                    if (csi_arg == 5) {
+                        if (fputs("\033[0n", cc->to) == EOF)
+                            chat_die();
+                    } else if (csi_arg == 6) {
+                        if (fputs("\033[25;80R", cc->to) == EOF)
+                            chat_die();
+                    }
+                    if (fflush(cc->to) == EOF)
+                        chat_die();
+
+                    state = S_NORMAL;
+                } else {
+                    state = S_NORMAL;
+                }
+
+                break;
+        }
+    }
 
     chat_expect(cc, ' ');
 }
