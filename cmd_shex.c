@@ -965,6 +965,22 @@ parse_transport(const char* s,
     }
 }
 
+static void
+forward_envvar(struct environ_op** inout_environ_ops, const char* name)
+{
+    struct environ_op* environ_ops = *inout_environ_ops;
+    const char* value = getenv(name);
+    if (value) {
+        struct environ_op* eop = xcalloc(sizeof (*eop));
+        eop->next = environ_ops;
+        eop->name = xstrdup(name);
+        eop->value = xstrdup(value);
+        environ_ops = eop;
+    }
+
+    *inout_environ_ops = environ_ops;
+}
+
 static int
 shex_main_common(enum shex_mode smode, int argc, const char** argv)
 {
@@ -1140,6 +1156,15 @@ shex_main_common(enum shex_mode smode, int argc, const char** argv)
     if (smode == SHEX_MODE_SHELL && argc > 0)
         make_shell_command_line("sh", &argc, &argv);
 
+    // Reverse environ_ops back to argv order.
+    environ_ops = reverse_environ_ops(environ_ops);
+
+    // Prepend forwarding so that explicit user environment
+    // modifications override.
+    forward_envvar(&environ_ops, "LINES");
+    forward_envvar(&environ_ops, "COLUMNS");
+    forward_envvar(&environ_ops, "TERM");
+
     if (tty_mode == TTY_AUTO)
         tty_mode = (argc == 0) ? TTY_ENABLE : TTY_DISABLE;
 
@@ -1227,7 +1252,7 @@ shex_main_common(enum shex_mode smode, int argc, const char** argv)
     if (child_chdir)
         send_chdir(tc, child_chdir);
 
-    send_environ_ops(tc, reverse_environ_ops(environ_ops));
+    send_environ_ops(tc, environ_ops);
     send_cmdline(tc, argc, argv, exename);
 
     struct fb_adb_shex shex;
