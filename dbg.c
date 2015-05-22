@@ -163,56 +163,77 @@ ringbuf_dbg(const struct ringbuf* rb)
     iovec_dbg(iov, ARRAYSIZE(iov));
 }
 
+static const char*
+msgtoname(const struct msg* msg)
+{
+#define M(_name)                                \
+    if (msg->type == _name) {                   \
+        return #_name;                          \
+    }
+
+    ENUM_MSG_TYPES(M);
+#undef M
+    return "MSG_???";
+}
+
 void
-dbgmsg(struct msg* msg, const char* tag)
+dbgmsg(const struct msg* msg, const char* tag)
 {
     switch (msg->type) {
         case MSG_CHANNEL_DATA: {
             struct msg_channel_data* m = (void*) msg;
-            dbg("%s MSG_CHANNEL_DATA ch=%s sz=%u payloadsz=%zu",
-                tag, chname(m->channel), m->msg.size, m->msg.size - sizeof (*m));
+            dbg("%s %s ch=%s sz=%u payloadsz=%zu",
+                tag, msgtoname(msg),
+                chname(m->channel), m->msg.size, m->msg.size - sizeof (*m));
             break;
         }
         case MSG_CHANNEL_DATA_LZ4: {
             struct msg_channel_data_lz4* m = (void*) msg;
-            dbg(("%s MSG_CHANNEL_DATA_LZ4 ch=%s sz=%u "
+            dbg(("%s %s ch=%s sz=%u "
                  "payloadsz=%zu uncomp=%u"),
-                tag, chname(m->channel), m->msg.size, m->msg.size - sizeof (*m),
+                tag, msgtoname(msg),
+                chname(m->channel), m->msg.size, m->msg.size - sizeof (*m),
                 (unsigned) m->uncompressed_size);
             break;
         }
         case MSG_CHANNEL_WINDOW: {
             struct msg_channel_window* m = (void*) msg;
-            dbg("%s MSG_CHANNEL_WINDOW ch=%s d=%u",
-                tag, chname(m->channel), m->window_delta);
+            dbg("%s %s ch=%s d=%u",
+                tag, msgtoname(msg),
+                chname(m->channel), m->window_delta);
             break;
         }
         case MSG_CHANNEL_CLOSE: {
-            dbg("%s MSG_CHANNEL_CLOSE ch=%s",
-                tag, chname(((struct msg_channel_close*)msg)->channel));
+            dbg("%s %s ch=%s",
+                tag, msgtoname(msg),
+                chname(((struct msg_channel_close*)msg)->channel));
             break;
         }
         case MSG_WINDOW_SIZE: {
             struct msg_window_size* ws = (void*) msg;
-            dbg("%s MSG_WINDOW_SIZE row=%u col=%u xpixel=%u ypixel=%u",
-                tag, ws->ws.row, ws->ws.col, ws->ws.xpixel, ws->ws.ypixel);
+            dbg("%s %s row=%u col=%u xpixel=%u ypixel=%u",
+                tag, msgtoname(msg),
+                ws->ws.row, ws->ws.col, ws->ws.xpixel, ws->ws.ypixel);
             break;
         }
         case MSG_CHILD_EXIT: {
             struct msg_child_exit* m = (void*) msg;
-            dbg("%s MSG_CHILD_EXIT status=%u", tag, m->exit_status);
+            dbg("%s %s status=%u", tag, msgtoname(msg), m->exit_status);
             break;
         }
         case MSG_CHDIR: {
             struct msg_chdir* m = (void*) msg;
-            dbg("%s MSG_CHDIR dir=%.*s",
-                tag,
+            dbg("%s %s dir=%.*s",
+                tag, msgtoname(msg),
                 (int) (m->msg.size - sizeof (*m)),
                 m->dir);
             break;
         }
         default: {
-            dbg("%s MSG_??? type=%d sz=%d", tag, msg->type, msg->size);
+            dbg("%s %s type=%d sz=%d",
+                tag,
+                msgtoname(msg),
+                msg->type, msg->size);
             break;
         }
     }

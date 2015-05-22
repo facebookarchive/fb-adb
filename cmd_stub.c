@@ -41,6 +41,7 @@
 #include "timestamp.h"
 #include "cmd_stub.h"
 #include "net.h"
+#include "xenviron.h"
 
 static void
 send_exit_message(int status, struct fb_adb_sh* sh)
@@ -168,35 +169,61 @@ setup_pty(int master, int slave, void* arg)
     }
 }
 
+static void*
+check_msg_cast(struct msg* h, size_t minimum_size)
+{
+    if (h->size < minimum_size) {
+        die(ECOMM,
+            "bad handshake: short message:"
+            "type=%u expected=%u received=%u",
+            (unsigned) h->type,
+            (unsigned) minimum_size,
+            (unsigned) h->size);
+    }
+
+    return h;
+}
+
+#define CHECK_MSG_CAST(_mhdr, _type) \
+    ((_type *) check_msg_cast((_mhdr), sizeof (_type)))
+
+static void
+die_setup_eof(void)
+{
+    die(ECOMM, "peer disconnected");
+}
+
+static void
+die_setup_overflow(void)
+{
+    die(ECOMM, "bad handshake: length too big");
+}
+
 static void
 read_child_arglist(reader rdr,
                    size_t expected,
                    char*** out_argv,
-                   const char** out_cwd)
+                   const char** out_cwd,
+                   struct xenviron** out_xe)
 {
     char** argv;
     const char* cwd = NULL;
+    struct xenviron* xe = NULL;
 
     if (expected >= SIZE_MAX / sizeof (*argv))
         die(EFBIG, "too many arguments");
 
     argv = xalloc(sizeof (*argv) * (1+expected));
-    for (size_t argno = 0; argno < expected; ++argno) {
+    size_t argno = 0;
+    while (argno < expected) {
         SCOPED_RESLIST(rl_read_arg);
-        struct msg_cmdline_argument* m;
         struct msg* mhdr = read_msg(0, rdr);
-
-        const char* argval;
+        const char* argval = NULL;
         size_t arglen;
 
         if (mhdr->type == MSG_CMDLINE_ARGUMENT) {
-            m = (struct msg_cmdline_argument*) mhdr;
-            if (mhdr->size < sizeof (*m))
-                die(ECOMM,
-                    "bad handshake: MSG_CMDLINE_ARGUMENT size %u < %u",
-                    (unsigned) mhdr->size,
-                    (unsigned) sizeof (*m));
-
+            struct msg_cmdline_argument* m =
+                CHECK_MSG_CAST(mhdr, struct msg_cmdline_argument);
             argval = m->value;
             arglen = m->msg.size - sizeof (*m);
         } else if (mhdr->type == MSG_CMDLINE_DEFAULT_SH ||
@@ -212,45 +239,125 @@ read_child_arglist(reader rdr,
             arglen = strlen(argval);
         } else if (mhdr->type == MSG_CMDLINE_ARGUMENT_JUMBO) {
             struct msg_cmdline_argument_jumbo* mj =
-                (struct msg_cmdline_argument_jumbo*) mhdr;
-
-            if (mhdr->size != sizeof (*mj))
-                die(ECOMM,
-                    "bad handshake: MSG_CMDLINE_ARGUMENT_JUMBO size %u != %u",
-                    (unsigned) mhdr->size,
-                    (unsigned) sizeof (*mj));
+                CHECK_MSG_CAST(mhdr, struct msg_cmdline_argument_jumbo);
 
             arglen = mj->actual_size;
             void* buf = xalloc(arglen);
             size_t nr_read = rdr(0, buf, arglen);
             if (nr_read != arglen)
-                die(ECOMM, "peer disconnected");
+                die_setup_eof();
             argval = buf;
+        } else if (mhdr->type == MSG_CLEARENV) {
+            if (xe) {
+                xenviron_clear(xe);
+            } else {
+                WITH_CURRENT_RESLIST(rl_read_arg->parent);
+                xe = xenviron_create(NULL);
+            }
+        } else if (mhdr->type == MSG_ENVIRONMENT_VARIABLE_SET) {
+            struct msg_environment_variable_set* e =
+                CHECK_MSG_CAST(mhdr, struct msg_environment_variable_set);
+            const char* payload = e->value;
+            size_t payload_length = e->msg.size - sizeof (*e);
+            const char* name;
+            const char* value;
+            size_t name_length = strnlen(payload, payload_length);
+
+            if (name_length == payload_length)
+                die(ECOMM, "invalid environment variable messsage");
+
+            name = payload;
+            size_t value_offset = name_length + 1;
+            value = xstrndup(payload + value_offset,
+                             payload_length - value_offset);
+
+            if (xe == NULL) {
+                WITH_CURRENT_RESLIST(rl_read_arg->parent);
+                xe = xenviron_copy_environ();
+            }
+            xenviron_set(xe, name, value);
+        } else if (mhdr->type == MSG_ENVIRONMENT_VARIABLE_SET_JUMBO) {
+            struct msg_environment_variable_set_jumbo* ej =
+                CHECK_MSG_CAST(
+                    mhdr,
+                    struct msg_environment_variable_set_jumbo);
+
+            if (ej->name_length == SIZE_MAX || ej->value_length == SIZE_MAX)
+                die_setup_overflow();
+
+            char* name = xalloc((size_t) ej->name_length + 1);
+            char* value = xalloc((size_t) ej->value_length + 1);
+
+            if (rdr(0, name, ej->name_length) < ej->name_length ||
+                rdr(0, value, ej->value_length) < ej->value_length)
+                die_setup_eof();
+
+            name[ej->name_length] = '\0';
+            value[ej->value_length] = '\0';
+
+            if (xe == NULL) {
+                WITH_CURRENT_RESLIST(rl_read_arg->parent);
+                xe = xenviron_copy_environ();
+            }
+            xenviron_set(xe, name, value);
+        } else if (mhdr->type == MSG_ENVIRONMENT_VARIABLE_UNSET) {
+            struct msg_environment_variable_unset* ue =
+                CHECK_MSG_CAST(mhdr, struct msg_environment_variable_unset);
+            const char* payload = ue->name;
+            size_t payload_length = ue->msg.size - sizeof (*ue);
+
+            if (xe == NULL) {
+                WITH_CURRENT_RESLIST(rl_read_arg->parent);
+                xe = xenviron_copy_environ();
+            }
+            xenviron_unset(xe, xstrndup(payload, payload_length));
+        } else if (mhdr->type == MSG_ENVIRONMENT_VARIABLE_UNSET_JUMBO) {
+            struct msg_environment_variable_unset_jumbo* uej =
+                CHECK_MSG_CAST(
+                    mhdr,
+                    struct msg_environment_variable_unset_jumbo);
+
+            if (uej->name_length == SIZE_MAX)
+                die_setup_overflow();
+
+            char* name = xalloc((size_t) uej->name_length + 1);
+            if (rdr(0, name, uej->name_length) < uej->name_length)
+                die_setup_eof();
+
+            name[uej->name_length] = '\0';
+            if (xe == NULL) {
+                WITH_CURRENT_RESLIST(rl_read_arg->parent);
+                xe = xenviron_copy_environ();
+            }
+            xenviron_unset(xe, name);
         } else if (mhdr->type == MSG_CHDIR) {
-            struct msg_chdir* mchd = (struct msg_chdir*) mhdr;
+            struct msg_chdir* mchd = CHECK_MSG_CAST(mhdr, struct msg_chdir);
             WITH_CURRENT_RESLIST(rl_read_arg->parent);
             cwd = xstrndup(mchd->dir, mhdr->size - sizeof (*mchd));
-            --argno;
-            continue;
         } else {
             die(ECOMM,
                 "bad handshake: unknown init msg s=%u t=%u",
                 (unsigned) mhdr->size, (unsigned) mhdr->type);
         }
 
-        WITH_CURRENT_RESLIST(rl_read_arg->parent);
-        size_t allocsz;
-        if (SATADD(&allocsz, arglen, 1))
-            die(ECOMM, "bad handshake: argument length overflow");
+        if (argval != NULL) {
+            WITH_CURRENT_RESLIST(rl_read_arg->parent);
+            size_t allocsz;
+            if (SATADD(&allocsz, arglen, 1))
+                die_setup_overflow();
 
-        argv[argno] = xalloc(arglen + 1);
-        memcpy(argv[argno], argval, arglen);
-        argv[argno][arglen] = '\0';
+            argv[argno] = xalloc(arglen + 1);
+            memcpy(argv[argno], argval, arglen);
+            argv[argno][arglen] = '\0';
+
+            argno += 1;
+        }
     }
 
     argv[expected] = NULL;
     *out_argv = argv;
     *out_cwd = cwd;
+    *out_xe = xe;
 }
 
 static struct child*
@@ -262,10 +369,12 @@ start_child(reader rdr, struct msg_shex_hello* shex_hello)
     SCOPED_RESLIST(rl_args);
     char** child_args;
     const char* child_chdir = NULL;
+    struct xenviron* child_xe = NULL;
     read_child_arglist(rdr,
                        shex_hello->nr_argv,
                        &child_args,
-                       &child_chdir);
+                       &child_chdir,
+                       &child_xe);
 
     WITH_CURRENT_RESLIST(rl_args->parent);
 
@@ -273,6 +382,7 @@ start_child(reader rdr, struct msg_shex_hello* shex_hello)
         .flags = CHILD_SETSID,
         .exename = child_args[0],
         .argv = (const char* const *) child_args + 1,
+        .environ = child_xe ? xenviron_as_environ(child_xe) : NULL,
         .pty_setup = setup_pty,
         .pty_setup_data = shex_hello,
         .deathsig = -SIGHUP,

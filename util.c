@@ -27,6 +27,10 @@
 #include <sys/types.h>
 #include <sys/un.h>
 
+#if !defined(HAVE_EXECVPE)
+#include <paths.h>
+#endif
+
 #ifdef HAVE_SIGNALFD_4
 #include <sys/signalfd.h>
 #endif
@@ -50,7 +54,6 @@ struct errhandler {
 static struct reslist reslist_top;
 static struct reslist* _reslist_current;
 static struct errhandler* current_errh;
-__attribute__((noreturn)) static void die_oom(void);
 const char* prgname;
 const char* orig_argv0;
 
@@ -1449,3 +1452,122 @@ sigaction_restore_as_cleanup(int signo, struct sigaction* sa)
 
     cleanup_commit(cl, cleanup_restore_sighandler, cs);
 }
+
+
+
+#ifdef HAVE_EXECVPE
+void
+xexecvpe(const char* file,
+         const char* const* argv,
+         const char* const* envp)
+{
+    execvpe(file,
+            (char* const*) argv,
+            (char* const*) envp);
+    die_errno("execvpe(\"%s\")", file);
+}
+#else
+static void
+call_execve(const char* file,
+            const char* const* argv,
+            const char* const* envp)
+{
+    (void) execve(file, (char* const*) argv, (char* const*) envp);
+}
+
+static void
+try_execvpe_via_shell (const char* file,
+                       const char* const* argv,
+                       const char* const* envp)
+{
+    size_t argc = 0;
+    for (const char* const* a = argv; *a; ++a)
+        ++argc;
+
+    size_t shell_argc = argc + 2;
+    const char** shell_argv = xalloc(sizeof (char*) * (shell_argc + 1));
+    shell_argv[0] = "sh";
+    shell_argv[1] = file;
+    memcpy(&shell_argv[2], argv, sizeof (char*) * (argc+1));
+    call_execve(_PATH_BSHELL, shell_argv, envp);
+}
+
+void
+xexecvpe(const char* file,
+         const char* const* argv,
+         const char* const* envp)
+{
+    // Of _course_ Bionic lacks execvpe(3).
+    bool saw_eaccess = false;
+
+    if (file == NULL || file[0] == '\0') {
+        errno = ENOENT;
+        goto done;
+    }
+
+    if (strchr(file, '/')) {
+        call_execve(file, argv, envp);
+        if (errno == ENOEXEC)
+            try_execvpe_via_shell (file, argv, envp);
+        goto done;
+    }
+
+    size_t file_length = strlen(file);
+    const char* path = getenv("PATH") ?: _PATH_DEFPATH;
+    errno = 0;
+
+    while (*path != '\0') {
+        SCOPED_RESLIST(rl);
+
+        const char* path_element;
+        size_t path_element_length;
+        if (*path == ':') {
+            path_element = ".";
+            path_element_length = strlen(path_element);
+            path += 1;
+        } else {
+            path_element = path;
+            path_element_length = strcspn(path, ":");
+            path += path_element_length;
+        }
+
+        char* exe = xalloc(path_element_length + 1 + file_length + 1);
+        memcpy(&exe[0], path_element, path_element_length);
+        exe[path_element_length] = '/';
+        memcpy(&exe[path_element_length+1], file, file_length + 1);
+
+        call_execve(exe, argv, envp);
+
+        // Our reactions to specific errors comes from Bionic.
+        // The logic here is subtle.
+
+        switch (errno) {
+            case E2BIG:
+                goto done;
+            case EISDIR:
+            case ELOOP:
+            case ENAMETOOLONG:
+            case ENOENT:
+                break;
+            case ENOEXEC:
+                try_execvpe_via_shell (exe, argv, envp);
+                goto done;
+            case ENOMEM:
+                goto done;
+            case ENOTDIR:
+                break;
+            case ETXTBSY:
+                goto done;
+            case EACCES:
+                saw_eaccess = true;
+                break;
+            default:
+                goto done;
+        }
+    }
+
+    done:
+    errno = errno ?: (saw_eaccess ? EACCES : ENOENT);
+    die_errno("execvpe(\"%s\")", file);
+}
+#endif

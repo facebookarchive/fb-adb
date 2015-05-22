@@ -69,6 +69,7 @@ static void
 tc_sendmsg(const struct childcom* tc,
            const struct msg* m)
 {
+    dbgmsg(m, "tc_sendmsg");
     tc_write(tc, m, m->size);
 }
 
@@ -422,6 +423,115 @@ static void
 handle_sigwinch(int signo)
 {
     saw_sigwinch = true;
+}
+
+struct environ_op {
+    struct environ_op* next;
+    const char* name;
+    const char* value;
+};
+
+static struct environ_op*
+reverse_environ_ops(struct environ_op* environ_ops)
+{
+    // Reverse the operations list to restore argv order
+    struct environ_op* new_environ_ops = NULL;
+    while (environ_ops != NULL) {
+        struct environ_op* eop = environ_ops;
+        environ_ops = environ_ops->next;
+        eop->next = new_environ_ops;
+        new_environ_ops = eop;
+    }
+
+    return new_environ_ops;
+}
+
+static void
+send_environ_set(const struct childcom* tc,
+                 const char* name,
+                 const char* value)
+{
+    size_t name_length = strlen(name);
+    size_t value_length = strlen(value);
+    struct msg_environment_variable_set* e;
+    size_t msglen = sizeof (*e) + name_length + 1 + value_length;
+    if (msglen <= MSG_MAX_SIZE) {
+        e = alloca(msglen);
+        memset(e, 0, sizeof (*e));
+        e->msg.type = MSG_ENVIRONMENT_VARIABLE_SET;
+        e->msg.size = msglen;
+        memcpy(&e->value[0], name, name_length);
+        e->value[name_length] = '\0';
+        memcpy(&e->value[name_length+1], value, value_length);
+        tc_sendmsg(tc, &e->msg);
+    } else {
+        if (name_length > UINT32_MAX || value_length > UINT32_MAX)
+            die(EINVAL, "environment variable too long");
+
+        struct msg_environment_variable_set_jumbo ej;
+        memset(&ej, 0, sizeof (ej));
+        ej.msg.type = MSG_ENVIRONMENT_VARIABLE_SET_JUMBO;
+        ej.msg.size = sizeof (ej);
+        ej.name_length = name_length;
+        ej.value_length = value_length;
+        tc_sendmsg(tc, &ej.msg);
+        tc_write(tc, name, name_length);
+        tc_write(tc, value, value_length);
+    }
+}
+
+static void
+send_environ_unset(const struct childcom* tc,
+                   const char* name)
+{
+    size_t name_length = strlen(name);
+    struct msg_environment_variable_unset* ue;
+    size_t msglen = sizeof (*ue) + name_length;
+    if (msglen <= MSG_MAX_SIZE) {
+        ue = alloca(msglen);
+        memset(ue, 0, sizeof (*ue));
+        ue->msg.type = MSG_ENVIRONMENT_VARIABLE_UNSET;
+        ue->msg.size = msglen;
+        memcpy(&ue->name, name, name_length);
+        tc_sendmsg(tc, &ue->msg);
+    } else {
+        if (name_length > UINT32_MAX)
+            die(EINVAL, "environment variable too long");
+
+        struct msg_environment_variable_unset_jumbo uej;
+        memset(&uej, 0, sizeof (uej));
+        uej.msg.type = MSG_ENVIRONMENT_VARIABLE_UNSET_JUMBO;
+        uej.msg.size = sizeof (uej);
+        uej.name_length = name_length;
+        tc_sendmsg(tc, &uej.msg);
+        tc_write(tc, name, name_length);
+    }
+}
+
+static void
+send_environ_clearenv(const struct childcom* tc)
+{
+    struct msg cev;
+    memset(&cev, 0, sizeof (cev));
+    cev.type = MSG_CLEARENV;
+    cev.size = sizeof (cev);
+    tc_sendmsg(tc, &cev);
+}
+
+static void
+send_environ_ops(const struct childcom* tc,
+                 struct environ_op* environ_ops)
+{
+    while (environ_ops != NULL) {
+        struct environ_op* eop = environ_ops;
+        environ_ops = environ_ops->next;
+        if (eop->name && eop->value)
+            send_environ_set(tc, eop->name, eop->value);
+        else if (eop->name)
+            send_environ_unset(tc, eop->name);
+        else
+            send_environ_clearenv(tc);
+    }
 }
 
 static void
@@ -882,6 +992,8 @@ shex_main_common(enum shex_mode smode, int argc, const char** argv)
     if (transport_env)
         parse_transport(transport_env, &transport, &tcp_addr);
 
+    struct environ_op* environ_ops = NULL;
+
     memset(&tty_flags, 0, sizeof (tty_flags));
     for (int i = 0; i < 3; ++i)
         if (isatty(i)) {
@@ -902,13 +1014,16 @@ shex_main_common(enum shex_mode smode, int argc, const char** argv)
         { "user", required_argument, NULL, 'u' },
         { "chdir", required_argument, NULL, 'C' },
         { "transport", required_argument, NULL, 'X' },
+        { "setenv", required_argument, NULL, 'Y' },
+        { "unsetenv", required_argument, NULL, 'K' },
+        { "clearenv", no_argument, NULL, 'F' },
         { 0 }
     };
 
     for (;;) {
         int c = getopt_long(argc,
                             (char**) argv,
-                            "+:lhE:ftTdes:p:H:P:rUu:DC:X:",
+                            "+:lhE:ftTdes:p:H:P:rUu:DC:X:Y:K:F",
                             opts,
                             NULL);
         if (c == -1)
@@ -968,6 +1083,32 @@ shex_main_common(enum shex_mode smode, int argc, const char** argv)
             case 'X':
                 parse_transport(optarg, &transport, &tcp_addr);
                 break;
+            case 'Y': {
+                const char* sep = strchr(optarg, '=');
+                if (sep == NULL)
+                    die(EINVAL, "no value for environment variable %s", optarg);
+                struct environ_op* eop = xcalloc(sizeof (*eop));
+                eop->next = environ_ops;
+                eop->name = xstrndup(optarg, sep - optarg);
+                eop->value = xstrdup(sep+1);
+                environ_ops = eop;
+                break;
+            }
+            case 'K': {
+                if (strchr(optarg, '='))
+                    die(EINVAL, "invalid environment variable name %s", optarg);
+                struct environ_op* eop = xcalloc(sizeof (*eop));
+                eop->next = environ_ops;
+                eop->name = xstrdup(optarg);
+                environ_ops = eop;
+                break;
+            }
+            case 'F': {
+                struct environ_op* eop = xcalloc(sizeof (*eop));
+                eop->next = environ_ops;
+                environ_ops = eop;
+                break;
+            }
             case ':':
                 if (optopt == '\0') {
                     die(EINVAL, "missing argument for %s", argv[optind-1]);
@@ -1086,6 +1227,7 @@ shex_main_common(enum shex_mode smode, int argc, const char** argv)
     if (child_chdir)
         send_chdir(tc, child_chdir);
 
+    send_environ_ops(tc, reverse_environ_ops(environ_ops));
     send_cmdline(tc, argc, argv, exename);
 
     struct fb_adb_shex shex;

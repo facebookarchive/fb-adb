@@ -54,4 +54,6 @@ void read_cmdmsg(struct fb_adb_sh* sh,
     })
 
 typedef size_t (*reader)(int, void*,size_t);
+
+__attribute__((malloc))
 struct msg* read_msg(int fd, reader rdr);

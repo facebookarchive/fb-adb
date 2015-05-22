@@ -66,8 +66,9 @@ child_child_1(void* arg)
     if (ci->csi->pre_exec)
         ci->csi->pre_exec(ci->csi->pre_exec_data);
 
-    execvp(ci->csi->exename, (char**) ci->csi->argv);
-    die_errno("execvp(\"%s\")", ci->csi->exename);
+    xexecvpe(ci->csi->exename,
+             ci->csi->argv,
+             ci->csi->environ ?: (const char* const*) environ);
 }
 
 __attribute__((noreturn))

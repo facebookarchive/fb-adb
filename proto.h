@@ -18,26 +18,37 @@
 # error "fb-adb is not ported to big-endian systems"
 #endif
 
+#define ENUM_MSG_TYPES(_m)                         \
+    _m(MSG_CHANNEL_DATA)                           \
+    _m(MSG_CHANNEL_DATA_LZ4)                       \
+    _m(MSG_CHANNEL_WINDOW)                         \
+    _m(MSG_CHANNEL_CLOSE)                          \
+    _m(MSG_CHILD_EXIT)                             \
+    _m(MSG_ERROR)                                  \
+    _m(MSG_WINDOW_SIZE)                            \
+    _m(MSG_SHEX_HELLO)                             \
+    _m(MSG_CMDLINE_ARGUMENT)                       \
+    _m(MSG_CMDLINE_ARGUMENT_JUMBO)                 \
+    _m(MSG_CLEARENV)                               \
+    _m(MSG_ENVIRONMENT_VARIABLE_SET)               \
+    _m(MSG_ENVIRONMENT_VARIABLE_UNSET)             \
+    _m(MSG_ENVIRONMENT_VARIABLE_SET_JUMBO)         \
+    _m(MSG_ENVIRONMENT_VARIABLE_UNSET_JUMBO)       \
+    _m(MSG_CMDLINE_DEFAULT_SH)                     \
+    _m(MSG_CMDLINE_DEFAULT_SH_LOGIN)               \
+    _m(MSG_EXEC_AS_ROOT)                           \
+    _m(MSG_EXEC_AS_USER)                           \
+    _m(MSG_CHDIR)                                  \
+    _m(MSG_REBIND_TO_UNIX_SOCKET)                  \
+    _m(MSG_REBIND_TO_TCP4_SOCKET)                  \
+    _m(MSG_REBIND_TO_TCP6_SOCKET)                  \
+    _m(MSG_LISTENING_ON_SOCKET)
+
 enum msg_type {
-    MSG_CHANNEL_DATA = 40,
-    MSG_CHANNEL_DATA_LZ4,
-    MSG_CHANNEL_WINDOW,
-    MSG_CHANNEL_CLOSE,
-    MSG_CHILD_EXIT,
-    MSG_ERROR,
-    MSG_WINDOW_SIZE,
-    MSG_SHEX_HELLO,
-    MSG_CMDLINE_ARGUMENT,
-    MSG_CMDLINE_ARGUMENT_JUMBO,
-    MSG_CMDLINE_DEFAULT_SH,
-    MSG_CMDLINE_DEFAULT_SH_LOGIN,
-    MSG_EXEC_AS_ROOT,
-    MSG_EXEC_AS_USER,
-    MSG_CHDIR,
-    MSG_REBIND_TO_UNIX_SOCKET,
-    MSG_REBIND_TO_TCP4_SOCKET,
-    MSG_REBIND_TO_TCP6_SOCKET,
-    MSG_LISTENING_ON_SOCKET,
+    MSG_TYPE_PRE = 39, // Make sure zero is not a valid message
+#define M(_name) _name,
+    ENUM_MSG_TYPES(M)
+#undef M
 };
 
 #define MSG_MAX_SIZE UINT16_MAX
@@ -130,6 +141,29 @@ struct msg_cmdline_argument {
 struct msg_cmdline_argument_jumbo {
     struct msg msg;
     uint32_t actual_size;
+    // Large argument follows.
+};
+
+struct msg_environment_variable_set {
+    struct msg msg;
+    char value[0]; // NUL separates name and value.
+};
+
+struct msg_environment_variable_set_jumbo {
+    struct msg msg;
+    uint32_t name_length;
+    uint32_t value_length;
+};
+
+struct msg_environment_variable_unset {
+    struct msg msg;
+    char name[0];
+};
+
+struct msg_environment_variable_unset_jumbo {
+    struct msg msg;
+    uint32_t name_length;
+    // Name follows
 };
 
 struct msg_exec_as_user {

@@ -563,8 +563,6 @@ read_msg(int fd, reader rdr)
     if (mhdr.size < sizeof (mhdr))
         die_proto_error("impossible message");
 
-    dbg("read msg header type:%u size:%u", mhdr.type, mhdr.size);
-
     struct msg* m = xalloc(mhdr.size);
     memcpy(m, &mhdr, sizeof (mhdr));
     char* rest = (char*) m + sizeof (mhdr);
@@ -573,5 +571,6 @@ read_msg(int fd, reader rdr)
     if (nr_read < restsz)
         die_proto_error("truncated message");
 
+    dbgmsg(m, "read_msg");
     return m;
 }

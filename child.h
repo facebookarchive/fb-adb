@@ -27,6 +27,7 @@ struct child_start_info {
     int flags;
     const char* exename;
     const char* const* argv;
+    const char* const* environ;
     void (*pre_exec)(void* data);
     void* pre_exec_data;
     void (*pty_setup)(int master, int slave, void* data);

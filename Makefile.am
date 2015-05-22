@@ -50,6 +50,8 @@ libfb_adb_a_SOURCES = \
 	net.h \
 	lz4.c \
 	lz4.h \
+	xenviron.c \
+	xenviron.h \
 	$(EMPTY)
 
 fb_adb_SOURCES =

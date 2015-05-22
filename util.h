@@ -199,6 +199,8 @@ __attribute__((noreturn,format(printf, 2, 3)))
 void die(int err, const char* fmt, ...);
 __attribute__((noreturn,format(printf, 1, 2)))
 void die_errno(const char* fmt, ...);
+__attribute__((noreturn))
+void die_oom(void);
 
 // A FDH (File Descriptor Handle) is a package of a file descriptor
 // and a reslist that owns it.  It allows us to allocate an file
@@ -354,3 +356,10 @@ void _restore_io_unblocked_signals(sigset_t* saved);
 
 void save_signals_unblock_for_io(void);
 void sigaction_restore_as_cleanup(int signo, struct sigaction* sa);
+
+// Like execvpe, but actually works on bionic.  Die on error.
+// Not async-signal-safe.
+__attribute__((noreturn))
+void xexecvpe(const char* file,
+              const char* const* argv,
+              const char* const* envp);
