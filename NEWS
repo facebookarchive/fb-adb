@@ -11,13 +11,14 @@ New features:
  * Tuned buffer sizes for greater throughput
  * Set and unset environment variables in remote child environments
 
-Bugfixes:
+Bug fixes:
 
  * Build system now works properly in cross-compilation environment
  * Stub is never world-writable while on device
  * Clean up reliably on quit signals
  * Avoid deadlock during hard shutdown when partial msg in buffer
  * Safe concurrent stub uploading
+ * More errors propagated from stub to parent in human-readable form
 
 Version 1.2
 -----------
