@@ -89,6 +89,7 @@ Differences between \fBadb\fR and \fBfb-adb\fR are that \fBfb-adb\fR:
   * provides a generic facility to elevate to root without re-escaping command
 line arguments
   * transparently supports alternate, faster transports for shell connections
+  * supports sending environment variables to the child out-of-band
 
 .SH OPTIONS
 
@@ -203,6 +204,29 @@ This transport is typically much faster than the others: it
 bypasses adb completely.
 
 Note that traffic on this connection is unencrypted.
+
+.TP
+.BI \-Y " NAME=VALUE"
+.TQ
+.BI \--setenv " NAME=VALUE"
+Set the environment variable NAME to VALUE in the child.
+
+\fBfb-adb\fR begins with the default environment inherited from the
+shell.  \fBfb-adb\fR then applies the environment modifications
+described by \fB-Y\fR, \fB-K\fR, and \fB-F\fR in order.  The child
+inherits the resulting environment.
+
+.TP
+.BI \-K " NAME"
+.TQ
+.BI \--unsetenv " NAME=VALUE"
+Unset the environment variable NAME in the child.
+
+.TP
+.BI \-F
+.TQ
+.BI \--clearenv
+Unset all environment variables in the child.
 
 .TP
 .BR \-h ", " \--help ", " help
