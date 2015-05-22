@@ -676,6 +676,7 @@ reconnect_over_unix_socket(
                  (char*) first_non_null(
                      getenv("TEMP"),
                      getenv("TMP"),
+                     getenv("TMPDIR"),
                      DEFAULT_TEMP_DIR),
                  gen_hex_random(10));
 
