@@ -16,12 +16,6 @@
 #include <netinet/ip.h>
 
 struct sockaddr_un;
-enum addr_kind {
-    addr_unix_filesystem,
-#ifdef __linux__
-    addr_unix_abstract,
-#endif
-};
 
 struct addr {
     socklen_t size;
