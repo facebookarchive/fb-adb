@@ -7,7 +7,7 @@ BUILD_DIRS=$(addprefix build.,$(TARGETS))
 FINAL_BINARIES=
 BUILD_DIR=build.$*
 CC=gcc
-CONFIG_FLAGS=
+CONFIG_FLAGS=--enable-git-stamp
 CP=cp -f
 
 fb-adb.x86_64-apple-darwin12: CONFIG_FLAGS+=CC=$*-clang
