@@ -9,6 +9,7 @@ New features:
    (think of logger(1)).
  * LZ4 compression of traffic
  * Tuned buffer sizes for greater throughput
+ * Set and unset environment variables in remote child environments
 
 Bugfixes:
 
