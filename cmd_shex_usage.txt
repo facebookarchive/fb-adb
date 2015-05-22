@@ -36,7 +36,6 @@
 
   -X TRANSPORT
   --transport TRANSPORT
-
     Connect over the given transport.  The default is "shell".
 
     "shell" means to run the fb-adb protocol over an "adb shell"
@@ -61,6 +60,23 @@
     bypasses adb completely.
 
     Note that traffic on this connection is unencrypted.
+
+  -Y NAME=VALUE
+  --setenv NAME=VALUE
+    Set the environment variable NAME to VALUE in the child.
+
+    fb-adb begins with the default environment inherited from the
+    shell.  fb-adb then applies the environment modifications
+    described by -Y, -K, and -F in order.  The child inherits the
+    resulting environment.
+
+  -K NAME
+  --unsetenv NAME
+    Unset the environment variable NAME in the child.
+
+  -F
+  --clearenv
+    Unset all environment variables in the child.
 
   -h
   --help
