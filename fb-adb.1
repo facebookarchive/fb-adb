@@ -260,6 +260,9 @@ This environment variable provides the default value of the
 stub.  It should not try to send stubs for architectures that cannot
 possibly work.
 
+SELinux policy prevents the "socket" transport option from working
+correctly under Android Lollipop or later.  See Android issue 1151.
+
 .SH EXAMPLES
 
 .IP "Capture a screenshot from device and write it locally to a timestamped file"
