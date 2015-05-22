@@ -86,6 +86,9 @@ chat_swallow_prompt(struct chat* cc)
         // fake answer.  Ignoring the query leads to busybox waiting
         // three seconds for an answer before giving up.
 
+        // For details of the control codes, see
+        // http://invisible-island.net/xterm/ctlseqs/ctlseqs.html
+
         switch (state) {
             default:
             case S_NORMAL:
