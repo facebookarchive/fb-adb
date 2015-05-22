@@ -14,6 +14,10 @@
 
 /* The world is little-endian */
 
+#if __BYTE_ORDER__ != __ORDER_LITTLE_ENDIAN__
+# error "fb-adb is not ported to big-endian systems"
+#endif
+
 enum msg_type {
     MSG_CHANNEL_DATA = 40,
     MSG_CHANNEL_DATA_LZ4,
