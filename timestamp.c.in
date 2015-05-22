@@ -13,7 +13,11 @@
 const uintmax_t build_time = BUILD_TIMELLU;
 
 #ifdef HAVE_GIT_STAMP
-__attribute__((section("facebook.git")))
+# ifdef __APPLE__
+__attribute__((used,section("__DATA,facebook.git")))
+# else
+__attribute__((used,section("facebook.git")))
+#endif
 const char git_stamp[] =
 #endif
     /* Makefile appends the git stamp to this file */

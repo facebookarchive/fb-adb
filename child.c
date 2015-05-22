@@ -25,6 +25,8 @@
 #include "child.h"
 #include "net.h"
 
+extern char** environ;
+
 struct internal_child_info {
     int flags;
     const struct child_start_info* csi;
