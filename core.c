@@ -44,6 +44,20 @@ die_proto_error(const char* fmt, ...)
         xavprintf(fmt, args));
 }
 
+#ifndef FBADB_STUB
+static void
+look_for_stub_error(struct msg* m)
+{
+    if (m->type == MSG_ERROR) {
+        struct msg_error* me = (struct msg_error*) m;
+        if (me->msg.size < sizeof (*me))
+            die(ECOMM, "truncated MSG_ERROR");
+        size_t error_length = XMIN(me->msg.size - sizeof (*me), INT_MAX);
+        die(ECOMM, "error in stub: %.*s", (int) error_length, me->text);
+    }
+}
+#endif
+
 static bool
 detect_msg(struct ringbuf* rb, struct msg* mhdr)
 {
@@ -237,6 +251,13 @@ fb_adb_sh_process_msg(struct fb_adb_sh* sh, struct msg mhdr)
         read_cmdmsg(sh, mhdr, &m, sizeof (m));
         dbgmsg(&m.msg, "recv");
         fb_adb_sh_process_msg_channel_close(sh, &m);
+#ifndef FBADB_STUB
+    } else if (mhdr.type == MSG_ERROR) {
+        struct msg* me = alloca(mhdr.size);
+        read_cmdmsg(sh, mhdr, me, mhdr.size);
+        dbgmsg(me, "recv");
+        look_for_stub_error(me);
+#endif
     } else {
         ringbuf_note_removed(cmdch->rb, mhdr.size);
         die(ECOMM, "unrecognized command %d (sz=%hu)",
@@ -572,5 +593,10 @@ read_msg(int fd, reader rdr)
         die_proto_error("truncated message");
 
     dbgmsg(m, "read_msg");
+
+#ifndef FBADB_STUB
+    look_for_stub_error(m);
+#endif
+
     return m;
 }

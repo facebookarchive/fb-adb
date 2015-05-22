@@ -25,6 +25,8 @@
 
 #ifdef __ANDROID__
 #include <sys/system_properties.h>
+#include <android/log.h>
+#define LOG_TAG PACKAGE
 #endif
 
 #include "util.h"
@@ -42,6 +44,8 @@
 #include "cmd_stub.h"
 #include "net.h"
 #include "xenviron.h"
+
+static bool should_send_error_packet = false;
 
 static void
 send_exit_message(int status, struct fb_adb_sh* sh)
@@ -574,12 +578,15 @@ rebind_to_socket(struct msg* mhdr)
     xdup3nc(client, 2, 0);
 }
 
-int
-stub_main(int argc, const char** argv)
-{
-    if (argc != 1)
-        die(EINVAL, "this command is internal");
+struct main_args {
+    int argc;
+    const char** argv;
+    int result;
+};
 
+static int
+stub_main_1(int argc, const char** argv)
+{
     /* XMKRAW_SKIP_CLEANUP so we never change from raw back to cooked
      * mode on exit.  The connection dies on exit anyway, and
      * resetting the pty can send some extra bytes that can confuse
@@ -593,6 +600,8 @@ stub_main(int argc, const char** argv)
 
     printf(FB_ADB_PROTO_START_LINE "\n", build_time, (int) getuid());
     fflush(stdout);
+
+    should_send_error_packet = true;
 
     struct msg_shex_hello* shex_hello;
     reader rdr = read_all_adb_encoded;
@@ -646,6 +655,8 @@ stub_main(int argc, const char** argv)
     sh->max_outgoing_msg = shex_hello->maxmsg;
     sh->nrch = 5;
     struct channel** ch = xalloc(sh->nrch * sizeof (*ch));
+
+    should_send_error_packet = false;
 
     ch[FROM_PEER] = channel_new(fdh_dup(0),
                                 shex_hello->stub_recv_bufsz,
@@ -754,4 +765,55 @@ stub_main(int argc, const char** argv)
     PUMP_WHILE(sh, !channel_dead_p(ch[TO_PEER]));
     PUMP_WHILE(sh, !channel_dead_p(ch[FROM_PEER]));
     return 0;
+}
+
+static void
+stub_main_trampoline(void* data)
+{
+    struct main_args* ma = data;
+    ma->result = stub_main_1(ma->argc, ma->argv);
+}
+
+static void
+send_error_packet(void* data)
+{
+    struct errinfo* ei = data;
+    size_t msg_length = strlen(ei->msg);
+    struct msg_error* me;
+    size_t packet_length = XMIN(msg_length + sizeof (*me), MSG_MAX_SIZE);
+    msg_length = packet_length - sizeof (*me);
+    me = alloca(packet_length);
+    memset(me, 0, sizeof (*me));
+    me->msg.type = MSG_ERROR;
+    me->msg.size = packet_length;
+    memcpy(&me->text[0], ei->msg, msg_length);
+    write_all(1, me, packet_length);
+}
+
+int
+stub_main(int argc, const char** argv)
+{
+    if (argc != 1)
+        die(EINVAL, "this command is internal");
+
+    struct main_args ma = { .argc = argc, .argv = argv };
+    struct errinfo ei = { .want_msg = true };
+    if (catch_error(stub_main_trampoline, &ma, &ei)) {
+#ifdef __ANDROID__
+        (void) __android_log_print(
+            ANDROID_LOG_ERROR,
+            LOG_TAG,
+            "%s: %s",
+            ei.prgname, ei.msg);
+#endif
+
+        if (should_send_error_packet) {
+            (void) catch_error(send_error_packet, &ei, NULL);
+            return 1; // Exit silently
+        }
+
+        die(ei.err, "%s", ei.msg);
+    }
+
+    return ma.result;
 }
