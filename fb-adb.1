@@ -254,6 +254,12 @@ useful for debugging.
 This environment variable provides the default value of the
 --transport option.
 
+.TP
+.BI TEMP " " TMP " " TMPDIR
+When \fBfb-adb\fR needs to create a temporary file, it uses the first
+of these directories that is set.  It defaults to /tmp if none of
+these variables is present.
+
 .SH BUGS
 
 \fBfb-adb\fR should present better error messages when it can't run a
