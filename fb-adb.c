@@ -21,6 +21,7 @@
 #include "cmd_shex.h"
 #include "cmd_stub.h"
 #include "cmd_logw.h"
+#include "timestamp.h"
 
 #ifndef __ANDROID__
 static void
@@ -162,7 +163,11 @@ real_main(int argc, char** argv)
         usage();
         return 0;
     } else if (!strcmp(prgarg, "--version")) {
+#ifdef HAVE_GIT_STAMP
+        printf("fb-adb %s git:%s\n", PACKAGE_VERSION, git_stamp);
+#else
         printf("fb-adb %s\n", PACKAGE_VERSION);
+#endif
         return 0;
     } else {
         execvp("adb", argv);

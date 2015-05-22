@@ -23,6 +23,19 @@ stubs.c: $(srcdir)/mkstubsc.sh $(STUB_BINARIES)
 
 timestamp.c: timestamp.c.in libfb-adb.a
 	$(SED) -e "s/BUILD_TIME/`date +%s`/" $< > $@
+if GIT_STAMP
+	echo '{' >> $@
+	cd "$(top_srcdir)" && git status --porcelain >/dev/null
+	( cd "$(top_srcdir)" && git rev-parse HEAD ) | \
+	  tr -d '\n' | \
+	  $(XXD) -i >> $@
+	if ( cd "$(top_srcdir)" && \
+	     git status --porcelain | \
+	     grep -v '^?? ' | \
+	     grep -q . ); \
+        then echo -n ',' >> $@ && echo -n ' (modified)' | $(XXD) -i >> $@; fi
+	echo ', 0x00 };' >> $@
+endif
 
 dist-hook:
 	for x in $(STUB_SUBDIRS); do \

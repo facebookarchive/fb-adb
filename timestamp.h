@@ -11,3 +11,7 @@
 #pragma once
 #include <stdint.h>
 const extern uintmax_t build_time;
+
+#ifdef HAVE_GIT_STAMP
+const extern char git_stamp[];
+#endif

@@ -153,10 +153,21 @@ else
    AC_MSG_ERROR([invalid value for --enable-checking: need yes or no])
 fi
 
+AC_ARG_ENABLE([git-stamp],
+        AS_HELP_STRING(
+          [--enable-git-stamp],
+          [include the git revision in the version output]))
+
+if test "$enable_git_stamp" = "yes"; then
+  AC_DEFINE([HAVE_GIT_STAMP], [1])
+fi
+
+AM_CONDITIONAL([GIT_STAMP], [test "$enable_git_stamp" = "yes"])
 AM_CONDITIONAL([BUILD_STUB], [test -n "$BUILD_STUB"])
 AM_CONDITIONAL([BUILD_PIC], [test -n "$BUILD_PIC"])
 AM_CONDITIONAL([STRIP_STUBS], [test "$enable_checking" = "no"])
 AC_SUBST([STUB_SUBDIRS])
 AC_CONFIG_FILES([Makefile])
 echo "Checking enabled?    ${enable_checking}"
+echo "Git stamp included?  ${enable_git_stamp}"
 AC_OUTPUT
