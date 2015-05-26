@@ -105,11 +105,31 @@ print_usage(enum shex_mode smode)
     fwrite(usage_body, sizeof (usage_body), 1, stdout);
 }
 
+struct child_hello {
+    uintmax_t ver;
+    int uid;
+    unsigned api_level;
+};
+
 struct fb_adb_shex {
     struct fb_adb_sh sh;
     int child_exit_status;
     bool child_exited;
 };
+
+static bool
+parse_child_hello(const char* line, struct child_hello* chello)
+{
+    memset(chello, 0, sizeof (*chello));
+    int n = -1;
+    sscanf(line, FB_ADB_PROTO_START_LINE "%n",
+           &chello->ver,
+           &chello->uid,
+           &chello->api_level,
+           &n);
+
+    return n != -1;
+}
 
 static struct child*
 start_stub_local(void)
@@ -156,7 +176,7 @@ send_stub(const void* data,
 static struct child*
 try_adb_stub(const struct child_start_info* csi,
              const char* adb_name,
-             int* uid,
+             struct child_hello* chello,
              char** err)
 {
     SCOPED_RESLIST(rl);
@@ -198,10 +218,8 @@ try_adb_stub(const struct child_start_info* csi,
     chat_talk_at(cc, cmd);
     char* resp = chat_read_line(cc);
     dbg("stub resp: [%s]", resp);
-    int n = -1;
-    uintmax_t ver;
-    sscanf(resp, FB_ADB_PROTO_START_LINE "%n", &ver, uid, &n);
-    if (n != -1 && build_time == ver) {
+
+    if (parse_child_hello(resp, chello) && chello->ver == build_time) {
         dbg("found good child version");
         reslist_xfer(rl->parent, rl);
         return child;
@@ -262,7 +280,7 @@ add_cleanup_delete_device_tmpfile(const char* device_filename,
 static struct child*
 start_stub_adb(bool force_send_stub,
                const char* const* adb_args,
-               int* uid)
+               struct child_hello* chello)
 {
     const struct child_start_info csi = {
         .flags = CHILD_INHERIT_STDERR,
@@ -273,7 +291,7 @@ start_stub_adb(bool force_send_stub,
     struct child* child = NULL;
     char* err = NULL;
     if (!force_send_stub)
-        child = try_adb_stub(&csi, FB_ADB_REMOTE_FILENAME, uid, &err);
+        child = try_adb_stub(&csi, FB_ADB_REMOTE_FILENAME, chello, &err);
 
     if (child == NULL) {
         char* tmp_adb = xaprintf(
@@ -286,7 +304,7 @@ start_stub_adb(bool force_send_stub,
         size_t ns = nr_stubs;
         for (unsigned i = 0; i < ns && !child; ++i) {
             send_stub(stubs[i].data, stubs[i].size, adb_args, tmp_adb);
-            child = try_adb_stub(&csi, tmp_adb, uid, &err);
+            child = try_adb_stub(&csi, tmp_adb, chello, &err);
         }
 
         if (!child)
@@ -295,7 +313,7 @@ start_stub_adb(bool force_send_stub,
         child_kill(child, SIGTERM);
         child_wait(child);
         adb_rename_file(tmp_adb, FB_ADB_REMOTE_FILENAME, adb_args);
-        child = try_adb_stub(&csi, FB_ADB_REMOTE_FILENAME, uid, &err);
+        child = try_adb_stub(&csi, FB_ADB_REMOTE_FILENAME, chello, &err);
         if (!child)
             die(ECOMM, "trouble starting adb stub: %s", err);
     }
@@ -656,16 +674,13 @@ command_re_exec_as_root(const struct childcom* tc)
         resp = chat_read_line(cc);
     } while (clowny_samsung_debug_output_p(resp));
 
-    int n = -1;
-    int uid;
-    uintmax_t ver;
-    sscanf(resp, FB_ADB_PROTO_START_LINE "%n", &ver, &uid, &n);
-
-    if (n == -1)
+    struct child_hello chello;
+    if (!parse_child_hello(resp, &chello))
         die(ECOMM, "trouble re-execing adb stub as root: %s", resp);
 
-    if (uid != 0)
-        die(ECOMM, "told child to re-exec as root; gave us uid=%d", uid);
+    if (chello.uid != 0)
+        die(ECOMM, "told child to re-exec as root; gave us uid=%d",
+            chello.uid);
 }
 
 static void
@@ -700,14 +715,9 @@ command_re_exec_as_user(
         resp = chat_read_line(cc);
     } while (clowny_samsung_debug_output_p(resp));
 
-    int n = -1;
-    int uid;
-    uintmax_t ver;
-    sscanf(resp, FB_ADB_PROTO_START_LINE "%n", &ver, &uid, &n);
-
-    if (n == -1)
-        die(ECOMM, "trouble re-execing adb stub as %s: %s",
-            username, resp);
+    struct child_hello chello;
+    if (!parse_child_hello(resp, &chello))
+        die(ECOMM, "trouble re-execing adb stub as %s: %s", username, resp);
 }
 
 static void
@@ -1208,7 +1218,8 @@ shex_main_common(enum shex_mode smode, int argc, const char** argv)
         hello_msg->ctty_p = 1;
 
     struct child* child;
-    int uid;
+    struct child_hello chello;
+
     if (local_mode) {
         const char* thing_not_supported = NULL;
 
@@ -1223,9 +1234,10 @@ shex_main_common(enum shex_mode smode, int argc, const char** argv)
                 "%s not supported in local mode",
                 thing_not_supported);
 
+        memset(&chello, 0, sizeof (chello));
         child = start_stub_local();
     } else {
-        child = start_stub_adb(force_send_stub, adb_args, &uid);
+        child = start_stub_adb(force_send_stub, adb_args, &chello);
     }
 
     struct childcom tc_buf = {
@@ -1236,16 +1248,34 @@ shex_main_common(enum shex_mode smode, int argc, const char** argv)
 
     struct childcom* tc = &tc_buf;
 
-    if (transport == transport_unix)
-        tc = reconnect_over_unix_socket(tc, adb_args);
-    else if (transport == transport_tcp)
-        tc = reconnect_over_tcp_socket(tc, child, tcp_addr);
+    // On Lollipop (API level >= 21), SELinux is strict and will not
+    // let us inherit a working socket file descriptor across a
+    // cross-domain exec.  In that environment, we need to exec first
+    // and _then_ rebind.  We prefer to rebind and then exec in other
+    // environments so that we can use the socket transport for users
+    // that don't have network access.
 
-    if (want_root && uid != 0)
+    dbg("remote API level is %u", chello.api_level);
+
+    if (chello.api_level < 21) {
+        if (transport == transport_unix)
+            tc = reconnect_over_unix_socket(tc, adb_args);
+        else if (transport == transport_tcp)
+            tc = reconnect_over_tcp_socket(tc, child, tcp_addr);
+    }
+
+    if (want_root && chello.uid != 0)
         command_re_exec_as_root(tc);
 
     if (want_user)
         command_re_exec_as_user(tc, want_user);
+
+    if (chello.api_level >= 21) {
+        if (transport == transport_unix)
+            tc = reconnect_over_unix_socket(tc, adb_args);
+        else if (transport == transport_tcp)
+            tc = reconnect_over_tcp_socket(tc, child, tcp_addr);
+    }
 
     tc_sendmsg(tc, &hello_msg->msg);
 

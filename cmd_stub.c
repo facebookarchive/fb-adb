@@ -420,11 +420,23 @@ re_exec_as_root()
 static unsigned
 api_level()
 {
-    char api_level_str[PROP_VALUE_MAX];
-    if (__system_property_get("ro.build.version.sdk", api_level_str) == 0)
-        die(ENOENT, "cannot query system API level");
+    static unsigned cached_api_level;
+    unsigned api_level = cached_api_level;
+    if (api_level == 0) {
+        char api_level_str[PROP_VALUE_MAX];
+        if (__system_property_get("ro.build.version.sdk", api_level_str) == 0)
+            die(ENOENT, "cannot query system API level");
 
-    return (unsigned) atoi(api_level_str);
+        api_level = cached_api_level = (unsigned) atoi(api_level_str);
+    }
+
+    return api_level;
+}
+#else
+static unsigned
+api_level()
+{
+    return 15; // Fake it
 }
 #endif
 
@@ -597,7 +609,8 @@ stub_main_1(int argc, const char** argv)
     if (isatty(1))
         xmkraw(1, XMKRAW_SKIP_CLEANUP);
 
-    printf(FB_ADB_PROTO_START_LINE "\n", build_time, (int) getuid());
+    printf(FB_ADB_PROTO_START_LINE "\n", build_time,
+           (int) getuid(), (unsigned) api_level());
     fflush(stdout);
 
     should_send_error_packet = true;

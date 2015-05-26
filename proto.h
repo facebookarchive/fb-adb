@@ -199,4 +199,4 @@ static const unsigned CHILD_STDIN = 2;
 static const unsigned CHILD_STDOUT = 3;
 static const unsigned CHILD_STDERR = 4;
 
-#define FB_ADB_PROTO_START_LINE "FB_ADB protocol %ju follows (uid=%d)"
+#define FB_ADB_PROTO_START_LINE "FB_ADB %ju (uid=%d) (api=%u)"
