@@ -790,7 +790,7 @@ reconnect_over_unix_socket(
                      DEFAULT_TEMP_DIR),
                  gen_hex_random(10));
 
-    char* remote = xaprintf("localfilesystem:%s", device_socket);
+    char* remote = xaprintf("localabstract:%s", device_socket);
     char* local = xaprintf("localfilesystem:%s", host_socket);
 
     struct unlink_cleanup* ucl = unlink_cleanup_allocate(host_socket);

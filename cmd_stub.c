@@ -490,9 +490,8 @@ connect_peer_unix_socket(struct msg* mhdr)
     char* socket_name = strndup(rbmsg->socket, socket_name_length);
     int listening_socket = xsocket(AF_UNIX, SOCK_STREAM, 0);
 
-    struct unlink_cleanup* ucl = unlink_cleanup_allocate(socket_name);
-    xbind(listening_socket, make_addr_unix_filesystem(socket_name));
-    unlink_cleanup_commit(ucl);
+    xbind(listening_socket, make_addr_unix_abstract(
+              socket_name, strlen(socket_name)));
 
     if (listen(listening_socket, 1) == -1)
         die_errno("listen");

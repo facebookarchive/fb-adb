@@ -44,7 +44,7 @@ make_addr_unix_abstract(const void* bytes, size_t nr)
         die(EINVAL, "socket name too long");
 
     struct addr* a = xalloc(addrlen);
-    a->size = addrlen;
+    a->size = addrlen - offsetof(struct addr, addr_un);
     a->addr_un.sun_family = AF_UNIX;
     a->addr_un.sun_path[0] = '\0';
     memcpy(a->addr_un.sun_path+1, bytes, nr);
