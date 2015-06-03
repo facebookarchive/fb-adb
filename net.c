@@ -35,10 +35,10 @@ make_addr_unix_filesystem(const char* filename)
     return a;
 }
 
-#ifdef __linux__
 struct addr*
 make_addr_unix_abstract(const void* bytes, size_t nr)
 {
+#ifdef __linux__
     size_t addrlen = offsetof(struct addr, addr_un.sun_path) + 1;
     if (SATADD(&addrlen, addrlen, nr))
         die(EINVAL, "socket name too long");
@@ -49,8 +49,10 @@ make_addr_unix_abstract(const void* bytes, size_t nr)
     a->addr_un.sun_path[0] = '\0';
     memcpy(a->addr_un.sun_path+1, bytes, nr);
     return a;
-}
+#else
+    die_errno(ENOSYS, "this system does not support abstract AF_UNIX");
 #endif
+}
 
 void
 xconnect(int fd, const struct addr* addr)
