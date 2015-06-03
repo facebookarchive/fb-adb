@@ -19,6 +19,7 @@ Bug fixes:
  * Avoid deadlock during hard shutdown when partial msg in buffer
  * Safe concurrent stub uploading
  * More errors propagated from stub to parent in human-readable form
+ * SELinux workarounds
 
 Version 1.2
 -----------
