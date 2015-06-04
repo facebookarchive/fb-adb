@@ -28,9 +28,7 @@ struct addr {
 };
 
 struct addr* make_addr_unix_filesystem(const char* pathname);
-#ifdef __linux__
 struct addr* make_addr_unix_abstract(const void* bytes, size_t nr);
-#endif
 
 // N.B. IO signals not unmasked during this call.
 // Use xgetaddrinfo_interruptible to make a getaddrinfo call that we

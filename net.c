@@ -50,7 +50,7 @@ make_addr_unix_abstract(const void* bytes, size_t nr)
     memcpy(a->addr_un.sun_path+1, bytes, nr);
     return a;
 #else
-    die_errno(ENOSYS, "this system does not support abstract AF_UNIX");
+    die(ENOSYS, "this system does not support abstract AF_UNIX");
 #endif
 }
 
