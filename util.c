@@ -26,6 +26,7 @@
 #include <sys/socket.h>
 #include <sys/types.h>
 #include <sys/un.h>
+#include <sys/stat.h>
 
 #if !defined(HAVE_EXECVPE)
 #include <paths.h>
@@ -995,6 +996,7 @@ xppoll(struct pollfd *fds, nfds_t nfds,
     int nret;
     int nr_installed_events = 0;
     int saved_errno;
+    struct stat si;
 
     for (unsigned fdno = 0; fdno < nfds; ++fdno)
         fds[fdno].revents = 0;
@@ -1006,7 +1008,10 @@ xppoll(struct pollfd *fds, nfds_t nfds,
         if ((fds[fdno].events & (POLLIN|POLLOUT)) == 0)
             continue;
 
-        if (lseek(fds[fdno].fd, 0, SEEK_CUR) != (off_t) -1) {
+        if (fstat(fds[fdno].fd, &si) == -1)
+            return -1;
+
+        if ((si.st_mode & S_IFMT) == S_IFREG) {
             // kqueue has bizarre and rarely useful semantics for
             // regular files, so assume that disk files are always
             // capable of IO.
