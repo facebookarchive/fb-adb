@@ -996,11 +996,23 @@ xppoll(struct pollfd *fds, nfds_t nfds,
     int nr_installed_events = 0;
     int saved_errno;
 
+    for (unsigned fdno = 0; fdno < nfds; ++fdno)
+        fds[fdno].revents = 0;
+
     for (unsigned fdno = 0; fdno < nfds; ++fdno) {
         if (fds[fdno].fd == -1)
             continue;
 
-        fds[fdno].revents = 0;
+        if ((fds[fdno].events & (POLLIN|POLLOUT)) == 0)
+            continue;
+
+        if (lseek(fds[fdno].fd, 0, SEEK_CUR) != (off_t) -1) {
+            // kqueue has bizarre and rarely useful semantics for
+            // regular files, so assume that disk files are always
+            // capable of IO.
+            fds[fdno].revents = fds[fdno].events & (POLLIN|POLLOUT);
+            return 1;
+        }
 
         if (fds[fdno].events & POLLIN)
             nr_events++;
