@@ -1,3 +1,11 @@
+Version 1.4.3
+-------------
+
+Bug fixes:
+
+* Fix kqueue-based ppoll emulation on OS X to work correctly with
+  regular disk files.
+
 Version 1.4.2
 -------------
 
