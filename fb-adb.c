@@ -170,6 +170,7 @@ real_main(int argc, char** argv)
 #endif
         return 0;
     } else {
+        sigprocmask(SIG_SETMASK, &orig_sigmask, NULL);
         execvp("adb", argv);
         die(EINVAL, "could not exec adb: %s", strerror(errno));
     }

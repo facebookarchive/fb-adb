@@ -344,6 +344,7 @@ void assert_cloexec(int fd);
 int merge_O_CLOEXEC_into_fd_flags(int fd, int flags);
 
 extern sigset_t signals_unblock_for_io;
+extern sigset_t orig_sigmask;
 extern int signal_quit_in_progress;
 
 void _unblock_io_unblocked_signals(sigset_t* saved);

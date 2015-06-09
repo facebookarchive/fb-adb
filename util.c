@@ -59,6 +59,7 @@ const char* prgname;
 const char* orig_argv0;
 
 sigset_t signals_unblock_for_io;
+sigset_t orig_sigmask;
 int signal_quit_in_progress;
 bool hack_defer_quit_signals;
 
@@ -743,7 +744,7 @@ main1(void* arg)
     VERIFY(signal(SIGCHLD, handle_sigchld) != SIG_ERR);
     sigaddset(&to_block_mask, SIGCHLD);
 
-    VERIFY(sigprocmask(SIG_BLOCK, &to_block_mask, NULL) == 0);
+    VERIFY(sigprocmask(SIG_BLOCK, &to_block_mask, &orig_sigmask) == 0);
 
     sigset_t all_signals_mask;
     VERIFY(sigfillset(&all_signals_mask) == 0);
