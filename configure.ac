@@ -7,7 +7,7 @@ dnl  additional grant of patent rights can be found in the PATENTS file
 dnl in the same directory.
 dnl
 
-AC_INIT([fb-adb], [1.4.3], [dancol@fb.com])
+AC_INIT([fb-adb], [1.4.4], [dancol@fb.com])
 if test "$srcdir" = "."; then
    dnl We configure this directory multiple times, once for each stub
    dnl architecture, but we can only do that if we're out of tree for
