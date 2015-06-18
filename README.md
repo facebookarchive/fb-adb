@@ -14,6 +14,14 @@ adb and fb-adb are that fb-adb:
   * kills remote program
   * provides a generic facility to elevate to root without re-escaping
 
+DOWNLOADS
+---------
+You can use [Homebrew](http://brew.sh/) to install fb-adb banaries:
+
+````
+brew install fb-adb
+````
+
 BUILDING
 --------
 
