@@ -16,7 +16,7 @@ adb and fb-adb are that fb-adb:
 
 DOWNLOADS
 ---------
-You can use [Homebrew](http://brew.sh/) to install fb-adb banaries:
+You can use [Homebrew](http://brew.sh/) to install fb-adb binaries:
 
 ````
 brew install fb-adb
