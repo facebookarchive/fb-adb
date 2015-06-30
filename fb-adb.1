@@ -37,22 +37,24 @@ fb-adb \- Improved Android Debug Bridge
 .YS
 
 .SY "fb-adb logw"
-.OP \-de
+.OP \-der
 .OP \-T tag
 .OP \-r priority
 .OP \-H host
 .OP \-P port
 .OP \-p product
 .OP \-s device
+.OP \-u user
 .I message
 .YS
 
 .SY "fb-adb readlink"
-.OP \-de
+.OP \-der
 .OP \-H host
 .OP \-P port
 .OP \-p product
 .OP \-s device
+.OP \-u user
 .I link
 .YS
 
@@ -327,12 +329,36 @@ Set logcat priority to PRIORITY.  PRIORITY is a case-insensitive
 substring of "verbose", "debug", "informational",
 "warning", "error", or "fatal".
 
+.TP
+.BR \-r ", " --root
+Attempt to become root for the operation.
+
+.TP
+.BI \-u " user"
+.TQ
+.BI \--user " user"
+Become \fIuser\fR for the operation.
+interactive shell.  \fIuser\fR is an identifier that \fBrun-as\fR on
+the device understands, e.g., \fBcom.facebook.wakizashi\fR.
+
 .SH READLINK COMMAND
 
 \fBfb-adb readlink\fR is a utility to read the values of symbolic
 links on device.  It is useful when devices lack the readlink(1)
 command.  It prints the given symbolic link's value to standard output
 (with no trailing newline) or fails.
+
+.TP
+.BR \-r ", " --root
+Attempt to become root for the operation.
+
+.TP
+.BI \-u " user"
+.TQ
+.BI \--user " user"
+Become \fIuser\fR for the operation.
+interactive shell.  \fIuser\fR is an identifier that \fBrun-as\fR on
+the device understands, e.g., \fBcom.facebook.wakizashi\fR.
 
 .SH BUGS
 

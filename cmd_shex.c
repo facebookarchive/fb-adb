@@ -1435,6 +1435,18 @@ find_option_by_name(const struct option* options, const char* name)
     return NULL;
 }
 
+// These options are ones that we pass to rcmd instead of invoked
+// scripts.  The short forms also need to be on
+// shex_wrapper_common_ops.
+
+static const struct option shex_wrapper_common_longops[] = {
+    { "root", no_argument, NULL, 'r' },
+    { "user", required_argument, NULL, 'u' },
+    { 0 }
+};
+
+static const char shex_wrapper_common_opts[] = "des:p:H:P:ru:";
+
 int
 shex_wrapper(const char* wrapped_cmd,
              const char* opts,
@@ -1446,7 +1458,6 @@ shex_wrapper(const char* wrapped_cmd,
     const char* const* remote_args = empty_argv;
     const char* arg;
     bool posix_correct = false;
-    const char* adb_opts = "des:p:H:P:";
     char c;
 
     if (opts != NULL) {
@@ -1458,7 +1469,7 @@ shex_wrapper(const char* wrapped_cmd,
 
 #ifndef NDEBUG
         for (const char* p = opts; *p; ++p) {
-            if (*p != ':' && strchr(adb_opts, *p)) {
+            if (*p != ':' && strchr(shex_wrapper_common_opts, *p)) {
                 assert(!"conflicting options in shex_wrapper!");
             }
         }
@@ -1502,10 +1513,15 @@ shex_wrapper(const char* wrapped_cmd,
                 return 0;
             }
 
+            bool rcmd = true;
             const struct option* longopt =
-                ( longopts
-                  ? find_option_by_name(longopts, longname)
-                  : NULL );
+                find_option_by_name(shex_wrapper_common_longops,
+                                    longname);
+
+            if (longopt == NULL && longopts) {
+                longopt = find_option_by_name(longopts, longname);
+                rcmd = false;
+            }
 
             if (longopt == NULL)
                 die(EINVAL, "invalid option --%s", longname);
@@ -1526,7 +1542,7 @@ shex_wrapper(const char* wrapped_cmd,
                 }
             }
 
-            ADDARG(&remote_args,
+            ADDARG((rcmd ? &rcmd_args : &remote_args),
                    ((value != NULL)
                     ? xaprintf("--%s=%s", longname, value)
                     : longname));
@@ -1544,7 +1560,7 @@ shex_wrapper(const char* wrapped_cmd,
                 return 0;
             }
 
-            if ((ap = strchr(adb_opts, c)))
+            if ((ap = strchr(shex_wrapper_common_opts, c)))
                 rcmd = true;
 
             if (!ap && opts)
