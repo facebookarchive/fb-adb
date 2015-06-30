@@ -28,6 +28,8 @@ libfb_adb_a_SOURCES = \
 	cmd_stub.h \
 	cmd_logw.c \
 	cmd_logw.h \
+	cmd_readlink.c \
+	cmd_readlink.h \
 	constants.h \
 	core.c \
 	core.h \

@@ -1,17 +1,24 @@
+Version 1.5.0
+-------------
+
+New features:
+
+ * readlink command.  Useful on older devices without a readlink(1).
+
 Version 1.4.4
 -------------
 
 Bug fixes:
 
-* Make SIGINT and other signals work for delegated adb tasks.
+  * Make SIGINT and other signals work for delegated adb tasks.
 
 Version 1.4.3
 -------------
 
 Bug fixes:
 
-* Fix kqueue-based ppoll emulation on OS X to work correctly with
-  regular disk files.
+  * Fix kqueue-based ppoll emulation on OS X to work correctly with
+    regular disk files.
 
 Version 1.4.2
 -------------

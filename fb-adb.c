@@ -21,6 +21,7 @@
 #include "cmd_shex.h"
 #include "cmd_stub.h"
 #include "cmd_logw.h"
+#include "cmd_readlink.h"
 #include "timestamp.h"
 
 #ifndef __ANDROID__
@@ -66,15 +67,19 @@ usage(void)
 #endif
 }
 
-int
-logw_wrapper_main(int argc, const char** argv)
-{
-    return shex_wrapper("logw",
-                        logw_opts,
-                        logw_longopts,
-                        logw_usage,
-                        argv);
-}
+#define DECLARE_FORWARDER(name)                                 \
+    int name##_wrapper_main(int argc, const char** argv)        \
+    {                                                           \
+        return shex_wrapper(                                    \
+            #name,                                              \
+            name##_opts,                                        \
+            name##_longopts,                                    \
+            name##_usage,                                       \
+            argv);                                              \
+    }
+
+DECLARE_FORWARDER(logw);
+DECLARE_FORWARDER(readlink);
 
 static bool
 word_follows_adb_arg_p(const char* p)
@@ -155,7 +160,12 @@ real_main(int argc, char** argv)
 #else
         sub_main = logw_main;
 #endif
-
+    } else if (!strcmp(prgarg, "readlink")) {
+#if FBADB_MAIN
+        sub_main = readlink_wrapper_main;
+#else
+        sub_main = readlink_main;
+#endif
     } else if (!strcmp(prgarg, "help") ||
                !strcmp(prgarg, "-h") ||
                !strcmp(prgarg, "--help"))
