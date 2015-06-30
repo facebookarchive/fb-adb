@@ -1442,7 +1442,6 @@ shex_wrapper(const char* wrapped_cmd,
              const char* usage,
              const char** argv)
 {
-    const char* argv0 = argv[0];
     const char* const* rcmd_args = empty_argv;
     const char* const* remote_args = empty_argv;
     const char* arg;
@@ -1573,7 +1572,7 @@ shex_wrapper(const char* wrapped_cmd,
 
     const char* invoke_self_args[] = {
         "-E/proc/self/exe",
-        argv0,
+        "fb-adb",
         wrapped_cmd,
         NULL
     };
