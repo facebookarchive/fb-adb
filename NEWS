@@ -5,6 +5,10 @@ New features:
 
  * --user and --root options for logw and readlink.
 
+Bugfixes:
+
+ * Properly report errors executing run-as and su.
+
 Version 1.5.0
 -------------
 

@@ -412,6 +412,7 @@ start_child(reader rdr, struct msg_shex_hello* shex_hello)
 static void __attribute__((noreturn))
 re_exec_as_root()
 {
+    should_send_error_packet = false; // Peer expects text
     execlp("su", "su", "-c", orig_argv0, "stub", NULL);
     die_errno("execlp of su");
 }
@@ -443,8 +444,8 @@ api_level()
 static void __attribute__((noreturn))
 re_exec_as_user(const char* username)
 {
+    should_send_error_packet = false; // Peer expects text
 #ifdef __ANDROID__
-
     if (api_level() < 21) {
         execlp("run-as", "run-as", username, orig_argv0, "stub", NULL);
     } else {
