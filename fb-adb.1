@@ -39,7 +39,7 @@ fb-adb \- Improved Android Debug Bridge
 .SY "fb-adb logw"
 .OP \-der
 .OP \-T tag
-.OP \-r priority
+.OP \-x priority
 .OP \-H host
 .OP \-P port
 .OP \-p product
@@ -322,7 +322,7 @@ on device.  The message logged is MESSAGE.
 Log mesage with the given tag instead of the default, "fb-adb-logw".
 
 .TP
-.BI \-t " PRIORITY"
+.BI \-x " PRIORITY"
 .TQ
 .BI \--priority " PRIORITY"
 Set logcat priority to PRIORITY.  PRIORITY is a case-insensitive

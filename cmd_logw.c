@@ -14,11 +14,11 @@
 #include "util.h"
 #include "cmd_logw.h"
 
-const char logw_opts[] = "+:t:r:h";
+const char logw_opts[] = "+:t:x:h";
 const struct option logw_longopts[] = {
     { "help", no_argument, NULL, 'h' },
     { "tag", required_argument, NULL, 't' },
-    { "priority", required_argument, NULL, 'r' },
+    { "priority", required_argument, NULL, 'x' },
     { 0 },
 };
 
@@ -81,7 +81,7 @@ logw_main(int argc, const char** argv)
             case 't':
                 tag = optarg;
                 break;
-            case 'r':
+            case 'x':
                 priority = -1;
                 char* xprio = xstrdup(optarg);
                 tolower_inplace(xprio);
