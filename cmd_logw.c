@@ -23,9 +23,9 @@ const struct option logw_longopts[] = {
 };
 
 const char logw_usage[] = (
-    "fb-adb logw [-r PRIORITY] [-t TAG] MESSAGE: write message to logcat\n"
+    "fb-adb logw [-x PRIORITY] [-t TAG] MESSAGE: write message to logcat\n"
     "\n"
-    "  -r PRIORITY\n"
+    "  -x PRIORITY\n"
     "  --priority PRIORITY\n"
     "    Set logcat priority to PRIORITY.  PRIORITY is a case-insensitive\n"
     "    substring of \"verbose\", \"debug\", \"informational\",\n"
