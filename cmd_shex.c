@@ -1319,8 +1319,8 @@ shex_main_common(enum shex_mode smode, int argc, const char** argv)
         // See the comments in re_exec_as_root over in cmd_stub.c for
         // the reason we need this hack.  On API level 21 and above,
         // we use a shell thunk unconditionally, but a few downlevel
-        // devices also need it, so handle this rare case by encoding
-        // the need for the hack in the username.
+        // devices also need it, so handle this rare case by catching
+        // errors arising from this condition and trying again below.
         shell_thunk = true;
     }
 
