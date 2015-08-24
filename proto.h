@@ -168,6 +168,7 @@ struct msg_environment_variable_unset_jumbo {
 
 struct msg_exec_as_user {
     struct msg msg;
+    uint8_t shell_thunk;
     char username[0];
 };
 

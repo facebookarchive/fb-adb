@@ -683,15 +683,29 @@ command_re_exec_as_root(const struct childcom* tc)
             chello.uid);
 }
 
+enum re_exec_status {
+    RE_EXEC_OKAY,
+    RE_EXEC_STUB_NEEDED
+};
+
+struct re_exec_info {
+    const struct childcom* tc;
+    const char* username;
+    bool shell_thunk;
+};
+
 static void
-command_re_exec_as_user(
-    const struct childcom* tc,
-    const char* username)
+command_re_exec_as_user_1(void* arg)
 {
-    SCOPED_RESLIST(rl_re_exec_as_root);
+    const struct re_exec_info* info = arg;
+
+    SCOPED_RESLIST(rl_re_exec_as_user);
 
     // Tell child to re-exec itself as our user.  It'll send another
     // hello message, which we read below.
+
+    const char* username = info->username;
+    const struct childcom* tc = info->tc;
 
     struct msg_exec_as_user* m;
     size_t username_length = strlen(username);
@@ -705,6 +719,7 @@ command_re_exec_as_user(
     m = xcalloc(alloc_size);
     m->msg.size = alloc_size;
     m->msg.type = MSG_EXEC_AS_USER;
+    m->shell_thunk = info->shell_thunk;
     memcpy(m->username, username, username_length);
     tc_sendmsg(tc, &m->msg);
 
@@ -718,6 +733,39 @@ command_re_exec_as_user(
     struct child_hello chello;
     if (!parse_child_hello(resp, &chello))
         die(ECOMM, "trouble re-execing adb stub as %s: %s", username, resp);
+}
+
+static enum re_exec_status
+command_re_exec_as_user(
+    const struct childcom* tc,
+    const char* username,
+    bool shell_thunk)
+{
+    struct re_exec_info info = {
+        .tc = tc,
+        .username = username,
+        .shell_thunk = shell_thunk,
+    };
+
+    struct errinfo ei = {
+        .want_msg = 1,
+    };
+
+    if (catch_error(command_re_exec_as_user_1, &info, &ei)) {
+        if (ei.err == ECOMM &&
+            string_starts_with_p(ei.msg, "trouble re-execing adb stub as ") &&
+            string_ends_with_p(ei.msg, "Error:Permission denied") &&
+            shell_thunk == false)
+        {
+            dbg("error indicating retry with stub hack needed: [%s]",
+                ei.msg);
+            return RE_EXEC_STUB_NEEDED;
+        }
+
+        die(ei.err, "%s", ei.msg);
+    }
+
+    return RE_EXEC_OKAY;
 }
 
 static void
@@ -1013,6 +1061,7 @@ shex_main_common(enum shex_mode smode, int argc, const char** argv)
     enum transport transport = transport_shell;
     const char* tcp_addr = NULL;
     bool compress = !getenv("FB_ADB_NO_COMPRESSION");
+    bool shell_thunk = false;
 
     const char* transport_env = getenv("FB_ADB_TRANSPORT");
     if (transport_env)
@@ -1220,6 +1269,8 @@ shex_main_common(enum shex_mode smode, int argc, const char** argv)
     struct child* child;
     struct child_hello chello;
 
+    reconnect_child:
+
     if (local_mode) {
         const char* thing_not_supported = NULL;
 
@@ -1264,11 +1315,28 @@ shex_main_common(enum shex_mode smode, int argc, const char** argv)
             tc = reconnect_over_tcp_socket(tc, child, tcp_addr);
     }
 
+    if (chello.api_level >= 21) {
+        // See the comments in re_exec_as_root over in cmd_stub.c for
+        // the reason we need this hack.  On API level 21 and above,
+        // we use a shell thunk unconditionally, but a few downlevel
+        // devices also need it, so handle this rare case by encoding
+        // the need for the hack in the username.
+        shell_thunk = true;
+    }
+
     if (want_root && chello.uid != 0)
         command_re_exec_as_root(tc);
 
-    if (want_user)
-        command_re_exec_as_user(tc, want_user);
+    if (want_user) {
+        if (command_re_exec_as_user(tc, want_user, shell_thunk) ==
+            RE_EXEC_STUB_NEEDED)
+        {
+            shell_thunk = true;
+            child_kill(child, SIGTERM);
+            child_wait(child);
+            goto reconnect_child;
+        }
+    }
 
     if (chello.api_level >= 21) {
         if (transport == transport_unix)

@@ -79,8 +79,10 @@ child_child(struct internal_child_info* ci)
 {
     struct errinfo ei = { 0 };
     ei.want_msg = true;
-    if (!catch_error(child_child_1, ci, &ei))
+    if (!catch_error(child_child_1, ci, &ei)) {
+        // child_child_1 should not have returned successfully
         abort();
+    }
 
     fprintf(stderr, "%s: %s\n", ei.prgname, ei.msg);
     fflush(stderr);

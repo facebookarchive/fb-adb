@@ -442,11 +442,12 @@ api_level()
 #endif
 
 static void __attribute__((noreturn))
-re_exec_as_user(const char* username)
+re_exec_as_user(const char* username, bool shell_thunk)
 {
     should_send_error_packet = false; // Peer expects text
+    (void) shell_thunk;
 #ifdef __ANDROID__
-    if (api_level() < 21) {
+    if (!shell_thunk) {
         execlp("run-as", "run-as", username, orig_argv0, "stub", NULL);
     } else {
         // Work around brain-damaged SELinux-based security theater
@@ -641,7 +642,7 @@ stub_main_1(int argc, const char** argv)
             (struct msg_exec_as_user*) mhdr;
         size_t username_length = umsg->msg.size - sizeof (*umsg);
         const char* username = xstrndup(umsg->username, username_length);
-        re_exec_as_user(username); // Never returns
+        re_exec_as_user(username, umsg->shell_thunk); // Never returns
     }
 
     if (mhdr->type != MSG_SHEX_HELLO ||

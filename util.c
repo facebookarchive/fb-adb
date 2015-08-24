@@ -1384,6 +1384,14 @@ string_starts_with_p(const char* string, const char* prefix)
     return strncmp(string, prefix, strlen(prefix)) == 0;
 }
 
+bool
+string_ends_with_p(const char* string, const char* suffix)
+{
+    size_t sl = strlen(string);
+    size_t pl = strlen(suffix);
+    return pl <= sl && memcmp(string + sl - pl, suffix, pl) == 0;
+}
+
 #ifdef HAVE_CLOCK_GETTIME
 double
 xclock_gettime(clockid_t clk_id)

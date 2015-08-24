@@ -184,8 +184,8 @@ typedef struct errinfo {
 // Call FN with FNDATA with an internal resource list as current.
 // If FN returns normally, transfer resources added to that resource
 // list to the resource list that was current at the time of
-// catch_error.  On error, destroy the resource list.  Return true on
-// normal return or false on error.  If EI is non-null, fill it on
+// catch_error.  On error, destroy the resource list.  Return false on
+// normal return or true on error.  If EI is non-null, fill it on
 // error.  Strings are allocated on the resource list in effect at the
 // time catch_error is called.  If want_msg is zero, error strings are
 // not allocated, but ei->err is still set.
@@ -330,6 +330,7 @@ char* gen_hex_random(size_t nr_bytes);
 
 void* first_non_null(void* s, ...);
 bool string_starts_with_p(const char* string, const char* prefix);
+bool string_ends_with_p(const char* string, const char* suffix);
 
 #ifdef HAVE_CLOCK_GETTIME
 double xclock_gettime(clockid_t clk_id);
