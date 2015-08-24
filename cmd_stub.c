@@ -446,9 +446,8 @@ re_exec_as_user(const char* username)
 {
     should_send_error_packet = false; // Peer expects text
 #ifdef __ANDROID__
-    if (api_level() < 21) {
-        execlp("run-as", "run-as", username, orig_argv0, "stub", NULL);
-    } else {
+    execlp("run-as", "run-as", username, orig_argv0, "stub", NULL);
+    if (errno == EACCES) {
         // Work around brain-damaged SELinux-based security theater
         // that prohibits execution of binaries directly from
         // /data/local/tmp on Lollipop and above.  Instead, copy the
