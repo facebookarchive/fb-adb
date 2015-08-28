@@ -97,25 +97,8 @@ logw_main(int argc, const char** argv)
                     die(EINVAL, "invalid logging priority \"%s\"", optarg);
 
                 break;
-            case ':':
-                if (optopt == '\0') {
-                    die(EINVAL, "missing argument for %s", argv[optind-1]);
-                } else {
-                    die(EINVAL, "missing argument for -%c", optopt);
-                }
-            case '?':
-                if (optopt == '?') {
-                    // Fall through to help
-                } else if (optopt == '\0') {
-                    die(EINVAL, "invalid option %s", argv[optind-1]);
-                } else {
-                    die(EINVAL, "invalid option -%c", (int) optopt);
-                }
-            case 'h':
-                fputs(logw_usage, stdout);
-                return 0;
             default:
-                abort();
+                return default_getopt(c, argv, logw_usage);
         }
     }
 

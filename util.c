@@ -1351,7 +1351,7 @@ hex_encode_bytes(const void* bytes_in, size_t nr_bytes)
 
     char* buffer = xalloc(nr_encoded_bytes);
     for (size_t i = 0; i < nr_bytes; ++i) {
-        sprintf(buffer + i*2, "%X%X", bytes[i] >> 4, bytes[i] & 0xF);
+        sprintf(buffer + i*2, "%x%x", bytes[i] >> 4, bytes[i] & 0xF);
     }
 
     buffer[nr_encoded_bytes - 1] = '\0';
@@ -1597,3 +1597,30 @@ xexecvpe(const char* file,
     die_errno("execvpe(\"%s\")", file);
 }
 #endif
+
+int
+default_getopt(char c, const char** argv, const char* usage)
+{
+    switch (c) {
+        case ':':
+            if (optopt == '\0') {
+                die(EINVAL, "missing argument for %s", argv[optind-1]);
+            } else {
+                die(EINVAL, "missing argument for -%c", optopt);
+            }
+        case '?':
+            if (optopt == '?') {
+                // Fall through to help
+            } else if (optopt == '\0') {
+                die(EINVAL, "invalid option %s", argv[optind-1]);
+            } else {
+                die(EINVAL, "invalid option -%c", (int) optopt);
+            }
+        case 'h':
+            fputs(usage, stdout);
+            exit(0);
+        default:
+            abort();
+
+    }
+}

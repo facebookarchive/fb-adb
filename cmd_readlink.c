@@ -11,6 +11,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <ctype.h>
+#include <limits.h>
 #include "util.h"
 #include "cmd_readlink.h"
 
@@ -27,8 +28,6 @@ const char readlink_usage[] = (
     "Fail if LINK does not exist or is not a symbolic link.\n"
     "\n"
     );
-
-#if !FBADB_MAIN
 
 static void
 cleanup_free_ptr(void* data)
@@ -79,27 +78,7 @@ readlink_main(int argc, const char** argv)
         if (c == -1)
             break;
 
-        switch (c) {
-            case ':':
-                if (optopt == '\0') {
-                    die(EINVAL, "missing argument for %s", argv[optind-1]);
-                } else {
-                    die(EINVAL, "missing argument for -%c", optopt);
-                }
-            case '?':
-                if (optopt == '?') {
-                    // Fall through to help
-                } else if (optopt == '\0') {
-                    die(EINVAL, "invalid option %s", argv[optind-1]);
-                } else {
-                    die(EINVAL, "invalid option -%c", (int) optopt);
-                }
-            case 'h':
-                fputs(readlink_usage, stdout);
-                return 0;
-            default:
-                abort();
-        }
+        return default_getopt(c, argv, readlink_usage);
     }
 
     argc -= optind;
@@ -111,5 +90,3 @@ readlink_main(int argc, const char** argv)
     readlink_impl(argv[0]);
     return 0;
 }
-
-#endif
