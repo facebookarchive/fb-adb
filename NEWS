@@ -1,3 +1,14 @@
+Version 1.6.0
+-------------
+
+New features:
+
+ * finfo command for batch remote filesystem operations
+
+Bug fixes:
+
+ * Attempt to work around SELinux failures on pre-KK devices
+
 Version 1.5.1
 -------------
 
@@ -5,7 +16,7 @@ New features:
 
  * --user and --root options for logw and readlink.
 
-Bugfixes:
+Bug fixes:
 
  * Properly report errors executing run-as and su.
 

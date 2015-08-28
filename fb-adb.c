@@ -22,6 +22,7 @@
 #include "cmd_stub.h"
 #include "cmd_logw.h"
 #include "cmd_readlink.h"
+#include "cmd_finfo.h"
 #include "timestamp.h"
 
 #ifndef __ANDROID__
@@ -78,8 +79,15 @@ usage(void)
             argv);                                              \
     }
 
+#if FBADB_MAIN
+# define FORWARDED_MAIN(name) name##_wrapper_main
+#else
+# define FORWARDED_MAIN(name) name##_main
+#endif
+
 DECLARE_FORWARDER(logw);
 DECLARE_FORWARDER(readlink);
+DECLARE_FORWARDER(finfo);
 
 static bool
 word_follows_adb_arg_p(const char* p)
@@ -155,17 +163,11 @@ real_main(int argc, char** argv)
         sub_main = shex_main_rcmd;
 #endif
     } else if (!strcmp(prgarg, "logw")) {
-#if FBADB_MAIN
-        sub_main = logw_wrapper_main;
-#else
-        sub_main = logw_main;
-#endif
+        sub_main = FORWARDED_MAIN(logw);
+    } else if (!strcmp(prgarg, "finfo")) {
+        sub_main = FORWARDED_MAIN(finfo);
     } else if (!strcmp(prgarg, "readlink")) {
-#if FBADB_MAIN
-        sub_main = readlink_wrapper_main;
-#else
-        sub_main = readlink_main;
-#endif
+        sub_main = FORWARDED_MAIN(readlink);
     } else if (!strcmp(prgarg, "help") ||
                !strcmp(prgarg, "-h") ||
                !strcmp(prgarg, "--help"))

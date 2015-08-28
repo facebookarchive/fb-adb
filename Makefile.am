@@ -30,6 +30,12 @@ libfb_adb_a_SOURCES = \
 	cmd_logw.h \
 	cmd_readlink.c \
 	cmd_readlink.h \
+	cmd_finfo.c \
+	cmd_finfo.h \
+	json.h \
+	json.c \
+	sha2.h \
+	sha2.c \
 	constants.h \
 	core.c \
 	core.h \
@@ -60,7 +66,7 @@ fb_adb_SOURCES =
 nodist_fb_adb_SOURCES = timestamp.c
 fb_adb_LDADD = libfb-adb.a
 
-AM_CPPFLAGS = -I.
+AM_CPPFLAGS = -I. -DSHA2_USE_INTTYPES_H=1
 AM_CFLAGS = -fvisibility=hidden -std=gnu99
 AM_LDFLAGS =
 
