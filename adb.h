@@ -17,6 +17,7 @@ void adb_send_file(const char* local,
 
 void adb_rename_file(const char* old_name,
                      const char* new_name,
+                     unsigned api_level,
                      const char* const* adb_args);
 
 void adb_add_forward(const char* local,
@@ -33,3 +34,6 @@ struct remove_forward_cleanup* remove_forward_cleanup_allocate(
     const char* const* adb_args);
 
 void remove_forward_cleanup_commit(struct remove_forward_cleanup* rfc);
+
+char* adb_getprop(const char* property, const char* const* adb_args);
+unsigned adb_api_level(const char* const* adb_args);

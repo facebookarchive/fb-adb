@@ -312,7 +312,12 @@ start_stub_adb(bool force_send_stub,
 
         child_kill(child, SIGTERM);
         child_wait(child);
-        adb_rename_file(tmp_adb, FB_ADB_REMOTE_FILENAME, adb_args);
+        unsigned api_level = adb_api_level(adb_args);
+        dbg("device appears to have API level %u", api_level);
+        adb_rename_file(tmp_adb,
+                        FB_ADB_REMOTE_FILENAME,
+                        api_level,
+                        adb_args);
         child = try_adb_stub(&csi, FB_ADB_REMOTE_FILENAME, chello, &err);
         if (!child)
             die(ECOMM, "trouble starting adb stub: %s", err);

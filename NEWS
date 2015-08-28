@@ -8,6 +8,8 @@ New features:
 Bug fixes:
 
  * Attempt to work around SELinux failures on pre-KK devices
+ * Work around mv(1) behavior change in API 23's mv(1) (or at least
+   the preview's version of mv)
 
 Version 1.5.1
 -------------

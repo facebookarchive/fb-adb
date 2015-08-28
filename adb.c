@@ -12,6 +12,7 @@
 #include <sys/types.h>
 #include <ctype.h>
 #include <sys/wait.h>
+#include <limits.h>
 #include <errno.h>
 #include <string.h>
 #include <stdint.h>
@@ -27,7 +28,7 @@ errend_p(char c)
     return c == '\0' || c == '\n' || c == '\r';
 }
 
-static const char*
+static char*
 output2str(struct child_communication* com)
 {
     const char* s = (const char*) com->out[0].bytes;
@@ -77,9 +78,11 @@ adb_send_file(const char* local,
         die(ECOMM, "adb error: %s", output2str(com));
 }
 
-void adb_rename_file(const char* old_name,
-                     const char* new_name,
-                     const char* const* adb_args)
+void
+adb_rename_file(const char* old_name,
+                const char* new_name,
+                unsigned api_level,
+                const char* const* adb_args)
 {
     SCOPED_RESLIST(rl);
 
@@ -89,16 +92,34 @@ void adb_rename_file(const char* old_name,
     if (!shell_safe_word_p(new_name))
         die(EINVAL, "invalid shell word: [%s]", new_name);
 
+    // Old versions of Android don't support mv -f, but treat stdin of
+    // /dev/null as a clue to not prompt on overwrite.  Google somehow
+    // managed to screw up mv(1) in API 23 and above so that the
+    // </dev/null trick doesn't work for suppressing the overwrite
+    // prompt --- instead, it makes mv delete(!) the source file.
+    // Let's just make the move version-dependent.  Split on version
+    // 19, because that version does support mv -f and we want to
+    // catch all possible breakage.
+
     struct child_communication* com =
         run_adb(adb_args,
-                ARGV("shell",
-                     "</dev/null",
-                     "mv",
-                     old_name,
-                     new_name,
-                     "&&",
-                     "echo",
-                     "yes"));
+                api_level >= 19
+                ? ARGV("shell",
+                       "mv",
+                       "-f",
+                       old_name,
+                       new_name,
+                       "&&",
+                       "echo",
+                       "yes")
+                : ARGV("shell",
+                       "</dev/null",
+                       "mv",
+                       old_name,
+                       new_name,
+                       "&&",
+                       "echo",
+                       "yes"));
 
     const char* output = output2str(com);
     if (!child_status_success_p(com->status) || strcmp(output, "yes") != 0)
@@ -164,4 +185,50 @@ void
 remove_forward_cleanup_commit(struct remove_forward_cleanup* rfc)
 {
     cleanup_commit(rfc->cl, remove_forward_cleanup, rfc);
+}
+
+char*
+adb_getprop(const char* property, const char* const* adb_args)
+{
+    SCOPED_RESLIST(rl);
+
+    struct child_communication* com = run_adb(
+        adb_args,
+        ARGV("shell", "getprop", property));
+    char* output = output2str(com);
+    if (!child_status_success_p(com->status))
+        die(ECOMM, "adb error: %s", output2str(com));
+
+    const char* ws = " \t\r\n";
+
+    while (strchr(ws, *output))
+        ++output;
+
+    size_t output_length = strlen(output);
+    while (output_length > 0 && strchr(ws, output[output_length-1]))
+        output_length -= 1;
+
+    if (output_length == 0)
+        die(EINVAL, "property %s missing or empty", property);
+
+    WITH_CURRENT_RESLIST(rl->parent);
+    char* value = xstrndup(output, output_length);
+    dbg("property [%s] = [%s]", property, value);
+    return value;
+}
+
+unsigned
+adb_api_level(const char* const* adb_args)
+{
+    SCOPED_RESLIST(rl);
+    char* api_level_string = adb_getprop("ro.build.version.sdk", adb_args);
+    char* endptr;
+    errno = 0;
+    unsigned long api_level = strtoul(api_level_string, &endptr, 10);
+    if (*endptr != '\0' || errno != 0 || api_level > UINT_MAX)
+        die(EINVAL,
+            "bogus api level property value: [%s]",
+            api_level_string);
+
+    return (unsigned) api_level;
 }
