@@ -12,10 +12,23 @@
 #include <errno.h>
 #include <ctype.h>
 #include <string.h>
+#include <sys/time.h>
+#include <stdlib.h>
 #include "channel.h"
 #include "util.h"
 #include "ringbuf.h"
 #include "adbenc.h"
+#include "xmkraw.h"
+
+static bool
+channel_nonblock_hack_p(struct channel* c)
+{
+#ifdef FBADB_CHANNEL_NONBLOCK_HACK
+    return c->nonblock_hack;
+#else
+    return false;
+#endif
+}
 
 struct channel*
 channel_new(struct fdh* fdh,
@@ -254,13 +267,23 @@ channel_close(struct channel* c)
         && ((c->dir == CHANNEL_TO_FD && ringbuf_size(c->rb) == 0)
             || c->dir == CHANNEL_FROM_FD))
     {
+        if (c->saved_term_state) {
+            unsigned ttysave_flags = (c->dir == CHANNEL_TO_FD)
+                ? RAW_OUTPUT
+                : RAW_INPUT;
+            ttysave_restore(c->saved_term_state,
+                            c->fdh->fd,
+                            ttysave_flags);
+            c->saved_term_state = NULL;
+        }
+
         fdh_destroy(c->fdh);
         c->fdh = NULL;
     }
 }
 
 static void
-poll_channel_1(void* arg)
+poll_channel_2(void* arg)
 {
     struct channel* c = arg;
     size_t sz;
@@ -296,6 +319,29 @@ poll_channel_1(void* arg)
     }
 }
 
+static void
+poll_channel_nonblock_hack(struct channel* c)
+{
+    struct itimerval nonblock_timer = {
+        .it_value = {0, 10000 /* us = 10ms */},
+    };
+
+    SCOPED_RESLIST(rl);
+    set_timeout(&nonblock_timer);
+    poll_channel_2(c);
+}
+
+static void
+poll_channel_1(void* arg)
+{
+    struct channel* c = arg;
+
+    if (channel_nonblock_hack_p(c) && c->fdh != NULL)
+        poll_channel_nonblock_hack(c);
+    else
+        poll_channel_2(c);
+}
+
 bool
 channel_dead_p(struct channel* c)
 {
@@ -308,7 +354,9 @@ void
 channel_poll(struct channel* c)
 {
     struct errinfo ei = { .want_msg = false };
-    if (catch_error(poll_channel_1, c, &ei) && ei.err != EINTR) {
+    if (catch_error(poll_channel_1, c, &ei)
+        && !error_temporary_p(ei.err))
+    {
         if (c->dir == CHANNEL_TO_FD) {
             // Error writing to fd, so purge buffered bytes we'll
             // never write.  By purging, we also make the stream

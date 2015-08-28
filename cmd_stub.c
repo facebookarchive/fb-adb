@@ -597,19 +597,25 @@ struct main_args {
     int result;
 };
 
+static void
+xmkraw(int fd)
+{
+    struct termios attr;
+    xtcgetattr(fd, &attr);
+    cfmakeraw(&attr);
+    xtcsetattr(fd, &attr);
+}
+
 static int
 stub_main_1(int argc, const char** argv)
 {
-    /* XMKRAW_SKIP_CLEANUP so we never change from raw back to cooked
+    /* Neer unset raw mode.  We never change from raw back to cooked
      * mode on exit.  The connection dies on exit anyway, and
      * resetting the pty can send some extra bytes that can confuse
      * our peer. */
 
-    if (isatty(0))
-        xmkraw(0, XMKRAW_SKIP_CLEANUP);
-
-    if (isatty(1))
-        xmkraw(1, XMKRAW_SKIP_CLEANUP);
+    for (int fd = 0; fd <= 1; ++fd)
+        xmkraw(fd);
 
     printf(FB_ADB_PROTO_START_LINE "\n", build_time,
            (int) getuid(), (unsigned) api_level());

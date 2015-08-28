@@ -27,6 +27,7 @@
 #include <sys/types.h>
 #include <sys/un.h>
 #include <sys/stat.h>
+#include <sys/queue.h>
 
 #if !defined(HAVE_EXECVPE)
 #include <paths.h>
@@ -49,7 +50,6 @@ struct errhandler {
     sigjmp_buf where;
     struct reslist* rl;
     struct errinfo* ei;
-
 };
 
 static struct reslist reslist_top;
@@ -712,6 +712,8 @@ quit_signal_sigaction(int signum, siginfo_t* info, void* context)
     abort();
 }
 
+static void job_control_signal_sigaction(int, siginfo_t*,void*);
+
 static void
 handle_sigchld(int signo)
 {
@@ -731,14 +733,18 @@ main1(void* arg)
     // regions have full access to the heap, the cleanup list, and
     // other process-wide facilities.
 
-    static const int quit_signals[] = {
+    int quit_signals[] = {
         SIGHUP, SIGINT, SIGQUIT, SIGTERM
     };
 
+    int job_control_signals[] = { SIGCONT, SIGTSTP };
+
     sigset_t to_block_mask;
-    sigemptyset(&to_block_mask);;
+    sigemptyset(&to_block_mask);
     for (int i = 0; i < ARRAYSIZE(quit_signals); ++i)
         sigaddset(&to_block_mask, quit_signals[i]);
+    for (int i = 0; i < ARRAYSIZE(job_control_signals); ++i)
+        sigaddset(&to_block_mask, job_control_signals[i]);
 
     // See comment in child.c.
     VERIFY(signal(SIGCHLD, handle_sigchld) != SIG_ERR);
@@ -757,6 +763,16 @@ main1(void* arg)
         sa.sa_flags = SA_RESETHAND | SA_SIGINFO;
         VERIFY(sigaction(quit_signals[i], &sa, NULL) == 0);
         sigaddset(&signals_unblock_for_io, quit_signals[i]);
+    }
+
+    for (int i = 0; i < ARRAYSIZE(job_control_signals); ++i) {
+        struct sigaction sa;
+        memset(&sa, 0, sizeof (sa));
+        sa.sa_sigaction = job_control_signal_sigaction;
+        sa.sa_mask = all_signals_mask;
+        sa.sa_flags = SA_SIGINFO;
+        VERIFY(sigaction(job_control_signals[i], &sa, NULL) == 0);
+        sigaddset(&signals_unblock_for_io, job_control_signals[i]);
     }
 
 #if XPPOLL == XPPOLL_KQUEUE
@@ -1623,4 +1639,208 @@ default_getopt(char c, const char** argv, const char* usage)
             abort();
 
     }
+}
+
+struct sigtstp_cookie {
+    LIST_ENTRY(sigtstp_cookie) link;
+    sigtstp_callback cb;
+    void* cbdata;
+};
+
+static LIST_HEAD(,sigtstp_cookie) sigtstp_handlers =
+    LIST_HEAD_INITIALIZER(sigtsp_handlers);
+
+struct sigtstp_cookie*
+sigtstp_register(sigtstp_callback cb, void* cbdata)
+{
+    struct sigtstp_cookie* cookie = calloc(1, sizeof (*cookie));
+    if (cookie == NULL)
+        die_oom();
+
+    cookie->cb = cb;
+    cookie->cbdata = cbdata;
+    LIST_INSERT_HEAD(&sigtstp_handlers, cookie, link);
+    return cookie;
+}
+
+void
+sigtstp_unregister(struct sigtstp_cookie* cookie)
+{
+    LIST_REMOVE(cookie, link);
+    free(cookie);
+}
+
+void
+job_control_signal_sigaction(int signum,
+                             siginfo_t* siginfo,
+                             void* context)
+{
+    // There can be no recovery from suspend or resume failure, so
+    // just abort if something goes wrong.
+    struct errhandler* saved_errh = current_errh;
+    current_errh = NULL;
+
+    struct sigtstp_cookie* cookie;
+
+    if (signum == SIGTSTP) {
+        LIST_FOREACH(cookie, &sigtstp_handlers, link)
+            cookie->cb(SIGTSTP_BEFORE_SUSPEND, cookie->cbdata);
+
+        raise(SIGSTOP);
+
+        // Flush the pending SIGCONT since we expect it.
+
+        struct sigaction old_sigcont;
+        struct sigaction new_sigcont = {
+            .sa_handler = SIG_IGN,
+        };
+
+        VERIFY(sigaction(SIGCONT, &new_sigcont, &old_sigcont) == 0);
+        sigset_t old_mask;
+        sigset_t to_unblock;
+        sigemptyset(&to_unblock);
+        sigaddset(&to_unblock, SIGCONT);
+        sigprocmask(SIG_UNBLOCK, &to_unblock, &old_mask);
+        sigprocmask(SIG_SETMASK, &old_mask, NULL);
+        VERIFY(sigaction(SIGCONT, &old_sigcont, NULL) == 0);
+
+        LIST_FOREACH(cookie, &sigtstp_handlers, link)
+            cookie->cb(SIGTSTP_AFTER_RESUME, cookie->cbdata);
+
+    } else {
+        assert(signum == SIGCONT);
+        LIST_FOREACH(cookie, &sigtstp_handlers, link)
+            cookie->cb(SIGTSTP_AFTER_UNEXPECTED_SIGCONT, cookie->cbdata);
+
+    }
+
+    current_errh = saved_errh;
+}
+
+struct set_timeout_context {
+    struct sigaction old_sigalrm;
+    sigset_t old_sigmask;
+    sigset_t old_signals_unblock_for_io;
+    struct itimerval old_real_timer;
+    struct itimerval old_virtual_timer;
+    struct itimerval old_prof_timer;
+    unsigned restore_real_timer : 1;
+    unsigned restore_virtual_timer : 1;
+    unsigned restore_prof_timer : 1;
+    unsigned restore_sigmask : 1;
+    unsigned restore_signals_unblock_for_io : 1;
+    unsigned restore_old_sigalrm : 1;
+    unsigned pending_sigalrm : 1;
+};
+
+static void
+cleanup_set_timeout(void* data)
+{
+    struct set_timeout_context* ctx = data;
+
+    if (ctx->restore_real_timer)
+        setitimer(ITIMER_REAL, &ctx->old_real_timer, NULL);
+
+    if (ctx->restore_virtual_timer)
+        setitimer(ITIMER_VIRTUAL, &ctx->old_virtual_timer, NULL);
+
+    if (ctx->restore_prof_timer)
+        setitimer(ITIMER_PROF, &ctx->old_prof_timer, NULL);
+
+    if (ctx->restore_signals_unblock_for_io)
+        memcpy(&signals_unblock_for_io,
+               &ctx->old_signals_unblock_for_io,
+               sizeof (sigset_t));
+
+    if (ctx->restore_old_sigalrm)
+        sigaction(SIGALRM, &ctx->old_sigalrm, NULL);
+
+    if (ctx->pending_sigalrm)
+        raise(SIGALRM);
+
+    bool restore_sigmask = ctx->restore_sigmask;
+    sigset_t old_sigmask;
+    if (restore_sigmask)
+        memcpy(&old_sigmask, &ctx->old_sigmask, sizeof (sigset_t));
+
+    free(ctx);
+    if (restore_sigmask)
+        sigprocmask(SIG_SETMASK, &old_sigmask, NULL);
+}
+
+static void
+set_timeout_handle_sigalrm(int signum,
+                           siginfo_t* info,
+                           void* context)
+{
+    die(EAGAIN, "timeout");
+}
+
+void
+set_timeout(const struct itimerval* timer)
+{
+    SCOPED_RESLIST(rl);
+
+    struct cleanup* cl = cleanup_allocate();
+    struct set_timeout_context* ctx = calloc(1, sizeof (*ctx));
+    if (ctx == NULL) die_oom();
+    cleanup_commit(cl, cleanup_set_timeout, ctx);
+
+    sigset_t sigalrm_set;
+    sigemptyset(&sigalrm_set);
+    sigaddset(&sigalrm_set, SIGALRM);
+    sigprocmask(SIG_BLOCK, &sigalrm_set, &ctx->old_sigmask);
+    ctx->restore_sigmask = true;
+
+    sigset_t all_signals;
+    sigfillset(&all_signals);
+
+    struct sigaction new_sigalrm = {
+        .sa_sigaction = set_timeout_handle_sigalrm,
+        .sa_mask = all_signals,
+        .sa_flags = SA_SIGINFO,
+    };
+
+    sigaction(SIGALRM, &new_sigalrm, &ctx->old_sigalrm);
+    ctx->restore_old_sigalrm = true;
+
+    struct itimerval disabled_itimer = {
+        .it_interval = {0, 0},
+        .it_value = {0, 0 },
+    };
+
+    setitimer(ITIMER_REAL,
+              &disabled_itimer,
+              &ctx->old_real_timer);
+    ctx->restore_real_timer = true;
+
+    setitimer(ITIMER_VIRTUAL,
+              &disabled_itimer,
+              &ctx->old_virtual_timer);
+    ctx->restore_virtual_timer = true;
+
+    setitimer(ITIMER_PROF,
+              &disabled_itimer,
+              &ctx->old_prof_timer);
+    ctx->restore_prof_timer = true;
+
+    sigset_t pending;
+    sigpending(&pending);
+    bool pending_sigalrm = sigismember(&pending, SIGALRM);
+    ctx->pending_sigalrm = !!pending_sigalrm;
+    if (pending_sigalrm) { // Clear pending signal
+        signal(SIGALRM, SIG_IGN);
+        sigprocmask(SIG_UNBLOCK, &sigalrm_set, NULL);
+        sigprocmask(SIG_BLOCK, &sigalrm_set, NULL);
+        sigaction(SIGALRM, &new_sigalrm, NULL);
+    }
+
+    setitimer(ITIMER_REAL, timer, NULL);
+    memcpy(&ctx->old_signals_unblock_for_io,
+           &signals_unblock_for_io,
+           sizeof (sigset_t));
+    ctx->restore_signals_unblock_for_io = true;
+    sigaddset(&signals_unblock_for_io, SIGALRM);
+
+    reslist_xfer(rl->parent, rl);
 }

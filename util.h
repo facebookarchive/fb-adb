@@ -14,6 +14,7 @@
 #include <stddef.h>
 #include <sys/stat.h>
 #include <fcntl.h>
+#include <sys/time.h>
 #include <sys/types.h>
 #include <unistd.h>
 #include <stdbool.h>
@@ -367,3 +368,22 @@ void xexecvpe(const char* file,
               const char* const* envp);
 
 int default_getopt(char c, const char** argv, const char* usage);
+
+struct sigtstp_cookie;
+enum sigtstp_mode {
+    SIGTSTP_BEFORE_SUSPEND,
+    SIGTSTP_AFTER_RESUME,
+    SIGTSTP_AFTER_UNEXPECTED_SIGCONT,
+};
+
+typedef void (*sigtstp_callback)(
+    enum sigtstp_mode mode,
+    void* data);
+
+struct sigtstp_cookie* sigtstp_register(sigtstp_callback cb, void* cbdata);
+void sigtstp_unregister(struct sigtstp_cookie* cookie);
+
+// Set an itimer timeout.  Blocks SIGALRM except inside IO.  If we get
+// a SIGALRM, raise a die-exception from IO context.  Restore signals
+// and timer on unwind.
+void set_timeout(const struct itimerval* timer);

@@ -7,6 +7,9 @@ New features:
 
 Bug fixes:
 
+ * Try harder to avoid O_NONBLOCK-on-the-tty side effects even
+   when we can't create a new open file description for the tty:
+   reset on exit and on SIGTSTP.
  * Attempt to work around SELinux failures on pre-KK devices
  * Work around mv(1) behavior change in API 23's mv(1) (or at least
    the preview's version of mv)

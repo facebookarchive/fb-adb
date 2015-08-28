@@ -466,7 +466,10 @@ io_loop_init(struct fb_adb_sh* sh)
     unsigned chno;
     for (chno = 0; chno < nrch; ++chno)
         if (ch[chno]->fdh != NULL)
-            fd_set_blocking_mode(ch[chno]->fdh->fd, non_blocking);
+#ifdef FBADB_CHANNEL_NONBLOCK_HACK
+            if (!ch[chno]->nonblock_hack)
+#endif
+                fd_set_blocking_mode(ch[chno]->fdh->fd, non_blocking);
 }
 
 void

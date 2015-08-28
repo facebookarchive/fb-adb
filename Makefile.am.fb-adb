@@ -13,7 +13,7 @@ DIST_SUBDIRS =
 
 bin_PROGRAMS = fb-adb
 
-AM_CPPFLAGS += -DFBADB_MAIN=1
+AM_CPPFLAGS += -DFBADB_MAIN=1 -DFBADB_CHANNEL_NONBLOCK_HACK=1
 libfb_adb_a_SOURCES += cmd_shex.c cmd_shex.h stubs.h
 
 nodist_fb_adb_SOURCES += stubs.c

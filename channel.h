@@ -19,11 +19,14 @@ enum channel_direction {
     CHANNEL_FROM_FD,
 };
 
+struct ttysave;
+
 struct channel {
     struct fdh* fdh;
     enum channel_direction dir;
     int err;
     struct ringbuf* rb;
+    struct ttysave* saved_term_state;
     uint32_t bytes_written;
     uint32_t window;
     unsigned sent_eof : 1;
@@ -34,6 +37,9 @@ struct channel {
     unsigned adb_encoding_hack : 1;
     unsigned leftover_escape : 2;
     unsigned compress : 1;
+#ifdef FBADB_CHANNEL_NONBLOCK_HACK
+    unsigned nonblock_hack : 1;
+#endif
 };
 
 struct channel* channel_new(struct fdh* fdh,

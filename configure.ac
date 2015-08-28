@@ -7,7 +7,7 @@ dnl  additional grant of patent rights can be found in the PATENTS file
 dnl in the same directory.
 dnl
 
-AC_INIT([fb-adb], [1.5.99-1], [dancol@fb.com])
+AC_INIT([fb-adb], [1.5.99-2], [dancol@fb.com])
 if test "$srcdir" = "."; then
    dnl We configure this directory multiple times, once for each stub
    dnl architecture, but we can only do that if we're out of tree for
@@ -146,17 +146,32 @@ AC_ARG_ENABLE([checking],
         [true],
         [enable_checking=no])
 if test "$enable_checking" = "yes"; then
-   CPPFLAGS="$CPPFLAGS -Werror"
+  CPPFLAGS="$CPPFLAGS -Werror"
 elif test "$enable_checking" = "no"; then
-   CPPFLAGS="$CPPFLAGS -DNDEBUG=1"
+  CPPFLAGS="$CPPFLAGS -DNDEBUG=1"
 else
-   AC_MSG_ERROR([invalid value for --enable-checking: need yes or no])
+  AC_MSG_ERROR([invalid value for --enable-checking: need yes or no])
+fi
+
+AC_ARG_ENABLE([input-output-termios],
+        AS_HELP_STRING([--enable-input-output-termios],
+        [Enable separate input and output terminal configuration]),
+        [true],
+        [enable_input_output_termios=no])
+if test "$enable_input_output_termios" = "yes"; then
+  AC_DEFINE([INPUT_OUTPUT_TERMIOS], [1])
+elif test "$enable_input_output_termios" = "no"; then
+  true
+else
+  AC_MSG_ERROR([invalid value for --enable-input-output-termios: need yes or no])
 fi
 
 AC_ARG_ENABLE([git-stamp],
         AS_HELP_STRING(
           [--enable-git-stamp],
-          [include the git revision in the version output]))
+          [include the git revision in the version output]),
+        [true],
+        [enable_git_stamp=no])
 
 if test "$enable_git_stamp" = "yes"; then
   AC_DEFINE([HAVE_GIT_STAMP], [1])
@@ -178,6 +193,7 @@ AM_CONDITIONAL([BUILD_PIC], [test -n "$BUILD_PIC"])
 AM_CONDITIONAL([STRIP_STUBS], [test "$enable_checking" = "no"])
 AC_SUBST([STUB_SUBDIRS])
 AC_CONFIG_FILES([Makefile])
-echo "Checking enabled?    ${enable_checking}"
-echo "Git stamp included?  ${enable_git_stamp}"
+echo "Checking enabled?      ${enable_checking}"
+echo "Git stamp included?    ${enable_git_stamp}"
+echo "Input-output termios?  ${enable_input_output_termios}"
 AC_OUTPUT

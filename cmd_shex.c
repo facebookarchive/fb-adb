@@ -39,6 +39,7 @@
 #include "strutil.h"
 #include "cmd_shex.h"
 #include "net.h"
+#include "xmkraw.h"
 
 enum shex_mode {
     SHEX_MODE_SHELL,
@@ -367,6 +368,7 @@ struct tty_flags {
     unsigned tty_p : 1;
     unsigned want_pty_p : 1;
     unsigned compress : 1;
+    unsigned our_very_own_open_file_description : 1;
 };
 
 struct msg_shex_hello*
@@ -1044,6 +1046,146 @@ forward_envvar(struct environ_op** inout_environ_ops, const char* name)
     *inout_environ_ops = environ_ops;
 }
 
+static void
+try_hack_reopen_tty_1 (void* data)
+{
+    hack_reopen_tty((int)(intptr_t)data);
+}
+
+static bool
+try_hack_reopen_tty (int fd)
+{
+    struct errinfo* eip = NULL;
+#ifndef NDEBUG
+    struct errinfo ei = {
+        .want_msg = true,
+    };
+
+    eip = &ei;
+#endif
+
+    bool success = !catch_error(try_hack_reopen_tty_1,
+                                (void*) (intptr_t) fd,
+                                eip);
+
+#ifndef NDEBUG
+    if (!success)
+        dbg("hack_reopen_tty failed: %d: %s", ei.err, ei.msg);
+#endif
+
+    return success;
+}
+
+struct reset_termios_context {
+    struct channel** ch; // Starting with CHILD_STDIN
+    struct sigtstp_cookie* sigtstp_registration;
+    unsigned nrch;
+    struct termios* scratch;
+    bool saved_old_sigmask;
+    sigset_t old_sigmask;
+};
+
+static void
+reset_termios_on_sigtstp(enum sigtstp_mode mode, void* data)
+{
+    struct reset_termios_context* rtc = data;
+    unsigned nrch = rtc->nrch;
+    struct channel** ch = rtc->ch;
+
+    if (mode == SIGTSTP_BEFORE_SUSPEND) {
+        dbg("[jc] SIGTSTP_BEFORE_SUSPEND");
+        for (unsigned i = 0; i < nrch; ++i) {
+            struct channel* c = ch[i];
+            if (c->saved_term_state != NULL && c->fdh != NULL)
+                ttysave_before_suspend(c->saved_term_state, c->fdh->fd);
+        }
+    } else if (mode == SIGTSTP_AFTER_RESUME) {
+        dbg("[jc] SIGTSTP_AFTER_RESUME");
+        for (unsigned i = 0; i < nrch; ++i) {
+            struct channel* c = ch[i];
+            if (c->saved_term_state != NULL && c->fdh != NULL)
+                ttysave_after_resume(c->saved_term_state, c->fdh->fd);
+        }
+    } else if (mode == SIGTSTP_AFTER_UNEXPECTED_SIGCONT) {
+        dbg("[jc] unexpected SIGCONT");
+        for (unsigned i = 0; i < nrch; ++i) {
+            struct channel* c = ch[i];
+            if (c->saved_term_state != NULL && c->fdh != NULL)
+                ttysave_after_sigcont(c->saved_term_state, c->fdh->fd);
+        }
+    }
+}
+
+static void
+cleanup_reset_termios(void* data)
+{
+    struct reset_termios_context* rtc = data;
+
+    unsigned nrch = rtc->nrch;
+    struct channel** ch = rtc->ch;
+
+    for (unsigned i = 0; i < nrch; ++i) {
+        struct channel* c = ch[i];
+        if (c->saved_term_state != NULL && c->fdh != NULL) {
+            unsigned ttysave_flags = (c->dir == CHANNEL_TO_FD)
+                ? RAW_OUTPUT
+                : RAW_INPUT;
+            ttysave_restore(c->saved_term_state,
+                            c->fdh->fd,
+                            ttysave_flags);
+            c->saved_term_state = NULL;
+        }
+    }
+
+    if (rtc->sigtstp_registration)
+        sigtstp_unregister(rtc->sigtstp_registration);
+}
+
+static void
+setup_reset_termios(
+    struct reset_termios_context* rtc,
+    struct tty_flags* tty_flags,
+    struct channel** ch,
+    unsigned nrch)
+{
+    SCOPED_RESLIST(rl);
+
+    struct cleanup* cl_reset_termios = NULL;
+
+    for (unsigned i = 0; i < nrch; ++i)
+        if (tty_flags[i].tty_p && tty_flags[i].want_pty_p) {
+            cl_reset_termios = cleanup_allocate();
+            break;
+        }
+
+    if (cl_reset_termios == NULL) {
+        dbg("doing nothing special for job control: no TTYs");
+        return;
+    }
+
+    memset(rtc, 0, sizeof (*rtc));
+    rtc->ch = ch;
+    rtc->nrch = nrch;
+    cleanup_commit(cl_reset_termios, cleanup_reset_termios, rtc);
+
+    rtc->sigtstp_registration = sigtstp_register(
+        reset_termios_on_sigtstp, rtc);
+
+    for (unsigned i = 0; i < nrch; ++i)
+        if (tty_flags[i].tty_p && tty_flags[i].want_pty_p) {
+            struct channel* c = ch[i];
+            assert(c->saved_term_state == NULL);
+            unsigned ttysave_flags = (c->dir == CHANNEL_TO_FD)
+                ? RAW_OUTPUT
+                : RAW_INPUT;
+            c->saved_term_state = ttysave_make_raw(
+                c->fdh->fd, ttysave_flags);
+        }
+
+    dbg("successfully set up TTYs");
+    reslist_xfer(rl->parent, rl);
+}
+
 static int
 shex_main_common(enum shex_mode smode, int argc, const char** argv)
 {
@@ -1077,8 +1219,11 @@ shex_main_common(enum shex_mode smode, int argc, const char** argv)
     memset(&tty_flags, 0, sizeof (tty_flags));
     for (int i = 0; i < 3; ++i)
         if (isatty(i)) {
-            hack_reopen_tty(i);
             tty_flags[i].tty_p = true;
+            if (try_hack_reopen_tty(i)) {
+                tty_flags[i].our_very_own_open_file_description = true;
+                dbg("got new file description for fd %d", i);
+            }
         }
 
     static struct option opts[] = {
@@ -1427,11 +1572,28 @@ shex_main_common(enum shex_mode smode, int argc, const char** argv)
     ch[CHILD_STDERR]->bytes_written =
         ringbuf_room(ch[CHILD_STDERR]->rb);
 
-    sh->ch = ch;
+    struct reset_termios_context rtc;
+    setup_reset_termios(&rtc, &tty_flags[0], &ch[CHILD_STDIN], 3);
 
-    for (int i = 0; i <3; ++i)
-        if (tty_flags[i].tty_p && tty_flags[i].want_pty_p)
-            xmkraw(i, 0);
+#ifdef FBADB_CHANNEL_NONBLOCK_HACK
+    for (int fd = 0; fd < 3; ++fd) {
+        int chno = CHILD_STDIN + fd;
+        if (tty_flags[fd].tty_p &&
+            !tty_flags[fd].our_very_own_open_file_description)
+        {
+            // We're not able to create our own open file description
+            // for this tty, so instead use SIGALRM-based poor man's
+            // "non-blocking" reads that time out as soon as the
+            // system's clock ticks over.
+            dbg("enabling non-blocking emulation hack for "
+                "channel %d (real fd %d)",
+                chno, ch[chno]->fdh->fd);
+            ch[chno]->nonblock_hack = true;
+        }
+    }
+#endif
+
+    sh->ch = ch;
 
     replace_with_dev_null(0);
     replace_with_dev_null(1);

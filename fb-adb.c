@@ -69,7 +69,7 @@ usage(void)
 }
 
 #define DECLARE_FORWARDER(name)                                 \
-    int name##_wrapper_main(int argc, const char** argv)        \
+    static int name##_wrapper_main(int argc, const char** argv) \
     {                                                           \
         return shex_wrapper(                                    \
             #name,                                              \
@@ -81,13 +81,12 @@ usage(void)
 
 #if FBADB_MAIN
 # define FORWARDED_MAIN(name) name##_wrapper_main
-#else
-# define FORWARDED_MAIN(name) name##_main
-#endif
-
 DECLARE_FORWARDER(logw);
 DECLARE_FORWARDER(readlink);
 DECLARE_FORWARDER(finfo);
+#else
+# define FORWARDED_MAIN(name) name##_main
+#endif
 
 static bool
 word_follows_adb_arg_p(const char* p)
