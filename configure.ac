@@ -162,6 +162,16 @@ if test "$enable_git_stamp" = "yes"; then
   AC_DEFINE([HAVE_GIT_STAMP], [1])
 fi
 
+AC_CHECK_MEMBERS([struct stat.st_mtim])
+AC_CHECK_MEMBERS([struct stat.st_ctim])
+AC_CHECK_MEMBERS([struct stat.st_atim])
+AC_CHECK_MEMBERS([struct stat.st_blocks])
+AC_CHECK_MEMBERS([struct stat.st_blksize])
+AC_CHECK_MEMBERS([struct stat.st_rdev])
+AC_CHECK_MEMBERS([struct dirent.d_type], [], [], [
+#include <dirent.h>
+])
+
 AM_CONDITIONAL([GIT_STAMP], [test "$enable_git_stamp" = "yes"])
 AM_CONDITIONAL([BUILD_STUB], [test -n "$BUILD_STUB"])
 AM_CONDITIONAL([BUILD_PIC], [test -n "$BUILD_PIC"])
