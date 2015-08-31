@@ -17,7 +17,6 @@
 #include <string.h>
 #include <sys/wait.h>
 #include <termios.h>
-#include <getopt.h>
 #include <sys/ioctl.h>
 #include <limits.h>
 #include <sys/socket.h>
@@ -41,9 +40,9 @@
 #include "termbits.h"
 #include "constants.h"
 #include "timestamp.h"
-#include "cmd_stub.h"
 #include "net.h"
 #include "xenviron.h"
+#include "autocmd.h"
 
 static bool should_send_error_packet = false;
 
@@ -591,12 +590,6 @@ rebind_to_socket(struct msg* mhdr)
     xdup3nc(client, 2, 0);
 }
 
-struct main_args {
-    int argc;
-    const char** argv;
-    int result;
-};
-
 static void
 xmkraw(int fd)
 {
@@ -607,7 +600,7 @@ xmkraw(int fd)
 }
 
 static int
-stub_main_1(int argc, const char** argv)
+stub_main_1(void)
 {
     /* Neer unset raw mode.  We never change from raw back to cooked
      * mode on exit.  The connection dies on exit anyway, and
@@ -790,8 +783,7 @@ stub_main_1(int argc, const char** argv)
 static void
 stub_main_trampoline(void* data)
 {
-    struct main_args* ma = data;
-    ma->result = stub_main_1(ma->argc, ma->argv);
+    *(int*)data = stub_main_1();
 }
 
 static void
@@ -811,14 +803,11 @@ send_error_packet(void* data)
 }
 
 int
-stub_main(int argc, const char** argv)
+stub_main(const struct cmd_stub_info* info)
 {
-    if (argc != 1)
-        die(EINVAL, "this command is internal");
-
-    struct main_args ma = { .argc = argc, .argv = argv };
+    int ret;
     struct errinfo ei = { .want_msg = true };
-    if (catch_error(stub_main_trampoline, &ma, &ei)) {
+    if (catch_error(stub_main_trampoline, &ret, &ei)) {
 #ifdef __ANDROID__
         (void) __android_log_print(
             ANDROID_LOG_ERROR,
@@ -826,7 +815,6 @@ stub_main(int argc, const char** argv)
             "%s: %s",
             ei.prgname, ei.msg);
 #endif
-
         if (should_send_error_packet) {
             (void) catch_error(send_error_packet, &ei, NULL);
             return 1; // Exit silently
@@ -835,5 +823,5 @@ stub_main(int argc, const char** argv)
         die(ei.err, "%s", ei.msg);
     }
 
-    return ma.result;
+    return ret;
 }

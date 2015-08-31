@@ -11,6 +11,14 @@
 #
 
 noinst_LIBRARIES = libfb-adb.a
+
+CMD_SOURCES = \
+	cmd_stub.c \
+	cmd_logw.c \
+	cmd_readlink.c \
+	cmd_finfo.c \
+	$(EMPTY)
+
 libfb_adb_a_SOURCES = \
 	adb.c \
 	adb.h \
@@ -24,14 +32,6 @@ libfb_adb_a_SOURCES = \
 	chat.h \
 	child.c \
 	child.h \
-	cmd_stub.c \
-	cmd_stub.h \
-	cmd_logw.c \
-	cmd_logw.h \
-	cmd_readlink.c \
-	cmd_readlink.h \
-	cmd_finfo.c \
-	cmd_finfo.h \
 	json.h \
 	json.c \
 	sha2.h \
@@ -60,6 +60,14 @@ libfb_adb_a_SOURCES = \
 	lz4.h \
 	xenviron.c \
 	xenviron.h \
+	cmd.h \
+	cmd.c \
+	$(CMD_SOURCES) \
+	$(EMPTY)
+
+nodist_libfb_adb_a_SOURCES = \
+	autocmd.h \
+	autocmd.c \
 	$(EMPTY)
 
 fb_adb_SOURCES =
@@ -75,13 +83,28 @@ AM_CFLAGS += -fPIC
 AM_LDFLAGS += -fPIC -pie
 endif
 
-BUILT_SOURCES = timestamp.c
-
 $(srcdir)/termbits.c: termnames.h
 termnames.h: termnames.h.in termnames.sed
 	$(SED) -Ef $(srcdir)/termnames.sed $< >$@
 
-CLEANFILES = termnames.h timestamp.c timestamp.c.tmp
+# Need to manually specify the sources that depend on autocmd.h so
+# that we always build autocmd.h first when bootstrapping.
+$(CMD_SOURCES) $(srcdir)/fb-adb.c $(srcdir)/cmd.c: autocmd.h
+
+COMMANDS_XML=$(srcdir)/commands.xml
+CMDSPROC_FLAGS=
+CMDSPROC=$(PYTHON3) $(srcdir)/cmdsproc.py $(CMDSPROC_FLAGS)
+
+autocmd.h: $(COMMANDS_XML) $(srcdir)/cmdsproc.py
+	$(CMDSPROC) h $(COMMANDS_XML) > $@.tmp
+	if ! cmp $@ $@.tmp; then mv $@.tmp $@; fi
+	rm -f $@.tmp
+
+autocmd.c: $(COMMANDS_XML) $(srcdir)/cmdsproc.py
+	$(CMDSPROC) c $(COMMANDS_XML) > $@
+
+CLEANFILES =  termnames.h timestamp.c timestamp.c.tmp
+CLEANFILES += autocmd.h autocmd.h.tmp autocmd.c
 
 EXTRA_DIST =
 

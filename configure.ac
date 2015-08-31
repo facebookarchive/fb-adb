@@ -91,6 +91,14 @@ AC_CHECK_TOOLS(RANLIB, [gcc-ranlib ranlib])
 AC_CHECK_TOOLS(AR, [gcc-ar ar])
 AM_PROG_AR
 
+AC_CHECK_PROGS(PYTHON3, [python3], [
+  AC_MSG_ERROR([python3 required for building])
+])
+
+AC_CHECK_PROGS(POD2MAN, [pod2man], [
+  AC_MSG_ERROR([pod2man required for man page generation])
+])
+
 if test -z "$BUILD_STUB"; then
   AC_PATH_PROG([XXD], [xxd])
   if test -z "$XXD"; then
@@ -166,6 +174,22 @@ else
   AC_MSG_ERROR([invalid value for --enable-input-output-termios: need yes or no])
 fi
 
+AC_MSG_CHECKING([ncurses])
+old_LIBS=$LIBS
+LIBS="$LIBS -lncurses"
+AC_LINK_IFELSE(
+  [AC_LANG_PROGRAM([
+#include <curses.h>
+#include <term.h>
+], [setupterm((char*)0,0,NULL);])],
+  [AC_MSG_RESULT([yes])
+   AC_DEFINE([USE_NCURSES])
+   ncurses=yes
+   ],
+  [AC_MSG_RESULT([no])
+   LIBS=$old_LIBS
+   ncurses=no])
+
 AC_ARG_ENABLE([git-stamp],
         AS_HELP_STRING(
           [--enable-git-stamp],
@@ -196,4 +220,5 @@ AC_CONFIG_FILES([Makefile])
 echo "Checking enabled?      ${enable_checking}"
 echo "Git stamp included?    ${enable_git_stamp}"
 echo "Input-output termios?  ${enable_input_output_termios}"
+echo "Using ncurses?         ${ncurses}"
 AC_OUTPUT

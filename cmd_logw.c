@@ -9,39 +9,16 @@
  *
  */
 #include <stdio.h>
+#include <string.h>
 #include <stdlib.h>
 #include <ctype.h>
 #include "util.h"
-#include "cmd_logw.h"
+#include "autocmd.h"
+#include "argv.h"
 
-const char logw_opts[] = "+:t:x:h";
-const struct option logw_longopts[] = {
-    { "help", no_argument, NULL, 'h' },
-    { "tag", required_argument, NULL, 't' },
-    { "priority", required_argument, NULL, 'x' },
-    { 0 },
-};
-
-const char logw_usage[] = (
-    "fb-adb logw [-x PRIORITY] [-t TAG] MESSAGE: write message to logcat\n"
-    "\n"
-    "  -x PRIORITY\n"
-    "  --priority PRIORITY\n"
-    "    Set logcat priority to PRIORITY.  PRIORITY is a case-insensitive\n"
-    "    substring of \"verbose\", \"debug\", \"informational\",\n"
-    "    \"warning\", \"error\", or \"fatal\".\n"
-    "\n"
-    "  -t TAG\n"
-    "  --tag TAG\n"
-    "    Set logcat tag to TAG.\n"
-    "\n"
-    "MESSAGE is any string.  It is interpreted as UTF-8.\n"\
-    "\n"
-    );
+FORWARD(logw);
 
 #if !FBADB_MAIN
-
-#include <android/log.h>
 
 static const char* log_levels[] = {
     // We use a prefix match, so make these long
@@ -53,6 +30,8 @@ static const char* log_levels[] = {
     "fatal",
 };
 
+#include <android/log.h>
+
 static void
 tolower_inplace(char* s)
 {
@@ -62,62 +41,44 @@ tolower_inplace(char* s)
 }
 
 int
-logw_main(int argc, const char** argv)
+logw_main(const struct cmd_logw_info* info)
 {
     const char* tag = "fb-adb-logw";
     int priority = ANDROID_LOG_INFO;
 
-    for (;;) {
-        int c = getopt_long(argc,
-                             (char**) argv,
-                             logw_opts,
-                             logw_longopts,
-                             NULL);
-
-        if (c == -1)
-            break;
-
-        switch (c) {
-            case 't':
-                tag = optarg;
+    if (info->logw.priority) {
+        priority = -1;
+        char* xprio = xstrdup(info->logw.priority);
+        tolower_inplace(xprio);
+        size_t xprio_len = strlen(xprio);
+        for (unsigned i = 0; i < ARRAYSIZE(log_levels) - 1; ++i) {
+            if (!strncmp(xprio, log_levels[i], xprio_len)) {
+                priority = ANDROID_LOG_VERBOSE + i;
                 break;
-            case 'x':
-                priority = -1;
-                char* xprio = xstrdup(optarg);
-                tolower_inplace(xprio);
-                size_t xprio_len = strlen(xprio);
-                for (unsigned i = 0; i < ARRAYSIZE(log_levels); ++i) {
-                    if (!strncmp(xprio, log_levels[i], xprio_len)) {
-                        priority = ANDROID_LOG_VERBOSE + i;
-                        break;
-                    }
-                }
-
-                if (priority == -1)
-                    die(EINVAL, "invalid logging priority \"%s\"", optarg);
-
-                break;
-            default:
-                return default_getopt(c, argv, logw_usage);
+            }
         }
+
+        if (priority == -1)
+            usage_error("unknown priority \"%s\"",
+                        info->logw.priority);
     }
 
-    argc -= optind;
-    argv += optind;
-
+    const char* const* p;
     size_t sz = 1;
-    for (int i = 0; i < argc; ++i) {
-        if (SATADD(&sz, sz, strlen(argv[i]) + 1))
+
+    for (p = info->message_parts; *p; ++p)
+        if (SATADD(&sz, sz, strlen(*p) + 1))
             die(EINVAL, "argument list too long");
-    }
 
     char* msg = xalloc(sz);
     char* pos = msg;
-    for (int i = 0; i < argc; ++i) {
-        size_t len = strlen(argv[i]);
-        memcpy(pos, argv[i], len);
+
+    for (p = info->message_parts; *p; ++p) {
+        const char* m = *p;
+        size_t len = strlen(m);
+        memcpy(pos, m, len);
         pos += len;
-        if (i != argc -1)
+        if (pos - len != msg)
             *pos++ = ' ';
     }
 
@@ -130,5 +91,4 @@ logw_main(int argc, const char** argv)
 
     return 0;
 }
-
 #endif

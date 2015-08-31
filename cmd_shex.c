@@ -36,15 +36,13 @@
 #include "stubs.h"
 #include "timestamp.h"
 #include "argv.h"
+#include "autocmd.h"
 #include "strutil.h"
-#include "cmd_shex.h"
 #include "net.h"
 #include "xmkraw.h"
 
-enum shex_mode {
-    SHEX_MODE_SHELL,
-    SHEX_MODE_RCMD,
-};
+#define ARG_DEFAULT_SH ((const char*)MSG_CMDLINE_DEFAULT_SH)
+#define ARG_DEFAULT_SH_LOGIN ((const char*)MSG_CMDLINE_DEFAULT_SH_LOGIN)
 
 enum transport {
     transport_shell,
@@ -84,26 +82,6 @@ static struct chat*
 tc_chat_new(const struct childcom* tc)
 {
     return chat_new(tc->to_child->fd, tc->from_child->fd);
-}
-
-static void
-print_usage(enum shex_mode smode)
-{
-    if (smode == SHEX_MODE_SHELL)
-        printf("%s [OPTS] [CMD [ARGS...]]: "
-               "run shell command on Android device\n",
-               prgname);
-    else
-        printf("%s [OPTS] PROGRAM [ARGS...]: "
-               "run program on Android device; bypass shell\n",
-               prgname);
-
-    static const char usage_body[] = {
-#include "cmd_shex_usage.inc"
-    };
-
-    fputc('\n', stdout);
-    fwrite(usage_body, sizeof (usage_body), 1, stdout);
 }
 
 struct child_hello {
@@ -279,8 +257,7 @@ add_cleanup_delete_device_tmpfile(const char* device_filename,
 }
 
 static struct child*
-start_stub_adb(bool force_send_stub,
-               const char* const* adb_args,
+start_stub_adb(const char* const* adb_args,
                struct child_hello* chello)
 {
     const struct child_start_info csi = {
@@ -291,8 +268,7 @@ start_stub_adb(bool force_send_stub,
 
     struct child* child = NULL;
     char* err = NULL;
-    if (!force_send_stub)
-        child = try_adb_stub(&csi, FB_ADB_REMOTE_FILENAME, chello, &err);
+    child = try_adb_stub(&csi, FB_ADB_REMOTE_FILENAME, chello, &err);
 
     if (child == NULL) {
         char* tmp_adb = xaprintf(
@@ -560,13 +536,25 @@ send_environ_ops(const struct childcom* tc,
 }
 
 static void
-send_cmdline_argument(const struct childcom* tc,
-                      unsigned type,
-                      const void* val,
-                      size_t valsz)
+send_cmdline_argument(const struct childcom* tc, const void* val)
 {
     struct msg m;
+    size_t valsz;
     size_t totalsz;
+    uint16_t type;
+
+    if (val == ARG_DEFAULT_SH) {
+        val = NULL;
+        valsz = 0;
+        type = MSG_CMDLINE_DEFAULT_SH;
+    } else if (val == ARG_DEFAULT_SH_LOGIN) {
+        val = NULL;
+        valsz = 0;
+        type = MSG_CMDLINE_DEFAULT_SH_LOGIN;
+    } else {
+        valsz = strlen((const char*)val);
+        type = MSG_CMDLINE_ARGUMENT;
+    }
 
     if (SATADD(&totalsz, sizeof (m), valsz) || totalsz > UINT32_MAX)
         die(EINVAL, "command line argument too long");
@@ -576,7 +564,8 @@ send_cmdline_argument(const struct childcom* tc,
         m.size = totalsz;
         tc_write(tc, &m, sizeof (m));
         tc_write(tc, val, valsz);
-    } else if (type == MSG_CMDLINE_ARGUMENT) {
+    } else {
+        assert(type == MSG_CMDLINE_ARGUMENT);
         struct msg_cmdline_argument_jumbo mj;
         memset(&mj, 0, sizeof (mj));
         mj.msg.type = MSG_CMDLINE_ARGUMENT_JUMBO;
@@ -584,71 +573,37 @@ send_cmdline_argument(const struct childcom* tc,
         mj.actual_size = valsz;
         tc_write(tc, &mj, sizeof (mj));
         tc_write(tc, val, valsz);
-    } else {
-        die(EINVAL, "command line argument too long");
     }
 }
 
 static void
-lim_format_shell_command_line(const char *const* argv,
-                              int argc,
+lim_format_shell_command_line(const char* command,
+                              const char *const* argv,
                               size_t *pos,
                               char *buf,
                               size_t bufsz)
 {
-    if (argc > 0) {
+    if (command != NULL) {
         /* Special case: don't quote the first argument. */
-        lim_strcat(argv[0], pos, buf, bufsz);
+        lim_strcat(command, pos, buf, bufsz);
     }
 
-    for (int i = 1; i < argc; ++i) {
+    while (*argv != NULL) {
         lim_outc(' ', pos, buf, bufsz);
-        lim_shellquote(argv[i], pos, buf, bufsz);
+        lim_shellquote(*argv++, pos, buf, bufsz);
     }
-}
-
-/* Replace a command line with a shell invocation. */
-static void
-make_shell_command_line(const char* shell,
-                        int* argc,
-                        const char*** argv)
-{
-    size_t sz = 0;
-    lim_format_shell_command_line(*argv, *argc, &sz, NULL, 0);
-    char* script = xalloc(sz + 1);
-    size_t pos = 0;
-    lim_format_shell_command_line(*argv, *argc, &pos, script, sz);
-    script[pos] = '\0';
-    *argc = 3;
-    *argv = ARGV_CONCAT(ARGV(shell, "-c", script));
 }
 
 static void
 send_cmdline(const struct childcom* tc,
-             int argc,
-             const char* const* argv,
-             const char* exename)
+             const char* exename,
+             const char* command,
+             const char* const* argv)
 {
-    if (argc == 0) {
-        /* Default interactive shell */
-        if (exename == NULL)
-            send_cmdline_argument(tc, MSG_CMDLINE_DEFAULT_SH, NULL, 0);
-        else
-            send_cmdline_argument(tc, MSG_CMDLINE_ARGUMENT,
-                                  exename, strlen(exename));
-
-        send_cmdline_argument(tc, MSG_CMDLINE_DEFAULT_SH_LOGIN, NULL, 0);
-    } else {
-        if (exename == NULL)
-            exename = argv[0];
-
-        send_cmdline_argument(tc, MSG_CMDLINE_ARGUMENT,
-                              exename, strlen(exename));
-
-        for (int i = 0; i < argc; ++i)
-            send_cmdline_argument(tc, MSG_CMDLINE_ARGUMENT,
-                                  argv[i], strlen(argv[i]));
-    }
+    send_cmdline_argument(tc, exename ?: command);
+    send_cmdline_argument(tc, command);
+    while (*argv)
+        send_cmdline_argument(tc, *argv++);
 }
 
 static bool
@@ -1186,8 +1141,60 @@ setup_reset_termios(
     reslist_xfer(rl->parent, rl);
 }
 
+struct shex_common_info {
+    struct adb_opts adb;
+    struct user_opts user;
+    struct cwd_opts cwd;
+    struct shex_opts shex;
+    struct transport_opts transport;
+    const char* command;
+    const char** args;
+};
+
+static struct environ_op*
+parse_uenvops(const struct strlist* uenvops)
+{
+    struct environ_op* environ_ops = NULL;
+    for (const char* uenvop = strlist_rewind(uenvops);
+         uenvop != NULL;
+         uenvop = strlist_next(uenvops))
+    {
+        if (string_starts_with_p(uenvop, "setenv=")) {
+            const char* varname = uenvop + strlen("setenv=");
+            const char* sep = strchr(varname, '=');
+            if (sep == NULL)
+                usage_error(
+                    "no value for environment variable %s",
+                    varname);
+            struct environ_op* eop = xcalloc(sizeof (*eop));
+            eop->next = environ_ops;
+            eop->name = xstrndup(varname, sep - varname);
+            eop->value = sep+1;
+            environ_ops = eop;
+        } else if (string_starts_with_p(uenvop, "unsetenv=")) {
+            const char* varname = uenvop + strlen("unsetenv=");
+            if (strchr(varname, '='))
+                usage_error(
+                    "invalid environment variable name %s",
+                    varname);
+            struct environ_op* eop = xcalloc(sizeof (*eop));
+            eop->next = environ_ops;
+            eop->name = varname;
+            environ_ops = eop;
+        } else if (!strcmp(uenvop, "clearenv")) {
+            struct environ_op* eop = xcalloc(sizeof (*eop));
+            eop->next = environ_ops;
+            environ_ops = eop;
+        } else {
+            abort();
+        }
+    }
+
+    return environ_ops; // Reversed at this point
+}
+
 static int
-shex_main_common(enum shex_mode smode, int argc, const char** argv)
+shex_main_common(const struct shex_common_info* info)
 {
     size_t max_cmdsz = DEFAULT_MAX_CMDSZ;
     bool local_mode = false;
@@ -1197,14 +1204,12 @@ shex_main_common(enum shex_mode smode, int argc, const char** argv)
            TTY_ENABLE,
            TTY_SUPER_ENABLE } tty_mode = TTY_AUTO;
 
-    const char* exename = NULL;
-    bool force_send_stub = false;
     struct tty_flags tty_flags[3];
-    const char* const* adb_args = empty_argv;
+    struct strlist* adb_args_list = strlist_new();
+    emit_args_adb_opts(adb_args_list, &info->adb);
+    const char* const* adb_args = strlist_to_argv(adb_args_list);
     bool want_root = false;
-    char* want_user = NULL;
-    bool want_ctty = true;
-    char* child_chdir = NULL;
+    const char* want_user = NULL;
     enum transport transport = transport_shell;
     const char* tcp_addr = NULL;
     bool compress = !getenv("FB_ADB_NO_COMPRESSION");
@@ -1216,6 +1221,10 @@ shex_main_common(enum shex_mode smode, int argc, const char** argv)
 
     struct environ_op* environ_ops = NULL;
 
+#ifndef NDEBUG
+    local_mode = !!getenv("FB_ADB_LOCAL_MODE");
+#endif
+
     memset(&tty_flags, 0, sizeof (tty_flags));
     for (int i = 0; i < 3; ++i)
         if (isatty(i)) {
@@ -1226,147 +1235,44 @@ shex_main_common(enum shex_mode smode, int argc, const char** argv)
             }
         }
 
-    static struct option opts[] = {
-        { "help", no_argument, NULL, 'h' },
-        { "local", no_argument, NULL, 'l' },
-        { "exename", required_argument, NULL, 'E' },
-        { "force-send-stub", no_argument, NULL, 'f' },
-        { "force-tty", no_argument, NULL, 't' },
-        { "disable-tty", no_argument, NULL, 'T' },
-        { "no-ctty", no_argument, NULL, 'D' },
-        { "root", no_argument, NULL, 'r' },
-        { "socket", no_argument, NULL, 'U' },
-        { "user", required_argument, NULL, 'u' },
-        { "chdir", required_argument, NULL, 'C' },
-        { "transport", required_argument, NULL, 'X' },
-        { "setenv", required_argument, NULL, 'Y' },
-        { "unsetenv", required_argument, NULL, 'K' },
-        { "clearenv", no_argument, NULL, 'F' },
-        { 0 }
-    };
+    if (info->user.root) {
+        if (info->user.user)
+            usage_error("cannot both run-as user and su to root");
+        want_root = true;
+    }
 
-    for (;;) {
-        int c = getopt_long(argc,
-                            (char**) argv,
-                            "+:lhE:ftTdes:p:H:P:rUu:DC:X:Y:K:F",
-                            opts,
-                            NULL);
-        if (c == -1)
-            break;
+    if (info->user.user) {
+        if (info->user.root)
+            usage_error("cannot both run-as user and su to root");
+        want_user = info->user.user;
+    }
 
-        switch (c) {
-            case 'r':
-                if (want_user != NULL)
-                    die(EINVAL, "cannot both run-as user and su to root");
-                want_root = true;
-                break;
-            case 'E':
-                exename = optarg;
-                break;
-            case 'f':
-                force_send_stub = true;
-                break;
-            case 'l':
-                local_mode = true;
-                break;
-            case 't':
+    const struct strlist* termops = info->shex.termops;
+    if (termops) {
+        for (const char* termop = strlist_rewind(termops);
+             termop != NULL;
+             termop = strlist_next(termops))
+        {
+            if (!strcmp(termop, "force-tty")) {
                 if (tty_mode == TTY_ENABLE)
                     tty_mode = TTY_SUPER_ENABLE;
                 else
                     tty_mode = TTY_ENABLE;
-                break;
-            case 'T':
+            } else if (!strcmp(termop, "disable-tty")) {
                 tty_mode = TTY_DISABLE;
-                break;
-            case 'd':
-            case 'e':
-                adb_args = ARGV_CONCAT(adb_args, ARGV(xaprintf("-%c", c)));
-                break;
-            case 's':
-            case 'p':
-            case 'H':
-            case 'P':
-                adb_args = ARGV_CONCAT(
-                    adb_args,
-                    ARGV(xaprintf("-%c", c),
-                         xstrdup(optarg)));
-                break;
-            case 'U':
-                tty_mode = TTY_SOCKPAIR;
-                break;
-            case 'u':
-                if (want_root)
-                    die(EINVAL, "cannot both run-as user and su to root");
-                want_user = xstrdup(optarg);
-                break;
-            case 'D':
-                want_ctty = false;
-                break;
-            case 'C':
-                child_chdir = xstrdup(optarg);
-                break;
-            case 'X':
-                parse_transport(optarg, &transport, &tcp_addr);
-                break;
-            case 'Y': {
-                const char* sep = strchr(optarg, '=');
-                if (sep == NULL)
-                    die(EINVAL, "no value for environment variable %s", optarg);
-                struct environ_op* eop = xcalloc(sizeof (*eop));
-                eop->next = environ_ops;
-                eop->name = xstrndup(optarg, sep - optarg);
-                eop->value = xstrdup(sep+1);
-                environ_ops = eop;
-                break;
-            }
-            case 'K': {
-                if (strchr(optarg, '='))
-                    die(EINVAL, "invalid environment variable name %s", optarg);
-                struct environ_op* eop = xcalloc(sizeof (*eop));
-                eop->next = environ_ops;
-                eop->name = xstrdup(optarg);
-                environ_ops = eop;
-                break;
-            }
-            case 'F': {
-                struct environ_op* eop = xcalloc(sizeof (*eop));
-                eop->next = environ_ops;
-                environ_ops = eop;
-                break;
-            }
-            case ':':
-                if (optopt == '\0') {
-                    die(EINVAL, "missing argument for %s", argv[optind-1]);
-                } else {
-                    die(EINVAL, "missing argument for -%c", optopt);
-                }
-            case '?':
-                if (optopt == '?') {
-                    // Fall through to help
-                } else if (optopt == '\0') {
-                    die(EINVAL, "invalid option %s", argv[optind-1]);
-                } else {
-                    die(EINVAL, "invalid option -%c", (int) optopt);
-                }
-            case 'h':
-                print_usage(smode);
-                return 0;
-            default:
+            } else {
                 abort();
+            }
         }
     }
 
-    argc -= optind;
-    argv += optind;
+    if (info->shex.uenvops)
+        environ_ops = parse_uenvops(info->shex.uenvops);
 
-    if (smode == SHEX_MODE_RCMD && argc == 0)
-        die(EINVAL, "remote command not given");
+    const char* utransport = info->transport.transport;
 
-    if (smode == SHEX_MODE_SHELL && argc > 0)
-        make_shell_command_line("sh", &argc, &argv);
-
-    // Reverse environ_ops back to argv order.
-    environ_ops = reverse_environ_ops(environ_ops);
+    if (utransport)
+        parse_transport(utransport, &transport, &tcp_addr);
 
     // Prepend forwarding so that explicit user environment
     // modifications override.
@@ -1374,8 +1280,16 @@ shex_main_common(enum shex_mode smode, int argc, const char** argv)
     forward_envvar(&environ_ops, "COLUMNS");
     forward_envvar(&environ_ops, "TERM");
 
+    // Reverse environment operations back to specification order.
+    environ_ops = reverse_environ_ops(environ_ops);
+
+    const char* command = info->command;
+    const char* const* argv = info->args;
+
     if (tty_mode == TTY_AUTO)
-        tty_mode = (argc == 0) ? TTY_ENABLE : TTY_DISABLE;
+        tty_mode = ( command == ARG_DEFAULT_SH_LOGIN
+                     ? TTY_ENABLE
+                     : TTY_DISABLE );
 
     for (int i = 0; i < 3; ++i)
         if ((tty_mode == TTY_ENABLE && tty_flags[i].tty_p)
@@ -1401,19 +1315,18 @@ shex_main_common(enum shex_mode smode, int argc, const char** argv)
 
     size_t command_ringbufsz = max_cmdsz * 4;
     size_t stdio_ringbufsz = max_cmdsz * 2;
-    size_t args_to_send = XMAX((size_t) argc + 1, 2);
     struct msg_shex_hello* hello_msg =
         make_hello_msg(max_cmdsz,
                        stdio_ringbufsz,
                        command_ringbufsz,
-                       args_to_send,
+                       2 + argv_count(argv),
                        tty_flags);
 
     if (tty_mode == TTY_SOCKPAIR) {
         hello_msg->stdio_socket_p = 1;
     }
 
-    if (want_ctty)
+    if (info->shex.no_ctty == 0)
         hello_msg->ctty_p = 1;
 
     struct child* child;
@@ -1438,7 +1351,7 @@ shex_main_common(enum shex_mode smode, int argc, const char** argv)
         memset(&chello, 0, sizeof (chello));
         child = start_stub_local();
     } else {
-        child = start_stub_adb(force_send_stub, adb_args, &chello);
+        child = start_stub_adb(adb_args, &chello);
     }
 
     struct childcom tc_buf = {
@@ -1497,11 +1410,11 @@ shex_main_common(enum shex_mode smode, int argc, const char** argv)
 
     tc_sendmsg(tc, &hello_msg->msg);
 
-    if (child_chdir)
-        send_chdir(tc, child_chdir);
+    if (info->cwd.chdir)
+        send_chdir(tc, info->cwd.chdir);
 
     send_environ_ops(tc, environ_ops);
-    send_cmdline(tc, argc, argv, exename);
+    send_cmdline(tc, info->shex.exename, command, argv);
 
     struct fb_adb_shex shex;
     memset(&shex, 0, sizeof (shex));
@@ -1645,195 +1558,47 @@ shex_main_common(enum shex_mode smode, int argc, const char** argv)
 }
 
 int
-shex_main(int argc, const char** argv)
+shell_main(const struct cmd_shell_info* info)
 {
-    return shex_main_common(SHEX_MODE_SHELL, argc, argv);
-}
-
-int
-shex_main_rcmd(int argc, const char** argv)
-{
-    return shex_main_common(SHEX_MODE_RCMD, argc, argv);
-}
-
-static const struct option*
-find_option_by_name(const struct option* options, const char* name)
-{
-    while (options->name) {
-        if (!strcmp(options->name, name)) {
-            return options;
-        }
-
-        options++;
-    }
-
-    return NULL;
-}
-
-// These options are ones that we pass to rcmd instead of invoked
-// scripts.  The short forms also need to be on
-// shex_wrapper_common_ops.
-
-static const struct option shex_wrapper_common_longops[] = {
-    { "root", no_argument, NULL, 'r' },
-    { "user", required_argument, NULL, 'u' },
-    { 0 }
-};
-
-static const char shex_wrapper_common_opts[] = "des:p:H:P:ru:";
-
-int
-shex_wrapper(const char* wrapped_cmd,
-             const char* opts,
-             const struct option* longopts,
-             const char* usage,
-             const char** argv)
-{
-    const char* const* rcmd_args = empty_argv;
-    const char* const* remote_args = empty_argv;
-    const char* arg;
-    bool posix_correct = false;
-    char c;
-
-    if (opts != NULL) {
-        while (strchr("+:", opts[0])) {
-            if (opts[0] == '+')
-                posix_correct = true;
-            ++opts;
-        }
-
-#ifndef NDEBUG
-        for (const char* p = opts; *p; ++p) {
-            if (*p != ':' && strchr(shex_wrapper_common_opts, *p)) {
-                assert(!"conflicting options in shex_wrapper!");
-            }
-        }
-#endif
-    }
-
-#define ADDARG(_dest, _arg)                             \
-    (*(_dest) = ARGV_CONCAT(*(_dest), ARGV((_arg))))
-
-    ADDARG(&rcmd_args, *argv++);
-
-    // Split the argument list into arguments for rcmd and arguments
-    // for the remote command.
-
-    while ((arg = *argv++)) {
-        if ((posix_correct && arg[0] != '-') ||
-            (arg[0] == '-' && arg[1] == '-' && arg[2] == '\0'))
-        {
-            remote_args = ARGV_CONCAT(remote_args, argv - 1);
-            break;
-        }
-
-        if (arg[0] != '-') {
-            ADDARG(&remote_args, arg);
-            continue;
-        }
-
-        if (arg[1] == '-') {
-            const char* longname = &arg[2];
-            const char* value = NULL;
-
-            if (strchr(longname, '=')) {
-                longname = xstrdup(longname);
-                char* eq = strchr(longname, '=');
-                *eq++ = '\0';
-                value = eq;
-            }
-
-            if (!strcmp(longname, "help")) {
-                fputs(usage, stdout);
-                return 0;
-            }
-
-            bool rcmd = true;
-            const struct option* longopt =
-                find_option_by_name(shex_wrapper_common_longops,
-                                    longname);
-
-            if (longopt == NULL && longopts) {
-                longopt = find_option_by_name(longopts, longname);
-                rcmd = false;
-            }
-
-            if (longopt == NULL)
-                die(EINVAL, "invalid option --%s", longname);
-
-            if (value && !longopt->has_arg) {
-                die(EINVAL,
-                    "option --%s does not accept an argument",
-                    longname);
-
-            }
-
-            if (longopt->has_arg == 1 && !value) {
-                value = *argv++;
-                if (!value) {
-                    die(EINVAL,
-                        "no argument for option %s",
-                        longname);
-                }
-            }
-
-            ADDARG((rcmd ? &rcmd_args : &remote_args),
-                   ((value != NULL)
-                    ? xaprintf("--%s=%s", longname, value)
-                    : longname));
-
-            continue;
-        }
-
-        ++arg;
-        while ((c = *arg++)) {
-            bool rcmd = false;
-            const char* ap = NULL;
-
-            if (c == 'h' || c == '?') {
-                fputs(usage, stdout);
-                return 0;
-            }
-
-            if ((ap = strchr(shex_wrapper_common_opts, c)))
-                rcmd = true;
-
-            if (!ap && opts)
-                ap = strchr(opts, c);
-
-            if (!ap)
-                die(EINVAL, "invalid option -%c", c);
-
-            bool has_arg = (ap[1] == ':');
-            const char* value = NULL;
-
-            if (has_arg && *arg) {
-                value = arg;
-                arg += strlen(value);
-            } else if (has_arg) {
-                value = *argv++;
-                if (!value)
-                    die(EINVAL, "no argument for option -%c", c);
-            }
-
-            ADDARG((rcmd ? &rcmd_args : &remote_args),
-                   xaprintf("-%c%s", c, value ?: ""));
-        }
-    }
-
-    const char* invoke_self_args[] = {
-        "-E/proc/self/exe",
-        "fb-adb",
-        wrapped_cmd,
-        NULL
+    struct shex_common_info cinfo = {
+        .adb = info->adb,
+        .user = info->user,
+        .cwd = info->cwd,
+        .shex = info->shex,
+        .transport = info->transport,
     };
 
-    const char** nargv =
-        ARGV_CONCAT(rcmd_args, invoke_self_args, remote_args);
+    const char* command = info->command;
+    if (command == NULL) {
+        cinfo.shex.exename = ARG_DEFAULT_SH;
+        cinfo.command = ARG_DEFAULT_SH_LOGIN;
+        cinfo.args = (const char**) empty_argv;
+    } else {
+        const char* const* argv = info->args;
+        size_t sz = 0;
+        lim_format_shell_command_line(command, argv, &sz, NULL, 0);
+        char* script = xalloc(sz + 1);
+        size_t pos = 0;
+        lim_format_shell_command_line(command, argv, &pos, script, sz);
+        script[pos] = '\0';
+        cinfo.command = ARG_DEFAULT_SH;
+        cinfo.args = ARGV("-c", script);
+    }
 
-    return shex_main_common(SHEX_MODE_RCMD,
-                            argv_count(nargv),
-                            nargv);
+    return shex_main_common(&cinfo);
+}
 
-#undef ADDARG
+int
+rcmd_main(const struct cmd_rcmd_info* info)
+{
+    struct shex_common_info cinfo = {
+        .adb = info->adb,
+        .user = info->user,
+        .cwd = info->cwd,
+        .shex = info->shex,
+        .transport = info->transport,
+        .command = info->command,
+        .args = info->args,
+    };
+    return shex_main_common(&cinfo);
 }

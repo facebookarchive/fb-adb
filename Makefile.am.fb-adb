@@ -14,7 +14,10 @@ DIST_SUBDIRS =
 bin_PROGRAMS = fb-adb
 
 AM_CPPFLAGS += -DFBADB_MAIN=1 -DFBADB_CHANNEL_NONBLOCK_HACK=1
-libfb_adb_a_SOURCES += cmd_shex.c cmd_shex.h stubs.h
+CMD_SOURCES += cmd_shex.c
+libfb_adb_a_SOURCES += stubs.h
+
+CMDSPROC_FLAGS += -DFBADB_MAIN
 
 nodist_fb_adb_SOURCES += stubs.c
 CLEANFILES += stubs.c
@@ -59,6 +62,15 @@ EXTRA_DIST += cmd_shex_usage.txt
 
 EXTRA_DIST += README.md LICENSE PATENTS NEWS stub-config.sh
 EXTRA_DIST += timestamp.c.in termnames.h.in termnames.sed
-EXTRA_DIST += mkstubsc.sh fb-adb.1
+EXTRA_DIST += mkstubsc.sh commands.xml cmdsproc.py
+
+CLEANFILES += fb-adb.pod fb-adb.1
 
 man_MANS = fb-adb.1
+
+fb-adb.pod: $(COMMANDS_XML) $(srcdir)/cmdsproc.py
+	$(CMDSPROC) -DDOC pod $(COMMANDS_XML) > $@
+	podchecker -warnings -warnings $@
+
+fb-adb.1: fb-adb.pod
+	$(POD2MAN) -r"fb-adb $(VERSION)" -s1 -uvc "Facebook" $< > $@

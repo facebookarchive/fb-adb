@@ -367,8 +367,6 @@ void xexecvpe(const char* file,
               const char* const* argv,
               const char* const* envp);
 
-int default_getopt(char c, const char** argv, const char* usage);
-
 struct sigtstp_cookie;
 enum sigtstp_mode {
     SIGTSTP_BEFORE_SUSPEND,

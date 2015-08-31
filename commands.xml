@@ -1,0 +1,388 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+This file describes the various fb-adb sub-commands
+and the options they take.  From this file, we generate
+the fb-adb man page, in-program usage, option-processing
+code, and bash completion file.
+-->
+<usage program="fb-adb" summary="Improved Android Debug Bridge">
+  <section name="Synopsis">
+    <!-- Automatically generated -->
+    <synopsis/>
+  </section>
+
+  <section name="Description">
+    <b>fb-adb</b> wraps <b>adb</b> to provide enhanced shell and
+    command execution functionality.
+    <vspace/>
+    <b>fb-adb shell</b> (which can also be spelled <b>fb-adb sh</b>
+    and <b>fb-adb shellx</b>) runs <i>command</i> and its arguments
+    through the device shell (which is usually <b>mksh</b>(1)) with
+    all arguments shell-quoted.  (<i>command</i> itself is unquoted,
+    so it may contain shell constructs, e.g., globs.)  <b>fb-adb
+    shell</b> without arguments starts an interactive shell, making it
+    slightly more efficient, especially when connecting to
+    CPU-constrained devices.
+    <vspace/>
+    <b>fb-adb rcmd</b> is similar, except that it runs <i>command</i>
+    directly without invoking the shell and does not have a
+    zero-argument form that starts an interactive shell.
+    <vspace/>
+    <b>fb-adb help</b> displays this documentation.
+    <vspace/>
+    All other commands are forwarded to <b>adb</b>, making it feasible
+    to use <b>fb-adb</b> in place of <b>adb</b> for most tasks.
+    <vspace/>
+    <b>adb</b> must be on PATH.
+  </section>
+
+  <section name="Differences Between FB-ADB and ADB">
+    Differences between <b>adb</b> and <b>fb-adb</b> are that
+    <b>fb-adb</b>
+    <ul>
+      <li>is binary clean (no LF -> CRLF mangling),</li>
+      <li>transmits and updates terminal window size via
+      SIGWINCH,</li>
+      <li>distinguishes standard output and standard error,</li>
+      <li>properly muxes streams, each with independent flow
+      control,</li>
+      <li>allows for ssh-like pty allocation control,</li>
+      <li>propagates program exit status instead of always exiting
+      with status 0,</li>
+      <li>properly escapes program arguments,</li>
+      <li>kills remote program on local exit,</li>
+      <li>provides a generic facility to elevate to root without
+      re-escaping command line arguments,</li>
+      <li>transparently supports alternate, faster transports for
+      shell connections,</li>
+      <li>supports sending environment variables to the child using
+      dedicated command-line parameters and no shell munging, and</li>
+      <li>provides dedicated commands for filesystem access, logcat
+      writing, etc. that are intended for use with scripts,</li>
+      <li>is rapidly updated.</li>
+    </ul>
+  </section>
+
+  <?ifdef FBADB_MAIN?>
+  <optgroup name="adb" forward="no" export-emit-args="yes">
+    <option short="d" long="device">
+      Connect to a device.  Identical to <b>adb</b>'s
+      <b>-d</b> option.
+    </option>
+    <option short="e" long="emulator">
+      Connect to an emulator.  Identical to <b>adb</b>'s
+      <b>-e</b> option.
+    </option>
+    <option short="s" long="serial" arg="serial" >
+      Connect to a specific device.  Identical to <b>adb</b>'s
+      <b>-s</b> option.
+    </option>
+    <option short="H" long="hostname" arg="hostname" type="hostname">
+      Specifies the hostname of the <b>adb</b> server to which to
+      connect.  Identical to <b>adb</b>'s <b>-H</b> option.
+    </option>
+    <option short="P" long="port" arg="port">
+      Specifies the port of the <b>adb</b> server to which to connect.
+      Identical to <b>adb</b>'s <b>-P</b> option.
+    </option>
+  </optgroup>
+  <optgroup name="transport" forward="no">
+    <option short="X" long="transport" arg="transport">
+      Connect over the given transport.  The default is <b>shell</b>.
+      <vspace/>
+      <b>shell</b> means to run the <b>fb-adb</b> protocol over an
+      "adb shell" connection.  This method is the most reliable.
+      <vspace/>
+      <b>unix</b> means to run the <b>fb-adb</b> protocol over an
+      AF_UNIX socket connection forwarded over ADB.  This method may
+      transfer data faster than the <b>shell</b> transport, but it is
+      experimental may take slightly longer to set up.
+      <vspace/>
+      <b>tcp:HOST,PORT</b> means to use a TCP socket to connect from
+      the device to the host.  fb-adb automatically manages making the
+      connection, but it cannot automatically figure out on what
+      network address the device can reach the host.  You must tell it
+      what address to bind to: HOST and PORT.  HOST and PORT are any
+      strings accepted as the node and service arguments,
+      respectively, to getaddr(3), and can be names or numbers.
+      <vspace/>
+      Examples: <tt>tcp:10.2.5.1,12345</tt> and
+      <tt>tcp:myhost.example,gopher</tt>
+      <vspace/>
+      This transport is typically much faster than the others: it
+      bypasses <b>adb</b> completely.
+      <vspace/>
+      Note that traffic to devices is unencrypted.
+    </option>
+  </optgroup>
+  <optgroup name="user" forward="no">
+    <option short="r" long="root">
+      Attempt to become root.
+    </option>
+    <option short="u" long="user" arg="user">
+      Attempt to become <i>user</i>.  <i>user</i> is an identifier
+      that <b>run-as</b> on the device understands, e.g.,
+      <tt>com.facebook.wakizashi</tt>.
+      <vspace/>
+      Note that some devices have broken <b>run-as</b>
+      implementations: on these devices, <b>run-as</b> will not
+      recognize a package never even though <tt>fb-adb rcmd am list
+      packages</tt> indicates that the package is on the device.
+    </option>
+  </optgroup>
+  <optgroup name="cwd" forward="no">
+    <option short="C"
+            long="chdir"
+            arg="dir"
+            type="device-path">
+      Change to <i>dir</i> on device.
+    </option>
+  </optgroup>
+  <optgroup name="shex" forward="no" human="Shell Control">
+    <option long="socket-for-child">
+      Give the child sockets, not pipes, for its standard streams.
+    </option>
+    <option short="D" long="no-ctty">
+      Do not give the remote child a controlling terminal.  Normally,
+      <b>fb-adb</b> connects a remote child to a controlling terminal
+      so that when the a <b>fb-adb</b> disconnects, the child receives
+      a SIGHUP.  With this option set, the child instead sees its
+      standard streams closed, but is not sent any signal.
+    </option>
+    <option short="t" long="force-tty" accumulate="termops">
+      Normally, if a <i>command</i> is supplied, <b>fb-adb</b> gives
+      the remote child pipes for its standard streams.  This option
+      instructs <b>fb-adb</b> to instead use a pseudoterminal for each
+      standard stream connected to a terminal on the client.
+      If repeated, <b>-t</b> makes <b>fb-adb</b> give the child a
+      pseudoterminal even for streams for which the <b>fb-adb</b>
+      client does not have a terminal.
+    </option>
+    <option short="T" long="disable-tty" accumulate="termops">
+      Never give the child ttys for standard input, standard output,
+      or standard error.  Use pipes instead, even if <b>ad-adb</b>
+      itself is connected to a tty.
+    </option>
+    <option short="E" long="exename" arg="exename">
+      Execute <i>exename</i> as the remote child program instead of
+      <i>command</i>.  <i>command</i> is argv[0] in any case.
+      If starting an interactive shell, use <i>command</i> instead of
+      the default shell executable.
+    </option>
+    <option short="Y" long="setenv" arg="envvar" accumulate="uenvops">
+      Set <i>envvar</i> in the environment of the child.
+      <i>envvar</i> must a string of the form "NAME=VALUE".  If the
+      <b>-Y</b> option is given multiple times, we set multiple
+      environment variables.
+      <vspace/>
+      <b>fb-adb</b> applies the <b>-Y</b>, <b>-F</b>, and <b>-K</b>
+      environment operations in the order they appear on the
+      command line.
+    </option>
+    <option short="F" long="clearenv" accumulate="uenvops">
+      Clear all environment variables set so far, both ones
+      inherited from the environment and ones previously specified with
+      <b>--setenv</b>.
+    </option>
+    <option short="K" long="unsetenv" arg="envvar" accumulate="uenvops">
+      Unset the environment variable <i>envvar</i>.
+    </option>
+  </optgroup>
+  <?endif?>
+  <command names="logw">
+    Write to logcat on device.
+    <argument name="message-parts" repeat="yes">
+      The log message to write.  All message arguments are joined with
+      a single space character between them.  The combined message is
+      then logged.
+    </argument>
+    <optgroup name="logw">
+      <option short="t" long="tag" arg="tag">
+        Log mesage with the given tag instead of the default,
+        "fb-adb-logw".
+      </option>
+      <option short="x" long="priority" arg="priority" >
+        Log message with the given priority instead of the default,
+        <tt>info</tt>.
+      </option>
+    </optgroup>
+    <?ifdef FBADB_MAIN?>
+    <optgroup-reference name="adb"/>
+    <optgroup-reference name="transport" />
+    <optgroup-reference name="user"/>
+    <?endif?>
+  </command>
+  <command names="readlink">
+    Read the target of a symbolic link on device.  This command is
+    useful when a device lacks the readlink(1) command.
+    <b>readlink</b> prints the given link's target to standard output
+    (with no trailing newline) or fails.
+    <argument name="link" type="device-path">
+      The name of the symbolic link to read.
+    </argument>
+    <?ifdef FBADB_MAIN?>
+    <optgroup-reference name="adb"/>
+    <optgroup-reference name="transport" />
+    <optgroup-reference name="user"/>
+    <?endif?>
+  </command>
+  <command names="finfo">
+    Print information in JSON format about paths on device.
+    The output is a JSON array with one entry for each of the
+    given paths.
+    <argument name="paths"
+              repeat="yes"
+              optional="yes"
+              type="device-path">
+      The paths to query on device.
+    </argument>
+    <optgroup name="finfo">
+      <option short="i" long="info" arg="info">
+        Comma-separated list of pieces of information to retrieve from
+        each of the paths given.
+      </option>
+    </optgroup>
+    <?ifdef FBADB_MAIN?>
+    <optgroup-reference name="adb"/>
+    <optgroup-reference name="transport" />
+    <optgroup-reference name="user"/>
+    <optgroup-reference name="cwd"/>
+    <?endif?>
+    <vspace/>
+    <!-- XXX: DOCUMENT ME BETTER! -->
+  </command>
+  <?ifdef FBADB_MAIN?>
+  <command names="shell,shellx,sh">
+    Run a command on device.  If <i>command</i> is not supplied, run
+    an interactive shell.  Otherwise, run <i>command</i> on device
+    with the given arguments.  <i>command</i> is interpreted as a
+    shell command and is not quoted; the arguments are each quoted.
+    This quoting system means that glob patterns in arguments will not
+    be expanded, while glob patterns in <i>command</i> will be.
+    <argument name="command" type="device-command" optional="yes">
+      Name of the command to run: can be a program or shell builtin.
+    </argument>
+    <argument name="args" repeat="yes" optional="yes">
+      Arguments to send to the <i>command</i>.
+    </argument>
+    <optgroup-reference name="adb"/>
+    <optgroup-reference name="transport" />
+    <optgroup-reference name="user"/>
+    <optgroup-reference name="cwd"/>
+    <optgroup-reference name="shex"/>
+  </command>
+  <command names="rcmd" export-parse-args="yes">
+    Run a command on device.  Unlike <b>fb-adb shell</b>, this command
+    does not invoke the shell.  It instead runs
+    <b>command</b> directly.
+    <argument name="command" type="device-command">
+      Program to run on device.  This argument will become
+      <tt>argv[0]</tt> and is also the name of the executable to run
+      if one is not specified with <b>--exename</b>.
+    </argument>
+    <argument name="args" repeat="yes" optional="yes">
+      Arguments to send to the <i>command</i>.
+    </argument>
+    <optgroup-reference name="adb"/>
+    <optgroup-reference name="transport" />
+    <optgroup-reference name="user"/>
+    <optgroup-reference name="cwd"/>
+    <optgroup-reference name="shex"/>
+  </command>
+  <?endif?>
+  <?ifndef DOC?>
+  <command names="stub" />
+  <?endif?>
+  <section name="Environment Variables">
+    <dl>
+      <dt>ADB_SHELL_OLD_BEHAVIOR</dt>
+      <dd>When set, <b>fb-adb</b> does not override any <b>adb</b>
+      commands, exposing only new names for new commands.  Using this
+      option, <b>fb-adb</b> can replace <b>adb</b> (perhaps on PATH)
+      with no compatibility risk.
+      </dd>
+      <dt>FB_ADB_DEBUG</dt>
+      <dd>This variable controls how <b>fb-adb</b> writes debug
+      messages.  If it is "1", <b>fb-adb</b> writes debug messages to
+      standard error.  If it is a string that begins with ">",
+      <b>fb-adb</b> writes debug messages to the file whose names
+      begins after the ">" (like a shell redirection).  If it is a
+      string that begins with ">>", <b>fb-adb</b> appends to that file
+      instead of overwriting it.  This environment variable only has
+      an effect when <b>fb-adb</b> is compiled with the
+      --enable-checking option.
+      </dd>
+      <dt>FB_ADB_REMOTE_DEBUG</dt>
+      <dd>This option, set on the host system, becomes the value of
+      <b>FB_ADB_DEBUG</b> on the target system.
+      </dd>
+      <dt>FB_ADB_REMOTE_WRAPPER</dt>
+      <dd>This option, set on the host system, provides a program that
+      wraps the execution of the stub on the remote system.
+      This environment variable has an effect only when the program is
+      configured with --enable-checking.  An example:
+      <tt>FB_ADB_REMOTE_WRAPPER='strace -o/data/local/tmp/foo'</tt>
+      </dd>
+      <dt>FB_ADB_NO_COMPRESSION</dt>
+      <dd>This option, set on the host system, tells <b>fb-adb</b> to
+      avoid its usual LZ4 stream compression.  LZ4 is fast enough that
+      there are no practical disadvantages to disabling it, so this
+      option is primarily useful for debugging.
+      </dd>
+      <dt>FB_ADB_TRANSPORT</dt>
+      <dd>
+        This environment variable provides the default value of the
+        <b>--transport</b> option.
+      </dd>
+      <dt>FB_ADB_COLOR</dt>
+      <dd>
+        <b>fb-adb</b> normally tries to print help messages in color
+        when sending help text to a color-capable terminal or
+        color-capable pager.  If <b>FB_ADB_COLOR</b> is set to 1,
+        force color output.  If <b>FB_ADB_COLOR</b> is 0, never output
+        color.  (We consider any value of <b>PAGER</b> equal to
+        <tt>less</tt> or starting with <tt>less </tt> to be
+        color-capable.)
+      </dd>
+      <dt>PAGER</dt>
+      <dd>
+        <b>fb-adb</b> normally tries to display help text in a pager
+        given by the <b>PAGER</b> environment variable.
+        If <b>PAGER</b> is the empty string or fails, skip the pager
+        and emit help text directly.
+      </dd>
+    </dl>
+  </section>
+  <section name="Examples">
+    <dl>
+      <dt>Capture a screenshot from device and write it locally</dt>
+      <dd>
+        <pre>
+          <![CDATA[
+          fb-adb rcmd screencap -p > screenshot-$(timestamp).png
+          ]]>
+        </pre>
+      </dd>
+      <dt>Dump database.db of the com.bar.foo app</dt>
+      <dd>
+        <pre>
+          <![CDATA[
+          fb-adb rcmd -u com.bar.foo sqlite3 databases/database.db .d
+          ]]>
+        </pre>
+      </dd>
+      <dt>Open remote shell as the user com.bar.foo</dt>
+      <dd>
+        <pre>
+          <![CDATA[
+          fb-adb shell -u com.bar.foo
+          ]]>
+        </pre>
+      </dd>
+    </dl>
+  </section>
+  <section name="See Also">
+    Run <b>adb help</b> to see <b>adb</b>'s own list of commands.  Argument
+    passing works roughly like ssh(1)'s.
+  </section>
+</usage>

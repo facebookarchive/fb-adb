@@ -14,6 +14,9 @@
 #include <stdbool.h>
 #include <assert.h>
 #include <errno.h>
+#include <stdlib.h>
+#include <string.h>
+#include <sys/queue.h>
 #include "argv.h"
 #include "util.h"
 
@@ -90,4 +93,123 @@ argv_concat(const char* const* argv1, ...)
     const char** ret = argv_concat_internal(false, argv1, args);
     va_end(args);
     return ret;
+}
+
+struct strlist_node {
+    STAILQ_ENTRY(strlist_node) link;
+    char string[];
+};
+
+struct strlist {
+    STAILQ_HEAD(, strlist_node) head;
+    struct strlist_node* cursor;
+};
+
+static void
+strlist_cleanup(void* data)
+{
+    struct strlist* sl = data;
+    while (!STAILQ_EMPTY(&sl->head)) {
+        struct strlist_node* sln = STAILQ_FIRST(&sl->head);
+        STAILQ_REMOVE_HEAD(&sl->head, link);
+        free(sln);
+    }
+}
+
+struct strlist*
+strlist_new(void)
+{
+    struct cleanup* cl = cleanup_allocate();
+    struct strlist* sl = xcalloc(sizeof (*sl));
+    STAILQ_INIT(&sl->head);
+    cleanup_commit(cl, strlist_cleanup, sl);
+    return sl;
+}
+
+void
+strlist_append(struct strlist* sl, const char* s)
+{
+    size_t s_len = strlen(s);
+    size_t allocsz = offsetof(struct strlist_node, string);
+    allocsz += s_len + 1;
+    struct strlist_node* sln = malloc(allocsz);
+    if (sln == NULL)
+        die_oom();
+    memset(sln, 0, sizeof (*sln));
+    memcpy(&sln->string, s, s_len+1);
+    STAILQ_INSERT_TAIL(&sl->head, sln, link);
+}
+
+void
+strlist_extend(struct strlist* sl, const struct strlist* src)
+{
+    for (const char* s = strlist_rewind(src);
+         s != NULL;
+         s = strlist_next(src))
+    {
+        strlist_append(sl, s);
+    }
+}
+
+void
+strlist_extend_argv(struct strlist* sl, const char* const* src)
+{
+    while (*src)
+        strlist_append(sl, *src++);
+}
+
+const char*
+strlist_rewind(const struct strlist* sl)
+{
+    struct strlist* slm = (struct strlist*) sl;
+    slm->cursor = STAILQ_FIRST(&slm->head);
+    return slm->cursor ? slm->cursor->string : NULL;
+}
+
+const char*
+strlist_next(const struct strlist* sl)
+{
+    struct strlist* slm = (struct strlist*) sl;
+    if (slm->cursor)
+        slm->cursor = STAILQ_NEXT(slm->cursor, link);
+    return slm->cursor ? slm->cursor->string : NULL;
+}
+
+const char**
+strlist_to_argv(const struct strlist* sl)
+{
+    size_t argc = 0;
+    for (const char* s = strlist_rewind(sl);
+         s != NULL;
+         s = strlist_next(sl))
+    {
+        ++argc;
+    }
+
+    const char** argv = xalloc(sizeof (*argv)*(1+argc));
+    const char** pos = argv;
+    for (const char* s = strlist_rewind(sl);
+         s != NULL;
+         s = strlist_next(sl))
+    {
+        *pos++ = s;
+    }
+    *pos = NULL;
+    return argv;
+}
+
+#ifndef STAILQ_CONCAT
+#define	STAILQ_CONCAT(head1, head2) do {				\
+        if (!STAILQ_EMPTY((head2))) {					\
+                *(head1)->stqh_last = (head2)->stqh_first;		\
+                (head1)->stqh_last = (head2)->stqh_last;		\
+                STAILQ_INIT((head2));					\
+        }								\
+} while (/*CONSTCOND*/0)
+#endif
+
+void
+strlist_xfer(struct strlist* recipient, struct strlist* donor)
+{
+    STAILQ_CONCAT(&recipient->head, &donor->head);
 }

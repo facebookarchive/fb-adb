@@ -1614,32 +1614,6 @@ xexecvpe(const char* file,
 }
 #endif
 
-int
-default_getopt(char c, const char** argv, const char* usage)
-{
-    switch (c) {
-        case ':':
-            if (optopt == '\0') {
-                die(EINVAL, "missing argument for %s", argv[optind-1]);
-            } else {
-                die(EINVAL, "missing argument for -%c", optopt);
-            }
-        case '?':
-            if (optopt == '?') {
-                // Fall through to help
-            } else if (optopt == '\0') {
-                die(EINVAL, "invalid option %s", argv[optind-1]);
-            } else {
-                die(EINVAL, "invalid option -%c", (int) optopt);
-            }
-        case 'h':
-            fputs(usage, stdout);
-            exit(0);
-        default:
-            abort();
-
-    }
-}
 
 struct sigtstp_cookie {
     LIST_ENTRY(sigtstp_cookie) link;

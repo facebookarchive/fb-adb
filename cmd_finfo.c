@@ -18,21 +18,14 @@
 #include <sys/stat.h>
 #include <sys/types.h>
 #include "util.h"
-#include "cmd_finfo.h"
+#include "autocmd.h"
 #include "json.h"
 #include "sha2.h"
+#include "argv.h"
 
-const char finfo_opts[] = "+:hi:";
-const struct option finfo_longopts[] = {
-    { "help", no_argument, NULL, 'h' },
-    { "info", required_argument, NULL, 'i' },
-    { 0 },
-};
+FORWARD(finfo);
 
-const char finfo_usage[] = (
-    "fb-adb finfo [-i INFO1,INFO2] [FILENAME1 [FILENAME2 ...]]: "
-    "describe files\n"
-    );
+#if !FBADB_MAIN
 
 enum finfo_op_state {
     FINFO_OP_DISABLED,
@@ -416,47 +409,28 @@ parse_oplist(const char* spec,
 }
 
 int
-finfo_main(int argc, const char** argv)
+finfo_main(const struct cmd_finfo_info* info)
 {
     const struct finfo_op* ops = available_ops;
-
-    for (;;) {
-        int c = getopt_long(argc,
-                            (char**) argv,
-                            finfo_opts,
-                            finfo_longopts,
-                            NULL);
-
-        if (c == -1)
-            break;
-
-        switch (c) {
-            case 'i':
-                ops = parse_oplist(
-                    optarg,
-                    ",",
-                    PARSE_OPLIST_ALLOW_SUBOPTIONS,
-                    NULL);
-                break;
-            default:
-                return default_getopt(c, argv, finfo_usage);
-        }
+    if (info->finfo.info) {
+        ops = parse_oplist(
+            info->finfo.info,
+            ",",
+            PARSE_OPLIST_ALLOW_SUBOPTIONS,
+            NULL);
     }
-
-    argc -= optind;
-    argv += optind;
 
     struct json_writer* writer = json_writer_create(stdout);
     json_begin_array(writer);
-    while (*argv) {
-        const char* filename = *argv++;
+    for (const char* const* paths = info->paths; *paths; ++paths) {
+        const char* path = *paths;
         json_begin_object(writer);
         json_begin_field(writer, "filename");
-        json_emit_string(writer, filename);
+        json_emit_string(writer, path);
         for (unsigned i = 0; i < NOPS; ++i) {
             if (ops[i].state != FINFO_OP_DISABLED) {
                 json_begin_field(writer, ops[i].name);
-                emit_finfo_op(writer, filename, ops[i].fn, ops[i].fndata);
+                emit_finfo_op(writer, path, ops[i].fn, ops[i].fndata);
             }
         }
         json_end_object(writer);
@@ -468,3 +442,6 @@ finfo_main(int argc, const char** argv)
 
     return 0;
 }
+
+#endif
+
