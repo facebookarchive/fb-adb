@@ -172,6 +172,8 @@ FILE* xfdopen(int fd, const char* mode);
 // close-on-exit.  This routine allows FD to be inherited across exec.
 void allow_inherit(int fd);
 
+char* xreadlink(const char* path);
+
 // Code that fails calls die() or one of its variants below.
 // Control then flows to the nearest enclosing catch_error.
 

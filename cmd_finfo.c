@@ -109,38 +109,9 @@ finfo_lstat(struct json_writer* writer, const char* filename, void* data)
 }
 
 static void
-finfo_cleanup_free_ptr(void* data)
-{
-    void** ptrptr = data;
-    free(*ptrptr);
-}
-
-static void
 finfo_readlink(struct json_writer* writer, const char* filename, void* data)
 {
-    char* buf = NULL;
-    size_t bufsz = 64;
-    char* new_buf;
-    ssize_t rc;
-
-    cleanup_commit(cleanup_allocate(), finfo_cleanup_free_ptr, &buf);
-
-    do {
-        bufsz *= 2;
-        if (bufsz > (size_t) SSIZE_MAX)
-            die(EINVAL, "readlink path too long");
-        new_buf = realloc(buf, bufsz);
-        if (new_buf == NULL)
-            die_oom();
-        buf = new_buf;
-        rc = readlink(filename, buf, bufsz);
-    } while (rc > 0 && rc == bufsz);
-
-    if (rc < 0)
-        die_errno("readlink");
-
-    buf[rc] = '\0';
-    json_emit_string(writer, buf);
+    json_emit_string(writer, xreadlink(filename));
 }
 
 static char*
@@ -332,6 +303,7 @@ emit_finfo_op(
 }
 
 #define PARSE_OPLIST_ALLOW_SUBOPTIONS (1<<0)
+#define PARSE_OPLIST_NO_DEFAULTS (1<<1)
 
 static struct finfo_op*
 parse_oplist(const char* spec,
@@ -356,7 +328,7 @@ parse_oplist(const char* spec,
     {
         if (want_recursion && !strcmp(opname, "recursive")) {
             *want_recursion = true;
-            opname = xstrdup("ls");
+            opname = "ls";
         }
 
         char* subopts = NULL;
@@ -383,24 +355,20 @@ parse_oplist(const char* spec,
             if (subopts)
                 die(EINVAL, "operation %s not accept options", opname);
         } else {
-            if (subopts) {
-                bool want_recursion;
-                struct finfo_op* lsops = parse_oplist(
-                    subopts,
-                    "+",
-                    0,
-                    &want_recursion);
-                ops[i].fndata = lsops;
-                if (want_recursion) {
-                    for (unsigned i = 0; i < NOPS; ++i) {
-                        if (lsops[i].fn == finfo_ls) {
-                            lsops[i].fndata = lsops;
-                            break;
-                        }
+            bool want_recursion;
+            struct finfo_op* lsops = parse_oplist(
+                subopts ?: "",
+                "+",
+                0,
+                &want_recursion);
+            ops[i].fndata = lsops;
+            if (want_recursion) {
+                for (unsigned i = 0; i < NOPS; ++i) {
+                    if (lsops[i].fn == finfo_ls) {
+                        lsops[i].fndata = lsops;
+                        break;
                     }
                 }
-            } else {
-                ops[i].fndata = (void*) available_ops;
             }
         }
     }

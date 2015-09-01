@@ -21,35 +21,10 @@ FORWARD(readlink);
 int
 readlink_main(const struct cmd_readlink_info* info)
 {
-    struct cleanup* cl = NULL;
-    char* buf = NULL;
-    size_t bufsz = 64;
-    ssize_t rc;
-
-    do {
-        bufsz *= 2;
-        if (bufsz > (size_t) SSIZE_MAX)
-            die(EINVAL, "readlink path too long");
-
-        if (cl) {
-            free(buf);
-            cleanup_forget(cl);
-        }
-
-        cl = cleanup_allocate();
-        buf = malloc(bufsz);
-        if (buf == NULL)
-            die_oom();
-        cleanup_commit(cl, free, buf);
-        rc = readlink(info->link, buf, bufsz);
-    } while (rc > 0 && rc == bufsz);
-
-    if (rc < 0)
-        die(errno, "%s", strerror(errno));
-
-    if (fwrite(buf, 1, rc, stdout) != rc)
+    char* linkname = xreadlink(info->link);
+    size_t len = strlen(linkname);
+    if (fwrite(linkname, 1, len, stdout) != len)
         die_errno("fwrite");
-
     return 0;
 }
 #endif
