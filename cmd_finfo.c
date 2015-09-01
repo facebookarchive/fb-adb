@@ -60,6 +60,57 @@ finfo_stat_common(struct json_writer* writer,
         die_errno("%s", statfn_name);
 
     json_begin_object(writer);
+
+    // We provide a symbolic mode in POSIX ls(1) format.  See the
+    // POSIX specification for ls.
+    mode_t mode = stat.st_mode;
+    char sm[sizeof ("-rw-r--r--")];
+    switch (mode & S_IFMT) {
+        case S_IFSOCK:
+            sm[0] = 's'; break;
+        case S_IFLNK:
+            sm[0] = 'l'; break;
+        case S_IFREG:
+            sm[0] = '-'; break;
+        case S_IFBLK:
+            sm[0] = 'b'; break;
+        case S_IFDIR:
+            sm[0] = 'd'; break;
+        case S_IFCHR:
+            sm[0] = 'c'; break;
+        case S_IFIFO:
+            sm[0] = 'p'; break;
+        default:
+            sm[0] = '?'; break;
+    }
+    sm[1] = (mode & S_IRUSR) ? 'r' : '-';
+    sm[2] = (mode & S_IWUSR) ? 'w' : '-';
+    if (!(mode & S_IXUSR) && (mode & S_ISUID))
+        sm[3] = 'S';
+    else if ((mode & S_IXUSR) && (mode & S_ISUID))
+        sm[3] = 's';
+    else
+        sm[3] = (mode & S_IXUSR) ? 'x' : '-';
+    sm[4] = (mode & S_IRGRP) ? 'r' : '-';
+    sm[5] = (mode & S_IWGRP) ? 'w' : '-';
+    if (!(mode & S_IXGRP) && (mode & S_ISGID))
+        sm[6] = 'S';
+    else if ((mode & S_IXGRP) && (mode & S_ISGID))
+        sm[6] = 's';
+    else
+        sm[6] = (mode & S_IXGRP) ? 'x' : '-';
+    sm[7] = (mode & S_IROTH) ? 'r' : '-';
+    sm[8] = (mode & S_IWOTH) ? 'w' : '-';
+    if (sm[0] == 'd' && !(mode & S_IXOTH) && (mode & S_ISVTX))
+        sm[9] = 'T';
+    else if (sm[0] == 'd' && (mode & S_IXOTH) && (mode & S_ISVTX))
+        sm[9] = 't';
+    else
+        sm[9] = (mode & S_IXOTH) ? 'x' : '-';
+    sm[10] = '\0';
+    json_begin_field(writer, "modes");
+    json_emit_string(writer, sm);
+
 #define F(field) ({                             \
         json_begin_field(writer, #field);        \
         json_emit_u64(writer, (uint64_t) stat.field);   \
