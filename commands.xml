@@ -81,6 +81,8 @@ code, and bash completion file.
       Specifies the hostname of the <b>adb</b> server to which to
       connect.  Identical to <b>adb</b>'s <b>-H</b> option.
     </option>
+    <!-- Can't use service-name completion for port: ADB demands a
+         positive number less than 2^16. -->
     <option short="P" long="port" arg="port">
       Specifies the port of the <b>adb</b> server to which to connect.
       Identical to <b>adb</b>'s <b>-P</b> option.
