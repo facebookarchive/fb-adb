@@ -1,6 +1,7 @@
 #pragma once
 #include <stdio.h>
 #include <stdint.h>
+#include <stdbool.h>
 
 // Simple, stupid JSON output functions
 
@@ -16,6 +17,7 @@ void json_emit_string(struct json_writer* writer, const char* string);
 void json_emit_u64(struct json_writer* writer, uint64_t number);
 void json_emit_i64(struct json_writer* writer, int64_t number);
 void json_emit_null(struct json_writer* writer);
+void json_emit_bool(struct json_writer* writer, bool b);
 
 struct json_context;
 

@@ -265,6 +265,14 @@ json_emit_null(struct json_writer* writer)
     json_value_end(writer);
 }
 
+void
+json_emit_bool(struct json_writer* writer, bool b)
+{
+    json_value_start(writer);
+    json_emits(writer, b ? "true" : "false");
+    json_value_end(writer);
+}
+
 const struct json_context*
 json_save_context(struct json_writer* writer)
 {

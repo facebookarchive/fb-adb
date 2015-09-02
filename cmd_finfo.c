@@ -195,6 +195,14 @@ finfo_sha256(struct json_writer* writer, const char* filename, void* data)
 }
 
 static void
+finfo_execp(struct json_writer* writer, const char* filename, void* data)
+{
+    if (access(filename, X_OK) != 0)
+        die_errno("access");
+    json_emit_bool(writer, true);
+}
+
+static void
 cleanup_closedir(void* data)
 {
     closedir((DIR*) data);
@@ -225,6 +233,7 @@ static const struct finfo_op available_ops[] = {
     { "readlink", FINFO_OP_DISABLED, finfo_readlink },
     { "ls",       FINFO_OP_DISABLED, finfo_ls },
     { "sha256",   FINFO_OP_DISABLED, finfo_sha256 },
+    { "execp",    FINFO_OP_DISABLED, finfo_execp },
 };
 
 #define NOPS ARRAYSIZE(available_ops)

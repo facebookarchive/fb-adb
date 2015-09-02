@@ -49,6 +49,15 @@ _fb_adb_msg() {
 #     [REAL CODE GENERATED BELOW]
 # }
 
+declare -a _fb_adb_mksh_builtins=(
+    alias bg bind break builtin cat cd chdir command continue echo \
+          eval exec exit export false fc fg getopts global hash \
+          jobs kill let mknod print printf pwd read readonly \
+          realpath rename return set shift sleep source suspend \
+          test time times trap true global typeset ulimit umask \
+          unalias unset wait whence
+)
+
 _fb_adb_complete_next_word() {
     wordno=$((wordno+1))
     charno=0
@@ -96,16 +105,8 @@ _fb_adb_add_candidates() {
             'P')
                 escaped_prefix=$OPTARG
                 ;;
-            '?')
-                _fb_adb_msg 'invalid option %s' "$OPTARG"
-                return 1
-                ;;
-            ':')
-                _fb_adb_msg 'missing argument for option %s' "$OPTARG"
-                return 1
-                ;;
             *)
-                _fb_adb_msg 'internal error'
+                _fb_adb_getopts_default "$c"
                 return 1
                 ;;
         esac
@@ -166,10 +167,58 @@ _fb_adb_split() {
     read -ra aresult <<<"$2"
 }
 
-_fb_adb_device_ls() {
+# Internal helper for _fb_adb_device_ls.  Run only in a subshell.
+_fb_adb_device_ls_1() {
     set -o pipefail
-    fb-adb finfo -i ls "$1" | \
-        jq -r -e -C '(.[0].ls.result[]?)|(.d_name,.d_type)|@sh'
+    fb-adb finfo -i "ls:$1" | \
+            fb-adb finfo -i ls:execp "${@:2}" | \
+        jq -r -e -C '(.[].ls.result[]?)|(.d_name,.d_type,.execp.result)|@sh'
+}
+
+_fb_adb_getopts_default() {
+    case "$1" in
+        '?')
+            _fb_adb_msg 'invalid option %s' "$OPTARG"
+            ;;
+        ':')
+            _fb_adb_msg 'missing argument for option %s' "$OPTARG"
+            ;;
+        *)
+            _fb_adb_msg 'internal error'
+            ;;
+    esac
+}
+
+# Run finfo on device and decode the JSON reply.
+#
+# -e
+#    Query using access(2) whether each file can be executed.
+#
+# Positional arguments are paths to list.  Results are in $aresult on
+# success and are triples of d_name, d_type, and execp results.
+_fb_adb_device_ls() {
+    local OPTIND=1
+    local OPTARG=
+    local ls_opts=
+
+    while getopts ":e" c; do
+        case "$c" in
+            'e')
+                ls_opts=execp
+                ;;
+            *)
+                _fb_adb_getopts_default "$c"
+                return 1
+                ;;
+        esac
+    done
+    shift $((OPTIND-1))
+    local data="$(_fb_adb_device_ls_1 "$ls_opts" "$@")"
+    if (($? != 0)); then
+        _fb_adb_msg 'fb-adb file listing failed'
+        return 1
+    fi
+    eval "aresult=($data)" # actually safe: jq shell-quotes for us
 }
 
 # Try to extract raw value of a shell word.  $1 - escaped shell word
@@ -326,7 +375,7 @@ _fb_adb_reescape() {
     local template=
     local -i incomplete=0
 
-    while getopts "it:" c; do
+    while getopts ":it:" c; do
         case "$c" in
             'i')
                 incomplete=1
@@ -334,16 +383,8 @@ _fb_adb_reescape() {
             't')
                 template=$OPTARG
                 ;;
-            '?')
-                _fb_adb_msg 'invalid option %s' "$OPTARG"
-                return 1
-                ;;
-            ':')
-                _fb_adb_msg 'missing argument for option %s' "$OPTARG"
-                return 1
-                ;;
             *)
-                _fb_adb_msg 'internal error'
+                _fb_adb_getopts_default "$c"
                 return 1
                 ;;
         esac
@@ -404,6 +445,121 @@ _fb_adb_reescape() {
     esac
 }
 
+# Complete a file on device; optionally restricted to executables.
+#
+# -e
+#   Complete only executables and directories.
+#
+# -p
+#   Permit completing words from PATH
+#
+# -b
+#   Add shell builtins to the completion set.
+#
+# $1 is the word to complete.  $2 is the original, unescaped word.
+#
+# On success, completions in COMPREPLY.
+#
+_fb_adb_complete_device_path() {
+    local OPTIND=1
+    local OPTARG=
+    local c
+    local -i exe_only=0
+    local -i path_search=0
+    local -i add_builtins=0
+    while getopts ":epb" c; do
+        case "$c" in
+            'b')
+                add_builtins=1
+                ;;
+            'e')
+                exe_only=1
+                ;;
+            'p')
+                path_search=1
+                ;;
+            *)
+                _fb_adb_getopts_default "$c"
+                return 1
+                ;;
+        esac
+    done
+    shift $((OPTIND-1))
+
+    if (($# != 2)); then
+        _fb_adb_msg 'wrong number of arguments'
+        return 1
+    fi
+
+    local word=$1
+    local orig_escaped_word=$2
+
+    _fb_adb_msg 'cdp word:[%s] exe_only:[%s] path_search:[%s] builtins:[%s]' \
+                "$word" "$exe_only" "$path_search" "$add_builtins"
+
+    if ((path_search)) && [[ $word = */* ]]; then
+        # Match execvp semantics: do not search PATH when word
+        # contains a slash.
+        path_search=0
+    fi
+
+    if ((!path_search)); then
+        local basename=${word##*/}
+        local dprefix=${word%"$basename"}
+        _fb_adb_msg 'basename:[%s] dprefix:[%s]' \
+                    "$basename" "$dprefix"
+        if ! _fb_adb_device_ls -- "${dprefix:-.}"; then
+            return 1
+        fi
+    else
+        local device_path=$(fb-adb shell 'echo $PATH')
+        if (($?!=0)); then
+            _fb_adb_msg 'cannot get PATH'
+            return 1
+        fi
+        _fb_adb_split ':' "$remote_path"
+        if ! _fb_adb_device_ls -e -- "${aresult[@]}"; then
+            return 1
+        fi
+    fi
+    local i
+    local -a candidates=()
+    for ((i=0; i < ${#aresult[@]}; i+=3)); do
+        local d_name=${aresult[((i+0))]}
+        local d_type=${aresult[((i+1))]}
+        local execp=${aresult[((i+2))]}
+
+        _fb_adb_msg 'd_name:[%s] d_type:[%s] execp:[%s]' \
+                    "$d_name" "$d_type" "$execp"
+
+        if ((path_search)) && [[ $d_type = "DT_DIR" ]]; then
+            continue
+        fi
+
+        if ((exe_only)) && [[ $execp != "true" ]]; then
+            continue
+        fi
+
+        if [[ $d_type = "DT_DIR" ]]; then
+            candidates+=("N$dprefix$d_name/")
+        else
+            candidates+=("F$dprefix$d_name")
+        fi
+    done
+
+    if ((add_builtins)); then
+        candidates+=("${_fb_adb_mksh_builtins[@]/#/F}")
+    fi
+
+    if ! _fb_adb_add_candidates \
+         -p "$word" \
+         -t "$orig_escaped_word" \
+         -f -- "${candidates[@]}";
+    then
+        return 1
+    fi
+}
+
 # Complete a value of some type.
 # $1 - type
 # $2 - word to complete
@@ -412,7 +568,6 @@ _fb_adb_complete_value() {
     local type=$1
     local word=$2
     local incomplete=0
-    local -a aresult
     local saved_prefix=${word:0:$3}
     local orig_escaped_word=${word:$3}
     if ! _fb_adb_unescape "$orig_escaped_word"; then
@@ -441,34 +596,36 @@ _fb_adb_complete_value() {
             fi
             ;;
         device-path)
-            local basename=${word##*/}
-            local dprefix=${word%"$basename"}
-            _fb_adb_msg 'basename:[%s] dprefix:[%s]' \
-                        "$basename" "$dprefix"
-            local data="$(_fb_adb_device_ls "${dprefix:-.}")"
-            if (($? != 0)); then
+            if ! _fb_adb_complete_device_path \
+                 -- "$word" "$orig_escaped_word";
+            then
                 return 1
             fi
-            local -a pdata=()
-            eval "pdata=($data)" # scary, but safe: jq shell-quotes for us
-            data=
-            local i
-            local -a candidates=()
-            for ((i=0; i < ${#pdata[@]}; i+=2)); do
-                local d_name=${pdata[((i+0))]}
-                local d_type=${pdata[((i+1))]}
-                _fb_adb_msg 'd_name:[%s] d_type:[%s]' \
-                            "$d_name" "$d_type"
-                if [[ $d_type = "DT_DIR" ]]; then
-                    candidates+=("N$dprefix$d_name/")
-                else
-                    candidates+=("F$dprefix$d_name")
-                fi
-            done
+            ;;
+        device-exe)
+            if ! _fb_adb_complete_device_path \
+                 -ep -- "$word" "$orig_escaped_word";
+            then
+                return 1
+            fi
+            ;;
+        device-command)
+            if ! _fb_adb_complete_device_path \
+                 -epb -- "$word" "$orig_escaped_word";
+            then
+                return 1
+            fi
+            ;;
+        hostname)
+            local hostname
+            local -a hostnames=()
+            while read -r hostname; do
+                hostnames+=("$hostname")
+            done < <(compgen -A hostname)
             if ! _fb_adb_add_candidates \
                  -p "$word" \
                  -t "$orig_escaped_word" \
-                 -f -- "${candidates[@]}";
+                 -- "${hostnames[@]}";
             then
                 return 1
             fi
@@ -494,6 +651,7 @@ _fb_adb_complete_command() {
     local state=word
     local result=
     local result2=
+    local -a aresult=()
     local -i optarg_start=0
     local optopt=
     local optarg_type=
