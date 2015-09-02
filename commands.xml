@@ -264,6 +264,18 @@ code, and bash completion file.
     <vspace/>
     <!-- XXX: DOCUMENT ME BETTER! -->
   </command>
+  <command names="fcat">
+    Write the contents of zero or more device files to standard output.
+    <argument name="files" type="device-path" repeat="yes" optional="yes">
+      Names of files to write.
+    </argument>
+    <?ifdef FBADB_MAIN?>
+    <optgroup-reference name="adb"/>
+    <optgroup-reference name="transport" />
+    <optgroup-reference name="user"/>
+    <optgroup-reference name="cwd"/>
+    <?endif?>
+  </command>
   <?ifdef FBADB_MAIN?>
   <command names="shell,shellx,sh">
     Run a command on device.  If <i>command</i> is not supplied, run
