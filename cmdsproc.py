@@ -140,10 +140,12 @@ for tag in MARKUP_TAGS:
   setattr(IgnoreMarkup, on_stop_function(tag), IgnoreMarkup._ignore)
 
 class Command(object):
-  def __init__(self, name, symbol, altnames, export_parse_args):
-    self.name = check_id_dash(name)
-    self.symbol = check_id(symbol)
-    self.altnames = list(map(check_id_dash, altnames))
+  def __init__(self, names, export_parse_args=False):
+    names = list(map(check_id_dash, names.split(",")))
+    if not names: die("no names given")
+    self.name = names[0]
+    self.symbol = names[0].replace("-", "_")
+    self.altnames = names[1:]
     self.optgroups = []
     self.known_arguments = set()
     self.export_parse_args = check_bool(export_parse_args)
@@ -216,13 +218,19 @@ class Command(object):
       self.altnames)
 
 class OptGroup(object):
-  def __init__(self, name, forward, export_emit_args, human):
+  def __init__(self,
+               name,
+               forward=True,
+               export_emit_args=False,
+               human=None,
+               completion_relevant=False):
     self.name = check_id(name)
     self.symbol = check_id(name)
     self.forward = check_bool(forward)
     self.export_emit_args = check_bool(export_emit_args)
     self.known_options = set()
     self.accumulations = set()
+    self.completion_relevant = check_bool(completion_relevant)
     self.options = []
     self.private = False
     self.human = human
@@ -254,7 +262,13 @@ class OptGroup(object):
     return "<OptGroup name=%r>" % (self.name)
 
 class Option(object):
-  def __init__(self, *, short, long, arg, type, accumulate):
+  def __init__(self,
+               *,
+               short=None,
+               long,
+               arg=None,
+               type=None,
+               accumulate=None):
     if short is not None and len(short) != 1:
       die("illegal short option name %r", short)
 
@@ -286,7 +300,7 @@ class Option(object):
       self.symbol)
 
 class Argument(object):
-  def __init__(self, name, type, repeat, optional):
+  def __init__(self, name, type=None, repeat=False, optional=False):
     self.name = check_id_dash(name)
     self.symbol = check_id(self.name.replace("-", "_"))
     self.type = check_type(type or "string")
@@ -299,43 +313,31 @@ class Argument(object):
 class CommandSlurpingReader(UsageFileReader, IgnoreMarkup):
   def __init__(self, defs):
     super().__init__(defs)
+    self.known_commands = set()
     self.commands = []
     self.optgroups = []
-    self.known_commands = set()
     self.current = {}
 
-  def on_command_start(self, *, names, export_parse_args=False):
+  def on_command_start(self, **kwargs):
     if self.current:
       die("invalid context")
-    names = list(map(check_id_dash, names.split(",")))
-    if not names: die("no names given")
-    nameset = set(names)
-    symbol = names[0].replace("-", "_")
-    nameset.add(symbol)
-    duplicate_commands = self.known_commands & nameset
-    if duplicate_commands:
+    command = Command(**kwargs)
+    nameset = {command.name, command.symbol} | set(command.altnames)
+    if self.known_commands & nameset:
       die("duplicate command names: %r",
-          sorted(duplicate_commands))
+          sorted(self.known_commands & nameset))
     self.known_commands.update(nameset)
-    self.current["command"] = Command(
-      name = names[0],
-      symbol = symbol,
-      altnames = names[1:],
-      export_parse_args = export_parse_args)
+    self.current["command"] = command
 
   def on_command_end(self):
     command = self.current.pop("command")
     self.commands.append(command)
     log.debug("added %s", command)
 
-  def on_optgroup_start(self, *,
-                        name,
-                        forward=True,
-                        export_emit_args=False,
-                        human=None):
+  def on_optgroup_start(self, **kwargs):
     if set(self.current) - {"command"}:
       die("invalid context")
-    og = OptGroup(name, forward, export_emit_args, human)
+    og = OptGroup(**kwargs)
     if "command" in self.current:
       og.private = True
     self.current["optgroup"] = og
@@ -348,39 +350,20 @@ class CommandSlurpingReader(UsageFileReader, IgnoreMarkup):
     if command is not None:
       command.add_optgroup(optgroup)
 
-  def on_option_start(self,
-                      *,
-                      short=None,
-                      long,
-                      arg=None,
-                      type=None,
-                      accumulate=None):
+  def on_option_start(self, **kwargs):
     if set(self.current) & {"optgroup","option"} != {"optgroup"}:
       die("invalid context")
-    self.current["option"] = Option(
-      short=short,
-      long=long,
-      arg=arg,
-      type=type,
-      accumulate=accumulate)
+    self.current["option"] = Option(**kwargs)
 
   def on_option_end(self):
     option = self.current.pop("option")
     self.current["optgroup"].add_option(option)
     log.debug("added option %r", option)
 
-  def on_argument_start(self, *,
-                        name,
-                        optional=False,
-                        repeat=False,
-                        type=None):
+  def on_argument_start(self, **kwargs):
     if set(self.current) & {"command", "argument"} != {"command"}:
       die("invalid context")
-    self.current["argument"] = Argument(
-      name=name,
-      optional=optional,
-      repeat=repeat,
-      type=type)
+    self.current["argument"] = Argument(**kwargs)
 
   def on_argument_end(self):
     self.current["command"].add_argument(self.current.pop("argument"))
@@ -1153,22 +1136,24 @@ def op_bashcomplete(commands_file, defs, optgroups, commands):
     for command in commands:
       hf.writeln("%s", hf.quote_string(command.name))
   sys.stdout.flush()
-  with hf.function_definition("_fb_adb_opt_type"):
+  with hf.function_definition("_fb_adb_opt_type_1"):
     with hf.case("\"%s\"", "$1") as case_command:
       for command in commands:
         with case_command.in_(
             *(hf.quote_string(n) for n in command.allnames())):
           opts_by_type = OrderedDict()
           for option in command.iter_options():
-            opts_by_type.setdefault(option.type, []).append(option)
+            effective_type = option.type or "none"
+            if option.optgroup.completion_relevant:
+              effective_type = "1" + effective_type # See _fb_adb_opt_type
+            opts_by_type.setdefault(effective_type, []).append(option)
           with hf.case("\"%s\"", "$2") as case_option:
             for type, type_options in opts_by_type.items():
               type_opts_names=[]
               for option in type_options:
                 type_opts_names.extend(option.all_full_names())
               with case_option.in_(*map(hf.quote_string, type_opts_names)):
-                hf.writeln("result=%s",
-                           hf.quote_string(option.type or 'none'))
+                hf.writeln("result=%s", hf.quote_string(type))
             with case_option.in_("*"):
               hf.writeln("_fb_adb_msg "
                          "'unknown option %%q for %%q' "

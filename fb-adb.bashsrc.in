@@ -32,9 +32,26 @@ _fb_adb_msg() {
 # #$1 = command
 # #$2 = name of argument
 # #type in $result on success
-# _fb_adb_opt_type() {
+# _fb_adb_opt_type_1() {
 #     [REAL CODE GENERATED BELOW]
 # }
+
+#$1 = command
+#$2 = name of argument
+#type in $result on success
+#completion-relevant flag in $result2
+#flag
+_fb_adb_opt_type() {
+    if ! _fb_adb_opt_type_1 "$@"; then
+        return 1
+    fi
+    if [[ $result = [0-9]* ]]; then
+       result2="${result:0:1}"
+       result="${result:1}"
+    else
+        result2=0
+    fi
+}
 
 # # $1 = command
 # # list of arguments in $aresult on success
@@ -170,9 +187,9 @@ _fb_adb_split() {
 # Internal helper for _fb_adb_device_ls.  Run only in a subshell.
 _fb_adb_device_ls_1() {
     set -o pipefail
-    fb-adb finfo -i "ls:$1" | \
-            fb-adb finfo -i ls:execp "${@:2}" | \
-        jq -r -e -C '(.[].ls.result[]?)|(.d_name,.d_type,.execp.result)|@sh'
+    fb-adb finfo "${slurped_adb_options[@]}" -i "ls:$1" "${@:2}" \
+           2>/dev/null | \
+           jq -r -e -C '(.[].ls.result[]?)|(.d_name,.d_type,.execp.result)|@sh'
 }
 
 _fb_adb_getopts_default() {
@@ -213,7 +230,10 @@ _fb_adb_device_ls() {
         esac
     done
     shift $((OPTIND-1))
-    local data="$(_fb_adb_device_ls_1 "$ls_opts" "$@")"
+    # Pop quiz: what's $? after the command `local foo="$(false)"'?
+    # What about local foo; foo="$(false)"? Fuck, I love shell.
+    local data
+    data="$(_fb_adb_device_ls_1 "$ls_opts" "$@")"
     if (($? != 0)); then
         _fb_adb_msg 'fb-adb file listing failed'
         return 1
@@ -512,7 +532,9 @@ _fb_adb_complete_device_path() {
             return 1
         fi
     else
-        local device_path=$(fb-adb shell 'echo $PATH')
+        local device_path=$(fb-adb shell \
+                            "${slurped_adb_options[@]}" \
+                            'echo $PATH' 2>/dev/null)
         if (($?!=0)); then
             _fb_adb_msg 'cannot get PATH'
             return 1
@@ -657,6 +679,7 @@ _fb_adb_complete_command() {
     local optarg_type=
     local optarg=
     local optarg_length=
+    local optopt_for_completion=
     local -i argno=0
     local c=
 
@@ -708,8 +731,14 @@ _fb_adb_complete_command() {
                         if ! _fb_adb_opt_type "$command" "$optopt"; then
                             return 1
                         fi
+                        optopt_for_completion=$result2
                         if [[ $result = "none" ]]; then
-                            _fb_adb_msg 'got option %s (no arg)' "$optopt"
+                            _fb_adb_msg \
+                                'got option %s (no arg) (comprel:%s)' \
+                                "$optopt" "$optopt_for_completion"
+                            if ((optopt_for_completion)); then
+                                slurped_adb_options+=("$optopt")
+                            fi
                         else
                             optarg_type=$result
                             optarg_start=$((charno+1))
@@ -728,8 +757,12 @@ _fb_adb_complete_command() {
                         else
                             optarg_length=$((charno-optarg_start))
                             optarg="${word:$optarg_start:$optarg_length}"
-                            _fb_adb_msg 'got option %s arg:%q' \
-                                        "$optopt" "$optarg"
+                            _fb_adb_msg 'got option %s arg:%q (comprel:%s)' \
+                                        "$optopt" "$optarg" \
+                                        "$optopt_for_completion"
+                            if ((optopt_for_completion)); then
+                                slurped_adb_options+=("$optopt" "$optarg")
+                            fi
                             state=word
                         fi
                         _fb_adb_complete_next_word
@@ -799,9 +832,15 @@ _fb_adb_complete_command() {
                         if ! _fb_adb_opt_type "$command" "$optopt"; then
                             return 1
                         fi
+                        optopt_for_completion=$result2
                         if [[ $result = "none" ]]; then
-                            _fb_adb_msg 'got option %s (no arg)' "$optopt"
+                            _fb_adb_msg \
+                                'got option %s (no arg) (comprel:%s)' \
+                                "$optopt" "$optopt_for_completion"
                             state=word
+                            if ((optopt_for_completion)); then
+                                slurped_adb_options+=("$optopt")
+                            fi
                         else
                             optarg_type=$result
                             optarg_start=0
@@ -894,6 +933,9 @@ _fb_adb_complete() {
     local command=
     local word=
     local command_index=
+
+    # Options relevant to choosing a device.
+    local -a slurped_adb_options=()
 
     # Find the command word
     for ((i=1; i <= COMP_CWORD; ++i)); do

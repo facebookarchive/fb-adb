@@ -64,7 +64,10 @@ code, and bash completion file.
   </section>
 
   <?ifdef FBADB_MAIN?>
-  <optgroup name="adb" forward="no" export-emit-args="yes">
+  <optgroup name="adb"
+            forward="no"
+            export-emit-args="yes"
+            completion-relevant="yes">
     <option short="d" long="device">
       Connect to a device.  Identical to <b>adb</b>'s
       <b>-d</b> option.
@@ -120,7 +123,7 @@ code, and bash completion file.
       Note that traffic to devices is unencrypted.
     </option>
   </optgroup>
-  <optgroup name="user" forward="no">
+  <optgroup name="user" forward="no" completion-relevant="yes">
     <option short="r" long="root">
       Attempt to become root.
     </option>
