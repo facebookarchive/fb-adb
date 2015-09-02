@@ -1072,7 +1072,7 @@ class PodGeneratingReader(UsageFileReader):
                         type="string"):
     self.flush_paragraph()
     self.command("=over")
-    self.command("=item I<%s>", self.quote(name))
+    self.command("=item I<%s%s>", self.quote(name), "..." if repeat else "")
 
   def on_argument_end(self):
     self.command("=back")
