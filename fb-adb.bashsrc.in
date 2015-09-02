@@ -1,0 +1,781 @@
+#!/bin/bash
+# Copyright (c) 2014, Facebook, Inc.
+# All rights reserved.
+#
+# This source code is licensed under the BSD-style license found in
+# the LICENSE file in the root directory of this source tree. An
+# additional grant of patent rights can be found in the PATENTS file
+# in the same directory.
+
+if [[ -z $_fb_adb_print_messages ]]; then
+    _fb_adb_print_messages=no
+fi
+
+_fb_adb_msg_need_newline=no
+_fb_adb_msg() {
+    if [[ $_fb_adb_print_messages = yes ]]; then
+        if [[ $_fb_adb_msg_need_newline = yes ]]; then
+            printf >&2 '\n'
+            _fb_adb_msg_need_newline=no
+        fi
+        printf >&2 'fb-adb-completion: '"$1"'\n' "${@:2}"
+    fi
+}
+
+# # List of known fb-adb commands
+# declare -a _fb_adb_command_list=(
+#     [REAL LIST GENERATED BELOW]
+#     foo
+#     bar
+# )
+
+# #$1 = command
+# #$2 = name of argument
+# #type in $result on success
+# _fb_adb_opt_type() {
+#     [REAL CODE GENERATED BELOW]
+# }
+
+# # $1 = command
+# # list of arguments in $aresult on success
+# _fb_adb_opt_list() {
+#     [REAL CODE GENERATED BELOW]
+# }
+
+# # $1 = command
+# # $2 = ordinal number of argument
+# # type in $result on success
+# _fb_adb_arg_type() {
+#     [REAL CODE GENERATED BELOW]
+# }
+
+_fb_adb_complete_next_word() {
+    wordno=$((wordno+1))
+    charno=0
+}
+
+# Add completion candidates to COMPREPLY, subject
+# to munging and filtering.  Uses getopt-style
+# argument parsing.
+#
+# -f
+#    Each option starts with "N" or "F" to indicate whether we do or
+#    do not, respectively, expect further input on the word we
+#    just completed.
+#
+# -t TEMPLATE
+#    Original escaped form of the word we're completing.  We try to
+#    provide completions escaped in the same style.
+#
+# -p PREFIX
+#    Limit candidates to ones matching prefix $PREFIX
+#
+# Remaining arguments are completion candidates.
+#
+_fb_adb_add_candidates() {
+    local OPTIND=1
+    local OPTARG=
+    local prefix=
+    local escaped_prefix=
+    local template=
+    local have_template=0
+    local -i finalization=0
+    local c
+    while getopts ":fp:P:t:" c; do
+        case "$c" in
+            't')
+                template=$OPTARG
+                have_template=1
+                ;;
+            'f')
+                finalization=1
+                ;;
+            'p')
+                prefix=$OPTARG
+                ;;
+            'P')
+                escaped_prefix=$OPTARG
+                ;;
+            '?')
+                _fb_adb_msg 'invalid option %s' "$OPTARG"
+                return 1
+                ;;
+            ':')
+                _fb_adb_msg 'missing argument for option %s' "$OPTARG"
+                return 1
+                ;;
+            *)
+                _fb_adb_msg 'internal error'
+                return 1
+                ;;
+        esac
+    done
+    shift $((OPTIND-1))
+    local candidate
+    local -a candidates=("$@")
+    local -a filtered_candidates=()
+    for candidate in "${candidates[@]}"; do
+        if ((!finalization)); then
+            candidate="F$candidate"
+        fi
+        if ! [[ $candidate = [FN]* ]]; then
+            _fb_adb_msg 'bad candidate syntax %q' "$candidate"
+            return 1
+        fi
+        local munged_prefix="${candidate:0:1}$prefix"
+        if [[ $candidate = "$munged_prefix"* ]]; then
+            filtered_candidates+=("$candidate")
+        fi
+    done
+
+    if ((finalization)) && ((${#filtered_candidates[@]} == 1)); then
+        candidate=${filtered_candidates[0]}
+        if [[ $candidate = F* ]]; then
+            compopt +o nospace
+        elif [[ $candidate = N* ]]; then
+            compopt -o nospace
+        else
+            _fb_adb_msg 'internal error: bad candidate %q' "$candidate"
+            return 1
+        fi
+    fi
+
+    for candidate in "${filtered_candidates[@]}"; do
+        local -a reescape_args=()
+        if [[ $candidate = F* ]]; then
+            reescape_args+=(-i)
+        fi
+        if ((have_template)); then
+            reescape_args+=(-t "$template")
+        fi
+        if ! _fb_adb_reescape \
+             "${reescape_args[@]}" -- "${candidate:1}";
+        then
+            return 1
+        fi
+        COMPREPLY+=("$result")
+    done
+}
+
+# Split a string
+# $1 - IFS value for split
+# $2 - Value to split
+# result on success in $aresult
+_fb_adb_split() {
+    local IFS=$1
+    read -ra aresult <<<"$2"
+}
+
+_fb_adb_device_ls() {
+    set -o pipefail
+    fb-adb finfo -i ls "$1" | \
+        jq -r -e -C '(.[0].ls.result[]?)|(.d_name,.d_type)|@sh'
+}
+
+# Try to extract raw value of a shell word.  $1 - escaped shell word
+# (may be truncated) On success, result in $result and parse state in
+# $result2.  (See code for possible parse state names.)
+_fb_adb_unescape() {
+    local escaped=$1
+    local i=0
+    local state=normal
+    for ((i=0; i<${#escaped}; ++i)); do
+        local c=${escaped:$i:1}
+        case "$state" in
+            normal)
+                case "$c" in
+                    '`'|'!')
+                        _fb_adb_msg 'unsafe string [%s]' "$escaped"
+                        return 1
+                        ;;
+                    "\\")
+                        state=escaped
+                        ;;
+                    '$')
+                        state=dollar
+                        ;;
+                    "'")
+                        state=single-quoted
+                        ;;
+                    '"')
+                        state=double-quoted
+                        ;;
+                    '|'|'&'|';'|'('|')'|'<'|'>'|'#')
+                        _fb_adb_msg 'unescaped metacharacters in [%s]' \
+                                    "$escaped"
+                        return 1
+                        ;;
+                    ' '|$'\t')
+                        _fb_adb_msg 'whitespace should be pre-escaped?!'
+                        return 1
+                        ;;
+                esac
+                ;;
+            escaped)
+                state=normal
+                ;;
+            dollar)
+                case "$c" in
+                    '(')
+                        _fb_adb_msg 'unsafe string [%s]' "$escaped"
+                        return 1
+                        ;;
+                    "'")
+                        state=ansi-c-quoted
+                        ;;
+                    '$')
+                        state=normal
+                        ;;
+                    *)
+                        i=$((i-1)) # Reconsider character
+                        state=normal
+                        ;;
+                esac
+                ;;
+            single-quoted)
+                case "$c" in
+                    "'")
+                        state=normal
+                        ;;
+                esac
+                ;;
+            double-quoted)
+                case "$c" in
+                    '`')
+                        _fb_adb_msg 'unsafe string [%s]' "$escaped"
+                        return 1
+                        ;;
+                    "\\")
+                        state=double-quoted-backslash
+                        ;;
+                    '"')
+                        state=normal
+                        ;;
+                    '$')
+                        state=double-quoted-dollar
+                        ;;
+                esac
+                ;;
+            double-quoted-dollar)
+                case "$c" in
+                    '(')
+                        _fb_adb_msg 'unsafe string [%s]' "$escaped"
+                        return 1
+                        ;;
+                    *)
+                        state=double-quoted
+                        ;;
+                esac
+                ;;
+            double-quoted-backslash)
+                state=double-quoted
+                ;;
+            ansi-c-quoted)
+                case "$c" in
+                    "\\")
+                        state=ansi-c-quoted-backslash
+                        ;;
+                    '"')
+                        state=normal
+                        ;;
+                esac
+                ;;
+            ansi-c-quoted-backslash)
+                state=ansi-c-quoted
+                ;;
+            *)
+                _fb_adb_msg 'unexpected state [%s]' "$state"
+                return 1
+                ;;
+        esac
+    done
+
+    case "$state" in
+        normal|dollar)
+            true
+            ;;
+        single-quoted|ansi-c-quoted)
+            escaped="$escaped'"
+            ;;
+        double-quoted|double-quoted-dollar)
+            escaped="$escaped\""
+            ;;
+        *)
+            _fb_adb_msg 'unexpected closing state [%s]' "$state"
+            return 1
+            ;;
+    esac
+
+    eval "result=$escaped" # Yuck
+    result2=$state
+}
+
+# Escape a shell word; less uglifying than %q
+#
+# -i
+#   Incomplete mode: leave our trailing quotes
+#
+# -t ESCAPED_WORD
+#   Try to escape $1 in the style in which ESCAPED_WORD is escaped
+#
+# $1 - shell word to escape
+# On success, result in $result
+_fb_adb_reescape() {
+    local OPTIND=1
+    local OPTARG=
+    local template=
+    local -i incomplete=0
+
+    while getopts "it:" c; do
+        case "$c" in
+            'i')
+                incomplete=1
+                ;;
+            't')
+                template=$OPTARG
+                ;;
+            '?')
+                _fb_adb_msg 'invalid option %s' "$OPTARG"
+                return 1
+                ;;
+            ':')
+                _fb_adb_msg 'missing argument for option %s' "$OPTARG"
+                return 1
+                ;;
+            *)
+                _fb_adb_msg 'internal error'
+                return 1
+                ;;
+        esac
+    done
+    shift $((OPTIND-1))
+    if (($#>1)); then
+        _fb_adb_msg 'too many arguments to _fb_adb_reescape'
+        return 1
+    fi
+    local raw=$1
+    case "$template" in
+        \"*)
+            result=
+            local i
+            for ((i=0; i < ${#raw}; ++i)); do
+                local c=${raw:$i:1}
+                case "$c" in
+                    '"'|"\\"|'`'|'$')
+                        result="$result\\$c"
+                        ;;
+                    '!')
+                        result="$result\"'!'\""
+                        ;;
+                    *)
+                        result="$result$c"
+                        ;;
+                esac
+            done
+            if ((incomplete)); then
+                result="\"$result"
+            else
+                result="\"$result\""
+            fi
+            ;;
+        \'*)
+            result=
+            local i
+            for ((i=0; i < ${#raw}; ++i)); do
+                local c=${raw:$i:1}
+                case "$c" in
+                    "'")
+                        result="$result'\"'\"'"
+                        ;;
+                    *)
+                        result="$result$c"
+                        ;;
+                esac
+            done
+            if ((incomplete)); then
+                result="'$result"
+            else
+                result="'$result'"
+            fi
+            ;;
+        *)
+            printf -v result '%q' "$1"
+            ;;
+    esac
+}
+
+# Complete a value of some type.
+# $1 - type
+# $2 - word to complete
+# $3 - offset within word where completion should start
+_fb_adb_complete_value() {
+    local type=$1
+    local word=$2
+    local incomplete=0
+    local -a aresult
+    local saved_prefix=${word:0:$3}
+    local orig_escaped_word=${word:$3}
+    if ! _fb_adb_unescape "$orig_escaped_word"; then
+        return 1
+    fi
+    local word=$result
+
+    case "$type" in
+        enum:*)
+            _fb_adb_split ';' "${type:5}"
+            local value
+            local -a enum_values=()
+            for value in "${aresult[@]}"; do
+                if [[ $value = *\* ]]; then
+                    enum_values+=("N${value/%\*/}")
+                else
+                    enum_values+=("F${value}")
+                fi
+            done
+            if ! _fb_adb_add_candidates \
+                 -p "$word" \
+                 -t "$orig_escaped_word" \
+                 -f -- "${enum_values[@]}";
+            then
+                return 1
+            fi
+            ;;
+        device-path)
+            local basename=${word##*/}
+            local dprefix=${word%"$basename"}
+            _fb_adb_msg 'basename:[%s] dprefix:[%s]' \
+                        "$basename" "$dprefix"
+            local data="$(_fb_adb_device_ls "${dprefix:-.}")"
+            if (($? != 0)); then
+                return 1
+            fi
+            local -a pdata=()
+            eval "pdata=($data)" # scary, but safe: jq shell-quotes for us
+            data=
+            local i
+            local -a candidates=()
+            for ((i=0; i < ${#pdata[@]}; i+=2)); do
+                local d_name=${pdata[((i+0))]}
+                local d_type=${pdata[((i+1))]}
+                _fb_adb_msg 'd_name:[%s] d_type:[%s]' \
+                            "$d_name" "$d_type"
+                if [[ $d_type = "DT_DIR" ]]; then
+                    candidates+=("N$dprefix$d_name/")
+                else
+                    candidates+=("F$dprefix$d_name")
+                fi
+            done
+            if ! _fb_adb_add_candidates \
+                 -p "$word" \
+                 -t "$orig_escaped_word" \
+                 -f -- "${candidates[@]}";
+            then
+                return 1
+            fi
+            ;;
+        *)
+            _fb_adb_msg 'unknown completion type %s' "$type"
+            return 1
+            ;;
+    esac
+    COMPREPLY=("${COMPREPLY[@]/#/$saved_prefix}")
+}
+
+# Complete a command
+# array of completion works; of which the last is the word
+# being completed.
+_fb_adb_complete_command() {
+    local command=$1
+    local -ir nwords=${#words[@]}
+    local word=
+    local -i wordno=0
+    local -i charno=0
+    local -i noopt=0 # Saw "--" argument
+    local state=word
+    local result=
+    local result2=
+    local -i optarg_start=0
+    local optopt=
+    local optarg_type=
+    local optarg=
+    local optarg_length=
+    local -i argno=0
+    local c=
+
+    while ((wordno<nwords)); do
+        word=${words[$wordno]}
+        c=${word:$charno:1}
+        if [[ $c = "" ]] && ((wordno+1==nwords)); then
+            break
+        fi
+        _fb_adb_msg 'wordno:%s charno:%s c:%-2q state:%s' \
+                    $wordno $charno "$c" "$state"
+        case "$state" in
+            word)
+                case "$c" in
+                    '-')
+                        if ((!noopt && charno==0)); then
+                            state=short-opt
+                        fi
+                        charno=$((charno+1))
+                        ;;
+                    '')
+                        _fb_adb_msg 'got word %q argno:%d' "$word" "$argno"
+                        argno=$((argno+1))
+                        noopt=1
+                        _fb_adb_complete_next_word
+                        ;;
+                    *)
+                        charno=$((charno+1))
+                        ;;
+                esac
+                ;;
+            short-opt)
+                case "$c" in
+                    '-')
+                        charno=$((charno+1))
+                        state=maybe-long-opt
+                        ;;
+                    '')
+                        if ((charno==1)); then
+                            # Treat word containing only "-" as arg
+                            state=word
+                        else
+                            _fb_adb_complete_next_word
+                            state=word
+                        fi
+                        ;;
+                    *)
+                        optopt="-$c"
+                        if ! _fb_adb_opt_type "$command" "$optopt"; then
+                            return 1
+                        fi
+                        if [[ $result = "none" ]]; then
+                            _fb_adb_msg 'got option %s (no arg)' "$optopt"
+                        else
+                            optarg_type=$result
+                            optarg_start=$((charno+1))
+                            state=opt-arg
+                        fi
+                        charno=$((charno+1))
+                        ;;
+                esac
+                ;;
+            opt-arg)
+                case "$c" in
+                    '')
+                        if ((optarg_start==charno && charno>0)); then
+                            optarg_start=0
+                            state=opt-arg
+                        else
+                            optarg_length=$((charno-optarg_start))
+                            optarg="${word:$optarg_start:$optarg_length}"
+                            _fb_adb_msg 'got option %s arg:%q' \
+                                        "$optopt" "$optarg"
+                            state=word
+                        fi
+                        _fb_adb_complete_next_word
+                        ;;
+                    *)
+                        charno=$((charno+1))
+                        ;;
+                esac
+                ;;
+            maybe-long-opt)
+                case "$c" in
+                    '')
+                        _fb_adb_complete_next_word
+                        noopt=1
+                        state=word
+                        ;;
+                    *)
+                        state=long-opt
+                        charno=$((charno+1))
+                        ;;
+                esac
+                ;;
+            long-opt-arg)
+                case "$c" in
+                    '=')
+                        # Sometimes "=" splits a word
+                        state=long-opt-arg-2
+                        charno=$((charno+1))
+                        ;;
+                    *)
+                        state=opt-arg
+                        ;;
+                esac
+                ;;
+            long-opt-arg-2)
+                case "$c" in
+                    '')
+                        optarg_start=0
+                        state=opt-arg
+                        _fb_adb_complete_next_word
+                        ;;
+                    *)
+                        state=opt-arg;
+                        ;;
+                esac
+                ;;
+            long-opt)
+                case "$c" in
+                    '=')
+                        # Sometimes "=" doesn't split a word
+                        optopt=${word:0:$charno}
+                        if ! _fb_adb_opt_type "$command" "$optopt"; then
+                            return 1
+                        fi
+                        if [[ $result = "none" ]]; then
+                            _fb_adb_msg "option %s takes no arguments!" \
+                                        "$optopt"
+                            return 1
+                        fi
+                        optarg_type=$result
+                        optarg_start=$((charno+1))
+                        charno=$((charno+1))
+                        state=opt-arg
+                        ;;
+                    '')
+                        optopt=$word
+                        if ! _fb_adb_opt_type "$command" "$optopt"; then
+                            return 1
+                        fi
+                        if [[ $result = "none" ]]; then
+                            _fb_adb_msg 'got option %s (no arg)' "$optopt"
+                            state=word
+                        else
+                            optarg_type=$result
+                            optarg_start=0
+                            state=long-opt-arg
+                        fi
+
+                        _fb_adb_complete_next_word
+                        ;;
+                    *)
+                        charno=$((charno+1))
+                        ;;
+                esac
+                ;;
+            *)
+                printf >&2 'fb-adb completion: illegal state %q' "$state"
+                return 1
+                ;;
+        esac
+    done
+
+    _fb_adb_msg 'final parsing state:%s' "$state"
+
+    # It's not worth completing short options.  Pretend that if
+    # (looking-back "\\_<-"), we're completing a long option.
+    if [[ $state = short-opt ]] && ((charno==1)); then
+        state=long-opt
+    fi
+
+    case "$state" in
+        word)
+            if ! _fb_adb_arg_type "$command" "$argno"; then
+                return 1
+            fi
+            _fb_adb_complete_value "$result" "$word" 0
+            ;;
+        opt-arg)
+            _fb_adb_complete_value \
+                "$optarg_type" \
+                "$word" \
+                "$optarg_start"
+            ;;
+        long-opt-arg-2)
+            _fb_adb_complete_value \
+                "$optarg_type" \
+                "${word:1}" \
+                "$optarg_start"
+            ;;
+        short-opt)
+            COMPREPLY=("$word") # Auto-inserted space makes new shell word
+            ;;
+        long-opt|maybe-long-opt)
+            if ! _fb_adb_opt_list "$command"; then
+                return 1
+            fi
+            local opt=
+            local -a options=()
+            for opt in "${aresult[@]}"; do
+                if [[ $opt = --* ]]; then
+                    if ! _fb_adb_opt_type "$command" "$opt"; then
+                        return 1
+                    fi
+                    if [[ $result = "none" ]]; then
+                        options+=("F$opt")
+                    else
+                        compopt -o nospace
+                        options+=("N$opt=")
+                    fi
+                fi
+            done
+            if ! _fb_adb_add_candidates -p "$word" -f -- "${options[@]}";
+            then
+                return 1
+            fi
+            ;;
+        *)
+            _fb_adb_msg 'cannot complete in state %s' "$state"
+            return 1
+            ;;
+    esac
+}
+
+# Main entry point for completion machinery
+_fb_adb_complete() {
+
+    _fb_adb_msg_need_newline=yes
+
+    compopt +o nospace
+
+    local i=
+    local command=
+    local word=
+    local command_index=
+
+    # Find the command word
+    for ((i=1; i <= COMP_CWORD; ++i)); do
+        word=${COMP_WORDS[$i]}
+        case word in
+            -*[shP])
+                i=$((i+1))
+                ;;
+            -*)
+                ;;
+            *)
+                break;
+                ;;
+        esac
+    done
+
+    # We're completing a command name.  Generate all possible commands
+    # that match the prefix.
+    if ((i==COMP_CWORD)); then
+        word=${COMP_WORDS[$i]}
+        for command in "${_fb_adb_command_list[@]}"; do
+            if [[ $command = $word* ]]; then
+                COMPREPLY+=("$command")
+            fi
+        done
+        return
+    fi
+
+    # We have a command.  Invoke command-specific completion.
+    command_index=$i
+    command=${COMP_WORDS[$i]}
+    local nwords=$((COMP_CWORD-command_index))
+    local -a words=("${COMP_WORDS[@]:$((command_index+1)):$nwords}")
+    if ! _fb_adb_complete_command "$command" "$command_1"; then
+        return 1
+    fi
+}
+
+complete -F _fb_adb_complete fb-adb
+
+##############################
+# GENERATED CODE BEGINS HERE #
+##############################

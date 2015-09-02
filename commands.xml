@@ -87,7 +87,10 @@ code, and bash completion file.
     </option>
   </optgroup>
   <optgroup name="transport" forward="no">
-    <option short="X" long="transport" arg="transport">
+    <option short="X"
+            long="transport"
+            arg="transport"
+            type="enum:shell;unix;tcp:*">
       Connect over the given transport.  The default is <b>shell</b>.
       <vspace/>
       <b>shell</b> means to run the <b>fb-adb</b> protocol over an
@@ -119,6 +122,7 @@ code, and bash completion file.
     <option short="r" long="root">
       Attempt to become root.
     </option>
+    <!-- XXX: implement username argtype -->
     <option short="u" long="user" arg="user">
       Attempt to become <i>user</i>.  <i>user</i> is an identifier
       that <b>run-as</b> on the device understands, e.g.,
@@ -201,9 +205,13 @@ code, and bash completion file.
         Log mesage with the given tag instead of the default,
         "fb-adb-logw".
       </option>
-      <option short="x" long="priority" arg="priority" >
+      <option short="x"
+              long="priority"
+              arg="priority"
+              type="enum:verbose;debug;informational;warning;error;fatal"
+              >
         Log message with the given priority instead of the default,
-        <tt>info</tt>.
+        <tt>informational</tt>.
       </option>
     </optgroup>
     <?ifdef FBADB_MAIN?>
@@ -262,7 +270,7 @@ code, and bash completion file.
     <argument name="command" type="device-command" optional="yes">
       Name of the command to run: can be a program or shell builtin.
     </argument>
-    <argument name="args" repeat="yes" optional="yes">
+    <argument name="args" repeat="yes" optional="yes" type="device-path">
       Arguments to send to the <i>command</i>.
     </argument>
     <optgroup-reference name="adb"/>
@@ -275,12 +283,12 @@ code, and bash completion file.
     Run a command on device.  Unlike <b>fb-adb shell</b>, this command
     does not invoke the shell.  It instead runs
     <b>command</b> directly.
-    <argument name="command" type="device-command">
+    <argument name="command" type="device-exe">
       Program to run on device.  This argument will become
       <tt>argv[0]</tt> and is also the name of the executable to run
       if one is not specified with <b>--exename</b>.
     </argument>
-    <argument name="args" repeat="yes" optional="yes">
+    <argument name="args" repeat="yes" optional="yes" type="device-path">
       Arguments to send to the <i>command</i>.
     </argument>
     <optgroup-reference name="adb"/>

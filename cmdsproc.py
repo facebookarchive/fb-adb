@@ -1,5 +1,12 @@
 #!/usr/bin/env python3
 # -*- python-indent-offset: 2 -*-
+# Copyright (c) 2014, Facebook, Inc.
+# All rights reserved.
+#
+# This source code is licensed under the BSD-style license found in
+# the LICENSE file in the root directory of this source tree. An
+# additional grant of patent rights can be found in the PATENTS file
+# in the same directory.
 import sys
 import logging
 import re
@@ -19,6 +26,18 @@ MARKUP_TAGS = ("b", "i", "tt", "section", "ul", "li",
                "dl", "dt", "dd", "usage", "synopsis",
                "vspace", "pre")
 
+# When adding types, make sure to update fb-adb.bashsrc.in
+# to implement completion for them.
+KNOW_TYPE_REGEX = re.compile(
+  "^("+"|".join([
+    "string",
+    "hostname",
+    "device-path",
+    "device-command",
+    "device-exe",
+    "enum:([a-zA-Z_][:a-zA-Z0-9_-]*\\*?;?)*",
+    ])+")$")
+
 def die(fmt, *args, exc=ValueError):
   raise exc(fmt % args)
 
@@ -30,6 +49,11 @@ def check_id_dash(string):
 def check_id(string):
   if not ID.match(string):
     die("invalid ID %r", string)
+  return string
+
+def check_type(string):
+  if not KNOW_TYPE_REGEX.match(string):
+    die("invalid option or argument type %r", string)
   return string
 
 def check_bool(string):
@@ -237,14 +261,23 @@ class Option(object):
     if arg is None and type is not None:
       die("cannot specify type without arg")
 
+    if arg is not None and type is None:
+      type = "string" # Default to no completion
+
     self.short = short
     self.long = check_id_dash(long)
     self.symbol = check_id(long.replace("-", "_"))
     self.arg = arg
-    self.type = type
+    self.type = None if type is None else check_type(type)
     if accumulate is not None:
       accumulate = check_id(accumulate)
     self.accumulate = accumulate
+
+  def all_full_names(self):
+    names = ["--%s" % self.long]
+    if self.short is not None:
+      names[0:0] = ["-%s" % self.short]
+    return names
 
   def __repr__(self):
     return "<Option --%s -%s %s)>" % (
@@ -256,7 +289,7 @@ class Argument(object):
   def __init__(self, name, type, repeat, optional):
     self.name = check_id_dash(name)
     self.symbol = check_id(self.name.replace("-", "_"))
-    self.type = type
+    self.type = check_type(type or "string")
     self.repeat = check_bool(repeat)
     self.optional = check_bool(optional)
 
@@ -340,7 +373,7 @@ class CommandSlurpingReader(UsageFileReader, IgnoreMarkup):
                         name,
                         optional=False,
                         repeat=False,
-                        type="string"):
+                        type=None):
     if set(self.current) & {"command", "argument"} != {"command"}:
       die("invalid context")
     self.current["argument"] = Argument(
@@ -369,7 +402,7 @@ class CommandSlurpingReader(UsageFileReader, IgnoreMarkup):
     self.current["command"].add_optgroup(
       self.current.pop("optgroup-reference"))
 
-class CWriter(object):
+class ProgramWriter(object):
   def __init__(self, out):
     self.out = out
     self.indent = 0
@@ -380,6 +413,41 @@ class CWriter(object):
     self.out.write(fmt % args)
     self.out.write("\n")
 
+  @contextmanager
+  def indented(self, after = None):
+    self.indent += 1
+    yield
+    self.indent -= 1
+    if after is not None:
+      self.writeln("%s", after)
+
+class ShellScriptWriter(ProgramWriter):
+  @contextmanager
+  def function_definition(self, name):
+    self.writeln("%s() {", name)
+    with self.indented("}"):
+      yield
+
+  def quote_string(self, string):
+    return "'%s'" % (string.replace("'", "'\"'\"'"))
+
+  class Case(object):
+    def __init__(self, hf):
+      self.hf = hf
+    @contextmanager
+    def in_(self, *patterns):
+      self.hf.writeln("%s)", "|".join(patterns))
+      with self.hf.indented():
+        yield self.hf
+        self.hf.writeln(";;")
+
+  @contextmanager
+  def case(self, expression, *args):
+    self.writeln("case %s in", expression % args)
+    with self.indented("esac"):
+      yield self.Case(self)
+
+class CWriter(ProgramWriter):
   class Switch(object):
     def __init__(self, hf):
       self.hf = hf
@@ -413,14 +481,6 @@ class CWriter(object):
     self.writeln("if ("+condition_fmt+") {", *args)
     with self.indented("}"):
       yield
-
-  @contextmanager
-  def indented(self, after = None):
-    self.indent += 1
-    yield
-    self.indent -= 1
-    if after is not None:
-      self.writeln("%s", after)
 
   def sysinclude(self, header):
     self.writeln("#include <%s>", header)
@@ -1086,10 +1146,77 @@ def op_pod(commands_file, defs, optgroups, commands):
   r = PodGeneratingReader(defs, sys.stdout, optgroups, commands)
   r.parse(commands_file)
 
+def op_bashcomplete(commands_file, defs, optgroups, commands):
+  hf = ShellScriptWriter(sys.stdout)
+  hf.writeln("declare -a _fb_adb_command_list=(")
+  with hf.indented(")"):
+    for command in commands:
+      hf.writeln("%s", hf.quote_string(command.name))
+  sys.stdout.flush()
+  with hf.function_definition("_fb_adb_opt_type"):
+    with hf.case("\"%s\"", "$1") as case_command:
+      for command in commands:
+        with case_command.in_(
+            *(hf.quote_string(n) for n in command.allnames())):
+          opts_by_type = OrderedDict()
+          for option in command.iter_options():
+            opts_by_type.setdefault(option.type, []).append(option)
+          with hf.case("\"%s\"", "$2") as case_option:
+            for type, type_options in opts_by_type.items():
+              type_opts_names=[]
+              for option in type_options:
+                type_opts_names.extend(option.all_full_names())
+              with case_option.in_(*map(hf.quote_string, type_opts_names)):
+                hf.writeln("result=%s",
+                           hf.quote_string(option.type or 'none'))
+            with case_option.in_("*"):
+              hf.writeln("_fb_adb_msg "
+                         "'unknown option %%q for %%q' "
+                         "\"$2\" \"$1\"")
+              hf.writeln("return 1")
+      with case_command.in_("*"):
+        hf.writeln("_fb_adb_msg 'unknown command %%q' \"$1\"")
+        hf.writeln("return 1")
+  with hf.function_definition("_fb_adb_arg_type"):
+    with hf.case("\"%s\"", "$1") as case_command:
+      for command in commands:
+        with case_command.in_(
+            *(hf.quote_string(n) for n in command.allnames())):
+          with hf.case("\"%s\"", "$2") as case_argc:
+            have_repeat=False
+            for i, argument in enumerate(command.arguments):
+              tag = "%s" % i
+              if argument.repeat:
+                tag = "*"
+                have_repeat=True
+              with case_argc.in_(tag):
+                hf.writeln("result=%s", hf.quote_string(argument.type))
+            if not have_repeat:
+              with case_argc.in_("*"):
+                hf.writeln("_fb_adb_msg 'too many arguments for %%q' \"$1\"")
+                hf.writeln("return 1")
+      with case_command.in_("*"):
+        hf.writeln("_fb_adb_msg 'unknown command %%q' \"$1\"")
+        hf.writeln("return 1")
+  with hf.function_definition("_fb_adb_opt_list"):
+    with hf.case("\"%s\"", "$1") as case_command:
+      for command in commands:
+        with case_command.in_(
+            *(hf.quote_string(n) for n in command.allnames())):
+          option_names = []
+          for option in command.iter_options():
+            option_names.extend(option.all_full_names())
+          hf.writeln("aresult=(%s)",
+                     " ".join(map(hf.quote_string, option_names)))
+      with case_command.in_("*"):
+        hf.writeln("_fb_adb_msg 'unknown command %%q' \"$1\"")
+        hf.writeln("return 1")
+
 OPS = {
   "h": op_h,
   "c": op_c,
   "pod": op_pod,
+  "bashcomplete": op_bashcomplete,
 }
 
 def main(argv):

@@ -74,3 +74,11 @@ fb-adb.pod: $(COMMANDS_XML) $(srcdir)/cmdsproc.py
 
 fb-adb.1: fb-adb.pod
 	$(POD2MAN) -r"fb-adb $(VERSION)" -s1 -uvc "Facebook" $< > $@
+
+fb-adb.bashsrc: $(COMMANDS_XML)
+fb-adb.bashsrc: $(srcdir)/cmdsproc.py
+fb-adb.bashsrc: $(srcdir)/fb-adb.bashsrc.in
+fb-adb.bashsrc:
+	cp -f $(srcdir)/fb-adb.bashsrc.in $@
+	$(CMDSPROC) -DDOC bashcomplete $(COMMANDS_XML) >> $@
+	chmod ugo-w $@
