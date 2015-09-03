@@ -315,9 +315,10 @@ code, and bash completion file.
     <optgroup-reference name="shex"/>
   </command>
   <?endif?>
-  <?ifndef DOC?>
-  <command names="stub" />
-  <?endif?>
+  <command names="stub" internal="yes">
+    Internal command that the fb-adb host program invokes on device to
+    implement remote commands.
+  </command>
   <section name="Environment Variables">
     <dl>
       <dt>ADB_SHELL_OLD_BEHAVIOR</dt>

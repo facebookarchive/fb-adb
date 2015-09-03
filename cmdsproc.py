@@ -64,6 +64,9 @@ def check_bool(string):
   else:
     die("invalid bool value %r", string)
 
+def public_only(command_list):
+  return [command for command in command_list if not command.internal]
+
 def on_start_function(tag_name):
   return "on_%s_start" % (tag_name.replace("-", "_"))
 
@@ -140,7 +143,7 @@ for tag in MARKUP_TAGS:
   setattr(IgnoreMarkup, on_stop_function(tag), IgnoreMarkup._ignore)
 
 class Command(object):
-  def __init__(self, names, export_parse_args=False):
+  def __init__(self, names, export_parse_args=False,internal=False):
     names = list(map(check_id_dash, names.split(",")))
     if not names: die("no names given")
     self.name = names[0]
@@ -150,6 +153,7 @@ class Command(object):
     self.known_arguments = set()
     self.export_parse_args = check_bool(export_parse_args)
     self.arguments = []
+    self.internal=check_bool(internal)
 
   def allnames(self):
     return [self.name] + self.altnames
@@ -719,8 +723,7 @@ def pod2text(pod, add_encoding=True, indent=0):
       processor.wait()
 
 def op_c(commands_file, defs, optgroups, commands):
-  doc_defs = defs | {"DOC"}
-  pod = PodGeneratingReader(defs = doc_defs,
+  pod = PodGeneratingReader(defs = defs,
                             out = StringIO(),
                             optgroups = optgroups,
                             commands = commands,
@@ -729,7 +732,7 @@ def op_c(commands_file, defs, optgroups, commands):
 
   manpod_out = StringIO()
   manpod = PodGeneratingReader(
-    defs = doc_defs,
+    defs = defs,
     out = manpod_out,
     optgroups = optgroups,
     commands = commands)
@@ -784,31 +787,35 @@ def op_c(commands_file, defs, optgroups, commands):
   sys.stdout.flush()
 
 class BufferingWriter(object):
+
+  # Yes, we literally implement the PHP output control API.
+
   def __init__(self, out):
     self.__output = out
-    self.__output_buffer = None
+    self.__output_buffers = []
 
   def write(self, text):
-    if self.__output_buffer:
-      self.__output_buffer.write(text)
+    if self.__output_buffers:
+      self.__output_buffers[-1].write(text)
     else:
       self.__output.write(text)
 
   def ob_start(self):
-    assert self.__output_buffer is None
-    self.__output_buffer = StringIO()
+    self.__output_buffers.append(StringIO())
 
   def ob_get_contents(self):
-    if self.__output_buffer:
-      self.__output_buffer.seek(0)
-      return self.__output_buffer.read()
+    if self.__output_buffers:
+      self.__output_buffers[-1].seek(0)
+      return self.__output_buffers[-1].read()
+
+  def ob_end_clean(self):
+    self.__output_buffers.pop()
 
   def ob_end_flush(self):
-    if self.__output_buffer:
-      contents = self.ob_get_contents()
-      self.__output_buffer = None
-      self.write(contents)
-      return contents
+    contents = self.ob_get_contents()
+    self.ob_end_clean()
+    self.write(contents)
+    return contents
 
 class PodGeneratingReader(UsageFileReader):
   WSRUNS = re.compile("[ \t\r\n\v]+")
@@ -881,7 +888,7 @@ class PodGeneratingReader(UsageFileReader):
     self.current_section = title
     self.out.ob_start()
 
-  def flush_section_buffer(self):
+  def end_section(self):
     self.flush_paragraph()
     if self.current_section is not None:
       section_contents = self.out.ob_end_flush()
@@ -890,7 +897,7 @@ class PodGeneratingReader(UsageFileReader):
       self.section_contents[section_name] = section_contents
 
   def head1(self, title, *args):
-    self.flush_section_buffer()
+    self.end_section()
     expanded_title = title % args
     self.command("=head1 %s", self.quote(expanded_title).upper())
     self.start_section_buffer(expanded_title)
@@ -908,7 +915,7 @@ class PodGeneratingReader(UsageFileReader):
 
   def on_usage_end(self):
     self.flush_paragraph()
-    self.flush_section_buffer()
+    self.end_section()
 
   def on_section_start(self, *, name):
     self.head1(name)
@@ -954,7 +961,7 @@ class PodGeneratingReader(UsageFileReader):
     self.command("%s", s)
 
   def on_synopsis_start(self):
-    for command in self.commands.values():
+    for command in public_only(self.commands.values()):
       self.write_command_synopsis(command)
     self.command("See command-specific sections below for details.")
 
@@ -1034,7 +1041,11 @@ class PodGeneratingReader(UsageFileReader):
     name = names[0]
     command = self.commands[name]
     self.current_command = command
-    self.head1("%s", self.section_title_for_command(command))
+    self.end_section()
+    if command.internal:
+      self.out.ob_start() # Suppress output for this command
+    else:
+      self.head1("%s", self.section_title_for_command(command))
     self.write_command_synopsis(command, verbose=True)
 
   def on_command_end(self):
@@ -1063,6 +1074,8 @@ class PodGeneratingReader(UsageFileReader):
       self.command("The %s, and %s options are described above." %
                    (", ".join(map(fmt_nlo, nonlocal_options[:-1])),
                     fmt_nlo(nonlocal_options[-1])))
+    if self.current_command.internal:
+      self.out.ob_end_clean()
     self.current_command = None
 
   def on_argument_start(self, *,
@@ -1133,12 +1146,12 @@ def op_bashcomplete(commands_file, defs, optgroups, commands):
   hf = ShellScriptWriter(sys.stdout)
   hf.writeln("declare -a _fb_adb_command_list=(")
   with hf.indented(")"):
-    for command in commands:
+    for command in public_only(commands):
       hf.writeln("%s", hf.quote_string(command.name))
   sys.stdout.flush()
   with hf.function_definition("_fb_adb_opt_type_1"):
     with hf.case("\"%s\"", "$1") as case_command:
-      for command in commands:
+      for command in public_only(commands):
         with case_command.in_(
             *(hf.quote_string(n) for n in command.allnames())):
           opts_by_type = OrderedDict()
@@ -1164,7 +1177,7 @@ def op_bashcomplete(commands_file, defs, optgroups, commands):
         hf.writeln("return 1")
   with hf.function_definition("_fb_adb_arg_type"):
     with hf.case("\"%s\"", "$1") as case_command:
-      for command in commands:
+      for command in public_only(commands):
         with case_command.in_(
             *(hf.quote_string(n) for n in command.allnames())):
           with hf.case("\"%s\"", "$2") as case_argc:
@@ -1185,7 +1198,7 @@ def op_bashcomplete(commands_file, defs, optgroups, commands):
         hf.writeln("return 1")
   with hf.function_definition("_fb_adb_opt_list"):
     with hf.case("\"%s\"", "$1") as case_command:
-      for command in commands:
+      for command in public_only(commands):
         with case_command.in_(
             *(hf.quote_string(n) for n in command.allnames())):
           option_names = []

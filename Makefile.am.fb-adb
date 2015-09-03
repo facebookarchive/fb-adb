@@ -69,7 +69,7 @@ CLEANFILES += fb-adb.pod fb-adb.1
 man_MANS = fb-adb.1
 
 fb-adb.pod: $(COMMANDS_XML) $(srcdir)/cmdsproc.py
-	$(CMDSPROC) -DDOC pod $(COMMANDS_XML) > $@
+	$(CMDSPROC) pod $(COMMANDS_XML) > $@
 	podchecker -warnings -warnings $@
 
 fb-adb.1: fb-adb.pod
@@ -80,5 +80,5 @@ fb-adb.bashsrc: $(srcdir)/cmdsproc.py
 fb-adb.bashsrc: $(srcdir)/fb-adb.bashsrc.in
 fb-adb.bashsrc:
 	cp -f $(srcdir)/fb-adb.bashsrc.in $@
-	$(CMDSPROC) -DDOC bashcomplete $(COMMANDS_XML) >> $@
+	$(CMDSPROC) bashcomplete $(COMMANDS_XML) >> $@
 	chmod ugo-w $@
