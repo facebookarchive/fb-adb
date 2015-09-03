@@ -7,7 +7,7 @@ dnl  additional grant of patent rights can be found in the PATENTS file
 dnl in the same directory.
 dnl
 
-AC_INIT([fb-adb], [1.5.99-2], [dancol@fb.com])
+AC_INIT([fb-adb], [1.5.99-3], [dancol@fb.com])
 if test "$srcdir" = "."; then
    dnl We configure this directory multiple times, once for each stub
    dnl architecture, but we can only do that if we're out of tree for
@@ -89,6 +89,7 @@ AC_PROG_SED
 
 AC_CHECK_TOOLS(RANLIB, [gcc-ranlib ranlib])
 AC_CHECK_TOOLS(AR, [gcc-ar ar])
+AC_CHECK_TOOLS(STRIP, [strip])
 AM_PROG_AR
 
 AC_CHECK_PROGS(PYTHON3, [python3], [
@@ -114,6 +115,17 @@ if test -z "$BUILD_STUB"; then
   fi
 fi
 
+if test -n "$BUILD_STUB"; then
+  if test -n "$STUB_CFLAGS"; then
+     CFLAGS="$CFLAGS $STUB_CFLAGS"
+  fi
+
+  if test -n "$STUB_LDFLAGS"; then
+     CFLAGS="$CFLAGS $STUB_LDFLAGS"
+  fi
+fi
+
+
 AC_CHECK_FUNCS([ppoll signalfd4 dup3 mkostemp kqueue pipe2 ptsname])
 AC_CHECK_FUNCS([accept4 fopencookie funopen clock_gettime execvpe])
 
@@ -135,12 +147,12 @@ dnl that re-invokes this script with BUILD_STUB on the command line.
 dnl To add a new stub variant, add a new entry to this list, new
 dnl subdirectories, and new entries in stubs.s.
 
-m4_define([stubs], [stub-x86, stub-arm, stub-x86-pic, stub-arm-pic])
+m4_define([xxstubs], [stub-x86, stub-arm, stub-x86-pic, stub-arm-pic])
 
 if test -z "$BUILD_STUB"; then
   STUB_BINARIES=
   STUB_SUBDIRS=
-  m4_foreach([xxstub], [stubs], [
+  m4_foreach([xxstub], [xxstubs], [
     AC_CONFIG_SUBDIRS(xxstub)
     STUB_BINARIES="$STUB_BINARIES xxstub/stub"
     STUB_SUBDIRS="$STUB_SUBDIRS xxstub"
@@ -201,6 +213,15 @@ if test "$enable_git_stamp" = "yes"; then
   AC_DEFINE([HAVE_GIT_STAMP], [1])
 fi
 
+AC_ARG_ENABLE([debuggable-stubs],
+        AS_HELP_STRING(
+          [--debuggable-stubs],
+          [allow stubs to be debuggable; causes build to be]
+          [non-deterministic]),
+        [true],
+        [enable_debuggable_stubs=no])
+AM_CONDITIONAL([STRIP_STUBS], [test "$enable_debuggable_stubs" = "no"])
+
 AC_CHECK_MEMBERS([struct stat.st_mtim])
 AC_CHECK_MEMBERS([struct stat.st_ctim])
 AC_CHECK_MEMBERS([struct stat.st_atim])
@@ -214,11 +235,17 @@ AC_CHECK_MEMBERS([struct dirent.d_type], [], [], [
 AM_CONDITIONAL([GIT_STAMP], [test "$enable_git_stamp" = "yes"])
 AM_CONDITIONAL([BUILD_STUB], [test -n "$BUILD_STUB"])
 AM_CONDITIONAL([BUILD_PIC], [test -n "$BUILD_PIC"])
-AM_CONDITIONAL([STRIP_STUBS], [test "$enable_checking" = "no"])
 AC_SUBST([STUB_SUBDIRS])
 AC_CONFIG_FILES([Makefile])
+echo "Debuggable stubs?      ${enable_debuggable_stubs}"
 echo "Checking enabled?      ${enable_checking}"
 echo "Git stamp included?    ${enable_git_stamp}"
 echo "Input-output termios?  ${enable_input_output_termios}"
 echo "Using ncurses?         ${ncurses}"
+
+if test "$enable_debuggable_stubs" != "no"; then
+  # https://gcc.gnu.org/bugzilla/show_bug.cgi?id=65015
+  AC_MSG_WARN([allowing debug information stubs; build non-deterministic])
+fi
+
 AC_OUTPUT

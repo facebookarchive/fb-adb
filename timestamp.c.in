@@ -9,8 +9,10 @@
  *
  */
 #include "timestamp.h"
+#include "proto.h"
 
-const uintmax_t build_time = BUILD_TIMELLU;
+const char build_fingerprint[FB_ADB_FINGERPRINT_LENGTH+1] = (
+    "@FINGERPRINT@");
 
 #ifdef HAVE_GIT_STAMP
 # ifdef __APPLE__

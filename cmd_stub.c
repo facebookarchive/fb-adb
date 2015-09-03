@@ -602,7 +602,7 @@ xmkraw(int fd)
 static int
 stub_main_1(void)
 {
-    /* Neer unset raw mode.  We never change from raw back to cooked
+    /* Never unset raw mode.  We never change from raw back to cooked
      * mode on exit.  The connection dies on exit anyway, and
      * resetting the pty can send some extra bytes that can confuse
      * our peer. */
@@ -610,7 +610,7 @@ stub_main_1(void)
     for (int fd = 0; fd <= 1; ++fd)
         xmkraw(fd);
 
-    printf(FB_ADB_PROTO_START_LINE "\n", build_time,
+    printf(FB_ADB_PROTO_START_LINE "\n", build_fingerprint,
            (int) getuid(), (unsigned) api_level());
     fflush(stdout);
 

@@ -117,7 +117,6 @@ struct stream_information {
 
 struct msg_shex_hello {
     struct msg msg;
-    uint64_t version;
     uint32_t stub_recv_bufsz;
     uint32_t stub_send_bufsz;
     uint32_t nr_argv;
@@ -200,4 +199,6 @@ static const unsigned CHILD_STDIN = 2;
 static const unsigned CHILD_STDOUT = 3;
 static const unsigned CHILD_STDERR = 4;
 
-#define FB_ADB_PROTO_START_LINE "FB_ADB %ju (uid=%d) (api=%u)"
+// Base64 of 128 bits is 22 characters long; plus NUL, 23
+#define FB_ADB_FINGERPRINT_LENGTH 22
+#define FB_ADB_PROTO_START_LINE "FB_ADB %23s (uid=%d) (api=%u)"

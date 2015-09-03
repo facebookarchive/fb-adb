@@ -85,7 +85,7 @@ tc_chat_new(const struct childcom* tc)
 }
 
 struct child_hello {
-    uintmax_t ver;
+    char ver[FB_ADB_FINGERPRINT_LENGTH+1];
     int uid;
     unsigned api_level;
 };
@@ -102,7 +102,7 @@ parse_child_hello(const char* line, struct child_hello* chello)
     memset(chello, 0, sizeof (*chello));
     int n = -1;
     sscanf(line, FB_ADB_PROTO_START_LINE "%n",
-           &chello->ver,
+           &chello->ver[0],
            &chello->uid,
            &chello->api_level,
            &n);
@@ -198,7 +198,9 @@ try_adb_stub(const struct child_start_info* csi,
     char* resp = chat_read_line(cc);
     dbg("stub resp: [%s]", resp);
 
-    if (parse_child_hello(resp, chello) && chello->ver == build_time) {
+    if (parse_child_hello(resp, chello) &&
+        !strcmp(chello->ver, build_fingerprint))
+    {
         dbg("found good child version");
         reslist_xfer(rl->parent, rl);
         return child;
@@ -358,7 +360,6 @@ make_hello_msg(size_t max_cmdsz,
     size_t sz = sizeof (*m) + nr_termbits * sizeof (m->tctl[0]);
     m = xcalloc(sz);
     m->msg.type = MSG_SHEX_HELLO;
-    m->version = build_time;
     m->nr_argv = nr_argv;
     m->maxmsg = XMIN(max_cmdsz, MSG_MAX_SIZE);
     m->stub_send_bufsz = command_ringbufsz;

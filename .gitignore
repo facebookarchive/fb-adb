@@ -12,3 +12,5 @@ termnames.h
 build/
 build.*/
 aclocal.m4
+__pycache__
+*.pyc

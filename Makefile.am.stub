@@ -8,31 +8,41 @@
 # in the same directory.
 #
 
-noinst_PROGRAMS = fb-adb
+# This directory exists only to allow the parent directory to build
+# its stubs; you really want to make from the parent directory.  We've
+# made "make all" in this directory do nothing so that the parent's
+# implicit recursive make doesn't serialize all building.  We manually
+# invoke this makefile via explicit, properly parallel rules in the
+# parent Makefile.  The "check_" prefix below keeps the targets out of
+# "make all".  You are not expected to understand this.
 
-dummy-update-timestamp:
-	$(MAKE) -C .. timestamp.c
-timestamp.c: dummy-update-timestamp
-	cp -fp ../timestamp.c $@
+check_PROGRAMS = fb-adb
+CLEANFILES += timestamp.c
 
 AM_CPPFLAGS += -DFBADB_STUB=1
-AM_CFLAGS += -flto
-AM_LDFLAGS += -flto
+AM_CFLAGS += -flto -frandom-seed=0
+AM_LDFLAGS += -flto -frandom-seed=0
 
 fb_adb_LDADD += -llog
 
+CLEANFILES += stub
 if STRIP_STUBS
-stub$(EXEEXT): fb-adb$(EXEEXT)
+stub: fb-adb
 	$(STRIP) -o $@ $<
 else
-stub$(EXEEXT): fb-adb$(EXEEXT)
+stub: fb-adb
 	cp -fp $< $@
 endif
 
-all-local: stub$(EXEEXT)
+all-real: fb-adb stub
+
+all-local:
+	@if test -z "$(FB_ADB_RECURSIVE)"; then \
+		echo "!!!!!!!!!!!!!!!!!!!!!!!"; \
+		echo "Do not run this makefile directly; use parent"; \
+		echo "!!!!!!!!!!!!!!!!!!!!!!!"; \
+		false; \
+	fi
 
 distclean-local:
 	rm -rf toolchain
-
-clean-local:
-	rm -f stub

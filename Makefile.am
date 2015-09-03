@@ -10,7 +10,13 @@
 # on that library and get regenerated only when it changes.
 #
 
-noinst_LIBRARIES = libfb-adb.a
+CLEANFILES = lock
+AM_MAKEFLAGS =
+EXTRA_DIST =
+
+# Yes, check_, even though it's our primary bit of code.
+# See the comment in Makefile.am.stub.
+check_LIBRARIES = libfb-adb.a
 
 CMD_SOURCES = \
 	cmd_stub.c \
@@ -86,6 +92,7 @@ AM_CFLAGS += -fPIC
 AM_LDFLAGS += -fPIC -pie
 endif
 
+CLEANFILES += termnames.h
 $(srcdir)/termbits.c: termnames.h
 termnames.h: termnames.h.in termnames.sed
 	$(SED) -Ef $(srcdir)/termnames.sed $< >$@
@@ -98,31 +105,46 @@ COMMANDS_XML=$(srcdir)/commands.xml
 CMDSPROC_FLAGS=
 CMDSPROC=$(PYTHON3) $(srcdir)/cmdsproc.py $(CMDSPROC_FLAGS)
 
+CLEANFILES += autocmd.h
 autocmd.h: $(COMMANDS_XML) $(srcdir)/cmdsproc.py
 	$(CMDSPROC) h $(COMMANDS_XML) > $@.tmp
-	if ! cmp $@ $@.tmp; then mv $@.tmp $@; fi
+	if ! cmp $@ $@.tmp 2>/dev/null; then mv $@.tmp $@; fi
 	rm -f $@.tmp
 
+CLEANFILES += autocmd.c
 autocmd.c: $(COMMANDS_XML) $(srcdir)/cmdsproc.py
 	$(CMDSPROC) c $(COMMANDS_XML) > $@
 
+EXTRA_DIST += fb-adb.bashsrc.in
+CLEANFILES += fb-adb.bashsrc
 fb-adb.bashsrc: $(COMMANDS_XML)
 fb-adb.bashsrc: $(srcdir)/cmdsproc.py
 fb-adb.bashsrc: $(srcdir)/fb-adb.bashsrc.in
 fb-adb.bashsrc:
-	cp -f $(srcdir)/fb-adb.bashsrc.in $@
-	$(CMDSPROC) bashcomplete $(COMMANDS_XML) >> $@
-	chmod ugo-w $@
+	rm -f $@.tmp
+	cat $(srcdir)/fb-adb.bashsrc.in > $@.tmp
+	$(CMDSPROC) bashcomplete $(COMMANDS_XML) >> $@.tmp
+	chmod ugo-w $@.tmp
+	mv -f $@.tmp $@
 
 $(srcdir)/cmd_bash_completion.c: bash_completion.inc
+CLEANFILES += bash_completion.inc
 bash_completion.inc: fb-adb.bashsrc
 	xxd -i < $< > $@
 
-CLEANFILES =  termnames.h timestamp.c timestamp.c.tmp
-CLEANFILES += autocmd.h autocmd.h.tmp autocmd.c
-CLEANFILES += bash_completion.c.tmp
+CLEANFILES += libfb-adb.a.stripped
+libfb-adb.a.stripped: libfb-adb.a
+	cp -f $< $@
+	$(STRIP) $@
 
-EXTRA_DIST =
+clean-local:
+	rm -f *.tmp *.i *.s *.res
+
+dist-hook:
+	for x in $(STUB_SUBDIRS); do \
+		mkdir -p $(distdir)/$$x; \
+		cp -f $(srcdir)/$$x/configure $(distdir)/$$x; \
+	done
 
 if BUILD_STUB
 include Makefile.am.stub

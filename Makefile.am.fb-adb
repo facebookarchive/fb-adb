@@ -19,13 +19,38 @@ libfb_adb_a_SOURCES += stubs.h
 
 CMDSPROC_FLAGS += -DFBADB_MAIN
 
+AM_MAKEFLAGS +=	FB_ADB_RECURSIVE=1
+
+update-all-stubs: $(STUB_BINARIES:/stub=/.update-stub)
+$(STUB_BINARIES:/stub=/.update-stub): timestamp.c
+	cp -fp timestamp.c ${@:.update-stub=}timestamp.c
+	$(MAKE) -C ${@:.update-stub=} $(AM_MAKEFLAGS) stub
+
+update-all-stub-libs: $(STUB_BINARIES:/stub=/.update-lib)
+$(STUB_BINARIES:/stub=/.update-lib):
+	$(MAKE) -C ${@:.update-lib=} $(AM_MAKEFLAGS) libfb-adb.a.stripped
+
 nodist_fb_adb_SOURCES += stubs.c
 CLEANFILES += stubs.c
-stubs.c: $(srcdir)/mkstubsc.sh $(STUB_BINARIES)
-	XXD="$(XXD)" $(srcdir)/mkstubsc.sh $(STUB_BINARIES) > $@
+stubs.c: $(srcdir)/mkstubsc.sh update-all-stubs
+	XXD="$(XXD)" $(srcdir)/mkstubsc.sh $(STUB_BINARIES) > $@.tmp
+	cmp 2>/dev/null $@ $@.tmp || mv -f $@.tmp $@
 
-timestamp.c: timestamp.c.in libfb-adb.a
-	$(SED) -e "s/BUILD_TIME/`date +%s`/" $< > $@
+EXTRA_DIST += mk-fingerprint.py arpy.py
+CLEANFILES += fingerprint
+fingerprint: update-all-stub-libs
+	echo $(STUB_SUBDIRS) | \
+		tr ' ' '\n' | \
+		sed -e 's,$$,/libfb-adb.a.stripped,' | \
+		xargs $(PYTHON3) \
+		$(srcdir)/mk-fingerprint.py -- \
+		> $@.tmp
+	cmp 2>/dev/null $@ $@.tmp || mv -f $@.tmp $@
+
+CLEANFILES += timestamp.c
+timestamp.c: timestamp.c.in fingerprint
+	$(SED) -e "s/@FINGERPRINT@/`cat fingerprint`/" \
+		$< > $@
 if GIT_STAMP
 	echo '{' >> $@
 	cd "$(top_srcdir)" && git status --porcelain >/dev/null
@@ -40,38 +65,23 @@ if GIT_STAMP
 	echo ', 0x00 };' >> $@
 endif
 
-dist-hook:
-	for x in $(STUB_SUBDIRS); do \
-		mkdir -p $(distdir)/$$x; \
-		cp -f $(srcdir)/$$x/configure $(distdir)/$$x; \
-	done
-
-distclean-local:
-	for x in $(STUB_SUBDIRS); do \
-		if test -d $$x; then $(MAKE) -C $$x distclean; fi; \
-	done
-	rmdir $(STUB_SUBDIRS)
-
-cmd_shex_usage.inc: cmd_shex_usage.txt
-	rm -f $@
-	$(XXD) -i <$< > $@
-
-cmd_shex.o: cmd_shex_usage.inc
-CLEANFILES += cmd_shex_usage.inc
-EXTRA_DIST += cmd_shex_usage.txt
-
 EXTRA_DIST += README.md LICENSE PATENTS NEWS stub-config.sh
 EXTRA_DIST += timestamp.c.in termnames.h.in termnames.sed
 EXTRA_DIST += mkstubsc.sh commands.xml cmdsproc.py
 
-CLEANFILES += fb-adb.pod fb-adb.1
-
 man_MANS = fb-adb.1
 
+CLEANFILES += fb-adb.pod
 fb-adb.pod: $(COMMANDS_XML) $(srcdir)/cmdsproc.py
 	$(CMDSPROC) pod $(COMMANDS_XML) > $@
 	podchecker -warnings -warnings $@
 
+CLEANFILES += fb-adb.1
 fb-adb.1: fb-adb.pod
 	$(POD2MAN) -r"fb-adb $(VERSION)" -s1 -uvc "Facebook" $< > $@
 
+distclean-local:
+	+for stub in $(STUB_SUBDIRS); do \
+		$(MAKE) $(AM_MAKEFLAGS) -C $$stub distclean; \
+	done
+	rmdir $(STUB_SUBDIRS)
