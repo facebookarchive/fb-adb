@@ -47,6 +47,6 @@ int forward_to_rcmd(struct strlist* non_forwarded_args,
 # define FORWARD(cmd)
 #endif
 
-void show_help(const char* help, bool allow_pager);
+void show_help(const char* help);
 
 extern const char full_usage[];

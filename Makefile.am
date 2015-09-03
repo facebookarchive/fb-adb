@@ -18,6 +18,7 @@ CMD_SOURCES = \
 	cmd_readlink.c \
 	cmd_finfo.c \
 	cmd_fcat.c \
+	cmd_help.c \
 	$(EMPTY)
 
 libfb_adb_a_SOURCES = \

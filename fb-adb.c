@@ -22,12 +22,6 @@
 #include "autocmd.h"
 #include "timestamp.h"
 
-static void
-usage(void)
-{
-    show_help(full_usage, isatty(0) && isatty(1));
-}
-
 static bool
 word_follows_adb_arg_p(const char* p)
 {
@@ -98,13 +92,8 @@ real_main(int argc, char** argv)
         return 0;
     }
 
-    if (!strcmp(prgarg, "help") ||
-        !strcmp(prgarg, "-h") ||
-        !strcmp(prgarg, "--help"))
-    {
-        usage();
-        return 0;
-    }
+    if (!strcmp(prgarg, "-h") || !strcmp(prgarg, "--help"))
+        prgarg = "help";
 
     const struct cmd* cmd = &autocmds[0];
     while (cmd->main != NULL) {

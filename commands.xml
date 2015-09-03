@@ -198,6 +198,13 @@ code, and bash completion file.
     </option>
   </optgroup>
   <?endif?>
+  <command names="help">
+    Display help.
+    <argument name="for-command" optional="yes" type="fbadb-command">
+      Command for which to display help.  If omitted, display help for
+      all commands.
+    </argument>
+  </command>
   <command names="logw">
     Write to logcat on device.
     <argument name="message-parts" repeat="yes">

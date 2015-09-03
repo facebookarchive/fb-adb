@@ -165,8 +165,8 @@ fputs_translate_ansi(FILE* out, const char* text, bool use_ansi)
 #endif
 }
 
-void
-show_help(const char* help, bool allow_pager)
+static void
+show_help_1(const char* help, bool allow_pager)
 {
     SCOPED_RESLIST(rl);
     FILE* out = stdout;
@@ -203,8 +203,14 @@ show_help(const char* help, bool allow_pager)
     fflush(out);
     if (tmpf_name) {
         if (system(xaprintf("%s %s", pager, xshellquote(tmpf_name))) != 0)
-            show_help(help, false);
+            show_help_1(help, false);
     }
+}
+
+void
+show_help(const char* help)
+{
+    show_help_1(help, isatty(0) && isatty(1));
 }
 
 void
@@ -224,7 +230,7 @@ default_getopt(char c, const char* const* argv, const char* usage)
             {
                 if (usage == NULL)
                     die(EINVAL, "incorrect usage of internal command");
-                show_help(usage, isatty(0) && isatty(1));
+                show_help(usage);
                 exit(0);
             } else if (optopt == '\0' || long_opt_p(argv[optind-1])) {
                 usage_error("invalid option %s", argv[optind-1]);

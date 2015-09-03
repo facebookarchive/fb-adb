@@ -652,6 +652,13 @@ _fb_adb_complete_value() {
                 return 1
             fi
             ;;
+        fbadb-command)
+            if ! _fb_adb_add_candidates \
+                 -p "$word" \
+                 -- "${_fb_adb_command_list[@]}"; then
+                return 1
+            fi
+            ;;
         *)
             _fb_adb_msg 'unknown completion type %s' "$type"
             return 1

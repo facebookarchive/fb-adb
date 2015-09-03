@@ -30,6 +30,7 @@ MARKUP_TAGS = ("b", "i", "tt", "section", "ul", "li",
 # to implement completion for them.
 KNOW_TYPE_REGEX = re.compile(
   "^("+"|".join([
+    "fbadb-command",
     "string",
     "hostname",
     "device-path",
