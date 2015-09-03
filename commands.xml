@@ -205,6 +205,12 @@ code, and bash completion file.
       all commands.
     </argument>
   </command>
+  <?ifdef FBADB_MAIN?>
+  <command names="bash-completion">
+    Write bash completion functions for <b>fb-adb</b> to stdout.
+    Use like this: <pre>eval "$(fb-adb bash-completion)"</pre>
+  </command>
+  <?endif?>
   <command names="logw">
     Write to logcat on device.
     <argument name="message-parts" repeat="yes">

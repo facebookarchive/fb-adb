@@ -19,6 +19,7 @@ CMD_SOURCES = \
 	cmd_finfo.c \
 	cmd_fcat.c \
 	cmd_help.c \
+	cmd_bash_completion.c \
 	$(EMPTY)
 
 libfb_adb_a_SOURCES = \
@@ -105,8 +106,21 @@ autocmd.h: $(COMMANDS_XML) $(srcdir)/cmdsproc.py
 autocmd.c: $(COMMANDS_XML) $(srcdir)/cmdsproc.py
 	$(CMDSPROC) c $(COMMANDS_XML) > $@
 
+fb-adb.bashsrc: $(COMMANDS_XML)
+fb-adb.bashsrc: $(srcdir)/cmdsproc.py
+fb-adb.bashsrc: $(srcdir)/fb-adb.bashsrc.in
+fb-adb.bashsrc:
+	cp -f $(srcdir)/fb-adb.bashsrc.in $@
+	$(CMDSPROC) bashcomplete $(COMMANDS_XML) >> $@
+	chmod ugo-w $@
+
+$(srcdir)/cmd_bash_completion.c: bash_completion.inc
+bash_completion.inc: fb-adb.bashsrc
+	xxd -i < $< > $@
+
 CLEANFILES =  termnames.h timestamp.c timestamp.c.tmp
 CLEANFILES += autocmd.h autocmd.h.tmp autocmd.c
+CLEANFILES += bash_completion.c.tmp
 
 EXTRA_DIST =
 
