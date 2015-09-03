@@ -165,7 +165,7 @@ class Command(object):
         yield option
 
   def struct_name(self):
-    return "cmd_%s_info" % self.name
+    return "cmd_%s_info" % self.symbol
 
   def dispatch_function(self):
     return FunctionSignature(
@@ -183,7 +183,7 @@ class Command(object):
   def make_args_function(self):
     return FunctionSignature(
       "struct strlist*",
-      "make_args_cmd_%s" % self.name,
+      "make_args_cmd_%s" % self.symbol,
       (("unsigned", "which"),
        ("const struct cmd_%s_info*" % self.symbol,
         "info")))
