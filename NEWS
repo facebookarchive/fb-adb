@@ -4,6 +4,14 @@ Version 1.6.0
 New features:
 
  * finfo command for batch remote filesystem operations
+ * fcat command to print remote files
+ * Automatically-generated bash completion specifications
+   Just use `eval "$(fb-adb bash-completion)"' to keep up-to-date
+ * Completion of device files from host
+ * Unify man page and internal documentation; in-program doc improvements
+ * "help" is now a regular command
+ * All commands that talk to devices now support the same user, transport,
+   and device-selection arguments that shell and rcmd do
 
 Bug fixes:
 
@@ -13,6 +21,10 @@ Bug fixes:
  * Attempt to work around SELinux failures on pre-KK devices
  * Work around mv(1) behavior change in API 23's mv(1) (or at least
    the preview's version of mv)
+
+Incompatible changes:
+
+ * Removed -U option for rcmd and shell commands
 
 Version 1.5.1
 -------------
