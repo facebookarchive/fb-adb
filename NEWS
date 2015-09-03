@@ -21,6 +21,9 @@ Bug fixes:
  * Attempt to work around SELinux failures on pre-KK devices
  * Work around mv(1) behavior change in API 23's mv(1) (or at least
    the preview's version of mv)
+ * The "timestamp" embedded in the fb-adb stub is now a function of the
+   built binary, not the actual build time.  As a result, the build is
+   now deterministic.
 
 Incompatible changes:
 
