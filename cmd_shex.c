@@ -174,10 +174,15 @@ try_adb_stub(const struct child_start_info* csi,
         adb_name = xaprintf("%s %s", remote_wrapper, adb_name);
 
     const char* remote_debug = getenv("FB_ADB_REMOTE_DEBUG");
-    if (remote_debug)
+    if (remote_debug) {
+        if (remote_debug[0] != '>')
+            die(EINVAL, "remote debugging must dump to file: "
+                "otherwise, debug output will interfere with "
+                "fb-adb protocol.");
         cmd = xaprintf("FB_ADB_DEBUG='%s' exec %s stub",
                        remote_debug,
                        adb_name);
+    }
 #endif
 
     if (cmd == NULL)
@@ -725,7 +730,7 @@ command_re_exec_as_user(
             return RE_EXEC_STUB_NEEDED;
         }
 
-        die(ei.err, "%s", ei.msg);
+        die_rethrow(&ei);
     }
 
     return RE_EXEC_OKAY;
