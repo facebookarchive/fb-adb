@@ -33,6 +33,7 @@ KNOW_TYPE_REGEX = re.compile(
     "fbadb-command",
     "string",
     "hostname",
+    "host-path",
     "device-path",
     "device-command",
     "device-exe",
@@ -87,7 +88,8 @@ class UsageFileReader(object):
   def __init__(self, defs):
     self.defs = defs
     self.ifdefs = []
-    self.level = 0
+    self.current = {}
+    self.stack = []
 
   def __enabled_p(self):
     return all(x[0] for x in self.ifdefs)
@@ -98,15 +100,19 @@ class UsageFileReader(object):
 
   def __StartElementHandler(self, name, attributes):
     if not self.__enabled_p(): return
+    if name in self.current:
+      raise ValueError("nested element not allowed", name)
     fixed_attr = dict((k.replace("-","_"), v)
                        for k, v in attributes.items())
-    self.level += 1
-    getattr(self, on_start_function(name))(**fixed_attr)
+    self.current[name] = getattr(self, on_start_function(name))(**fixed_attr)
+    self.stack.append(name)
 
   def __EndElementHandler(self, name):
     if not self.__enabled_p(): return
+    assert name in self.current
     getattr(self, on_stop_function(name))()
-    self.level -= 1
+    del self.current[name]
+    self.stack.pop()
 
   def __ProcessingInstructionHandler(self, target, data):
     args = data.split()
@@ -117,11 +123,11 @@ class UsageFileReader(object):
         die("ifdef syntax error")
       condition = args[0]
       enable = (args[0] in self.defs) == (target == "ifdef")
-      self.ifdefs.append((enable, self.level))
+      self.ifdefs.append((enable, self.stack[:]))
     elif target == "endif":
       if args: die("invalid endif syntax")
-      _, saved_level = self.ifdefs.pop()
-      if self.level != saved_level:
+      _, saved_stack = self.ifdefs.pop()
+      if self.stack != saved_stack:
         die("badly formed ifdef: levels do not match")
     else:
       die("unknown processing instruction %r", target)
@@ -133,7 +139,14 @@ class UsageFileReader(object):
     ep.EndElementHandler = self.__EndElementHandler
     ep.ProcessingInstructionHandler = self.__ProcessingInstructionHandler
     ep.CharacterDataHandler = self.__CharacterDataHandler
-    ep.ParseFile(file)
+    try:
+      ep.ParseFile(file)
+    except Exception as ex:
+      log.error("Error processing command XML near %d:%d: %r",
+                ep.CurrentLineNumber,
+                ep.CurrentColumnNumber,
+                ex)
+      raise
 
 class IgnoreMarkup(object):
   def on_cdata(self, cdata): pass
@@ -204,6 +217,7 @@ class Command(object):
             existing_og.name,
             sorted(existing_og.known_options & og.known_options))
     self.optgroups.append(og)
+    og.references.append(self)
 
   def add_argument(self, argument):
     if argument.name in self.known_arguments:
@@ -237,8 +251,18 @@ class OptGroup(object):
     self.accumulations = set()
     self.completion_relevant = check_bool(completion_relevant)
     self.options = []
-    self.private = False
+    self.defined_in_command = False
     self.human = human
+    self.references = []
+
+  def used_p(self):
+    return self.references
+
+  def publicly_visible_p(self):
+    for reference in self.references:
+      if not reference.internal:
+        return True
+    return False
 
   def struct_name(self):
     return "%s_opts" % self.name
@@ -321,34 +345,34 @@ class CommandSlurpingReader(UsageFileReader, IgnoreMarkup):
     self.known_commands = set()
     self.commands = []
     self.optgroups = []
-    self.current = {}
+
+  def __check_context(self, name, allowed_parents):
+    parent = self.stack[-1]
+    if parent not in allowed_parents:
+      die("invalid context: %r cannot be inside %r", name, self.stack)
 
   def on_command_start(self, **kwargs):
-    if self.current:
-      die("invalid context")
+    self.__check_context("command", {"usage"})
     command = Command(**kwargs)
     nameset = {command.name, command.symbol} | set(command.altnames)
     if self.known_commands & nameset:
       die("duplicate command names: %r",
           sorted(self.known_commands & nameset))
     self.known_commands.update(nameset)
-    self.current["command"] = command
+    return command
 
   def on_command_end(self):
-    command = self.current.pop("command")
-    self.commands.append(command)
-    log.debug("added %s", command)
+    self.commands.append(self.current["command"])
 
   def on_optgroup_start(self, **kwargs):
-    if set(self.current) - {"command"}:
-      die("invalid context")
+    self.__check_context("optgroup", {"usage", "command"})
     og = OptGroup(**kwargs)
     if "command" in self.current:
-      og.private = True
-    self.current["optgroup"] = og
+      og.defined_in_command = True
+    return og
 
   def on_optgroup_end(self):
-    optgroup = self.current.pop("optgroup")
+    optgroup = self.current["optgroup"]
     self.optgroups.append(optgroup)
     log.debug("added %s", optgroup)
     command = self.current.get("command")
@@ -356,27 +380,21 @@ class CommandSlurpingReader(UsageFileReader, IgnoreMarkup):
       command.add_optgroup(optgroup)
 
   def on_option_start(self, **kwargs):
-    if set(self.current) & {"optgroup","option"} != {"optgroup"}:
-      die("invalid context")
-    self.current["option"] = Option(**kwargs)
+    self.__check_context("option", {"optgroup"})
+    return Option(**kwargs)
 
   def on_option_end(self):
-    option = self.current.pop("option")
-    self.current["optgroup"].add_option(option)
-    log.debug("added option %r", option)
+    self.current["optgroup"].add_option(self.current["option"])
 
   def on_argument_start(self, **kwargs):
-    if set(self.current) & {"command", "argument"} != {"command"}:
-      die("invalid context")
-    self.current["argument"] = Argument(**kwargs)
+    self.__check_context("argument", {"command"})
+    return Argument(**kwargs)
 
   def on_argument_end(self):
-    self.current["command"].add_argument(self.current.pop("argument"))
+    self.current["command"].add_argument(self.current["argument"])
 
   def on_optgroup_reference_start(self, *, name):
-    if (set(self.current) & {"command", "optgroup-reference"}
-        != {"command"}):
-      die("invalid context")
+    self.__check_context("optgroup", {"command"})
     og = None
     for candidate_og in self.optgroups:
       if candidate_og.name == name:
@@ -384,11 +402,11 @@ class CommandSlurpingReader(UsageFileReader, IgnoreMarkup):
         break
     if og is None:
       die("no optgroup called %r", name)
-    self.current["optgroup-reference"] = og
+    return og
 
   def on_optgroup_reference_end(self):
     self.current["command"].add_optgroup(
-      self.current.pop("optgroup-reference"))
+      self.current["optgroup-reference"])
 
 class ProgramWriter(object):
   def __init__(self, out):
@@ -531,16 +549,20 @@ def emit_make_args_cmd_function(hf, command):
                    og.emit_args_function().name,
                    og.symbol)
     # Arguments (as opposed to options) are always forwarded
-    with hf.if_("which & CMD_ARG_FORWARDED"):
-      hf.writeln("strlist_append(dest, \"--\");")
+    with hf.if_("(which & CMD_ARG_FORWARDED) == 0"):
+      hf.writeln("return dest;")
+
+    hf.writeln("strlist_append(dest, \"--\");")
     for argument in command.arguments:
-      with hf.if_("which & CMD_ARG_FORWARDED"):
-        if argument.repeat:
-          hf.writeln("strlist_extend_argv(dest, info->%s);",
-                     argument.symbol)
-        else:
-          hf.writeln("strlist_append(dest, info->%s);",
-                     argument.symbol)
+      if argument.optional:
+        with hf.if_("info->%s == NULL", argument.symbol):
+          hf.writeln("return dest;")
+      if argument.repeat:
+        hf.writeln("strlist_extend_argv(dest, info->%s);",
+                   argument.symbol)
+      else:
+        hf.writeln("strlist_append(dest, info->%s);",
+                   argument.symbol)
     hf.writeln("return dest;")
 
 def emit_record_option(hf, option):
@@ -675,6 +697,7 @@ def op_h(commands_file, defs, optgroups, commands):
   hf.include("argv.h")
   hf.writeln("")
   for og in optgroups:
+    if not og.used_p(): continue
     with hf.struct_definition(og.struct_name()):
       for accumulation in sorted(og.accumulations):
         hf.writeln("const struct strlist* %s;", accumulation)
@@ -754,12 +777,14 @@ def op_c(commands_file, defs, optgroups, commands):
                         add_encoding=False)))
 
   for og in optgroups:
+    if not og.used_p(): continue
     hf.prototype(og.emit_args_function(),
                  static=not og.export_emit_args)
   for command in commands:
     hf.prototype(command.parse_args_function(),
                  static=not command.export_parse_args)
   for og in optgroups:
+    if not og.used_p(): continue
     emit_emit_args_og_function(hf, og)
   for command in commands:
     pod_documentation = pod.section_contents.get(
@@ -989,12 +1014,19 @@ class PodGeneratingReader(UsageFileReader):
 
   def on_optgroup_start(self, *, name, **ignored):
     og = self.optgroups[name]
-    if not og.private:
+    visible = og.publicly_visible_p()
+    if not og.defined_in_command and visible:
       self.head1("%s", self.section_title_for_optgroup(og))
+    self.current_optgroup = og
+    if not visible:
+      self.out.ob_start()
     self.command("=over")
 
   def on_optgroup_end(self):
     self.command("=back")
+    if not self.current_optgroup.publicly_visible_p():
+      self.out.ob_end_clean()
+    self.current_optgroup = None
 
   def on_option_start(self,
                       *,
@@ -1053,7 +1085,7 @@ class PodGeneratingReader(UsageFileReader):
     self.flush_paragraph()
     nonlocal_options = []
     for og in self.current_command.optgroups:
-      if not og.private:
+      if not og.defined_in_command:
         for option in og.options:
           if option.short is not None:
             nonlocal_options.append(
@@ -1094,7 +1126,9 @@ class PodGeneratingReader(UsageFileReader):
   def on_optgroup_reference_start(self, *, name):
     if self.full_optgroups:
       og = self.optgroups[name]
-      self.out.write(self.section_contents[self.section_title_for_optgroup(og)])
+      if og.publicly_visible_p():
+        self.out.write(
+          self.section_contents[self.section_title_for_optgroup(og)])
 
   def on_optgroup_reference_end(self):
     pass

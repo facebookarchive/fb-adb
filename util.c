@@ -18,6 +18,7 @@
 #include <unistd.h>
 #include <setjmp.h>
 #include <stdlib.h>
+#include <features.h>
 #include <signal.h>
 #include <sys/wait.h>
 #include <sys/syscall.h>
@@ -233,13 +234,13 @@ cleanup_allocate(void)
 void
 cleanup_commit(struct cleanup* cl,
                cleanupfn fn,
-               void* fndata)
+               const void* fndata)
 {
     // Regardless of where the structure was when we allocated it, put
     // it on top of the stack now.
     assert(cl->fn == NULL);
     cl->fn = fn;
-    cl->fndata = fndata;
+    cl->fndata = (void*) fndata;
     reslist_remove(&cl->r);
     reslist_insert_head(_reslist_current, &cl->r);
 }
@@ -316,6 +317,30 @@ catch_error(void (*fn)(void* fndata),
     return error;
 }
 
+bool
+catch_one_error(
+    void (*fn)(void* fndata),
+    void* fndata,
+    int errnum)
+{
+    struct errinfo ei = {
+        .want_msg = true
+    };
+
+    if (catch_error(fn, fndata, &ei)) {
+        if (ei.err == errnum)
+            return true;
+        die_rethrow(&ei);
+    }
+    return false;
+}
+
+void
+die_rethrow(struct errinfo* ei)
+{
+    die(ei->err, "%s", ei->msg);
+}
+
 char*
 xavprintf(const char* fmt, va_list args)
 {
@@ -386,13 +411,15 @@ diev(int err, const char* fmt, va_list args)
         abort();
 
     {
-        // Give pending signals a chance to propagate
+        // Give pending signals a chance to propagate in case we're
+        // dying due to a failure ultimately caused by a
+        // pending signal.
         WITH_IO_SIGNALS_ALLOWED();
     }
 
     if (current_errh->ei) {
         struct errinfo* ei = current_errh->ei;
-        ei->err = err;
+        ei->err = err ?: ERR_ERRNO_WAS_ZERO;
         if (ei->want_msg) {
             WITH_CURRENT_RESLIST(current_errh->rl->parent);
             // die_oom will DTRT on alloc failure.
@@ -437,6 +464,21 @@ xopen(const char* pathname, int flags, mode_t mode)
     int fd = open(pathname, flags | O_CLOEXEC, mode);
     if (fd == -1)
         die_errno("open(\"%s\")", pathname);
+
+    assert_cloexec(fd);
+    cleanup_commit_close_fd(cl, fd);
+    return fd;
+}
+
+int
+try_xopen(const char* pathname, int flags, mode_t mode)
+{
+    struct cleanup* cl = cleanup_allocate();
+    int fd = open(pathname, flags | O_CLOEXEC, mode);
+    if (fd == -1) {
+        cleanup_forget(cl);
+        return -1;
+    }
 
     assert_cloexec(fd);
     cleanup_commit_close_fd(cl, fd);
@@ -1850,4 +1892,145 @@ set_timeout(const struct itimerval* timer)
     sigaddset(&signals_unblock_for_io, SIGALRM);
 
     reslist_xfer(rl->parent, rl);
+}
+
+char*
+xdirname(const char* path)
+{
+    SCOPED_RESLIST(rl);
+    char* xpath = xstrdup(path);
+    char* ret = dirname(xpath);
+    WITH_CURRENT_RESLIST(rl->parent);
+    return xstrdup(ret);
+}
+
+char*
+xbasename(const char* path)
+{
+    SCOPED_RESLIST(rl);
+    char* xpath = xstrdup(path);
+    char* ret = basename(xpath);
+    WITH_CURRENT_RESLIST(rl->parent);
+    return xstrdup(ret);
+}
+
+#ifdef HAVE_XFALLOCATE
+# undef HAVE_FUNOPEN
+#endif
+
+#if !defined(HAVE_FALLOCATE) &&                 \
+    defined(__linux__) &&                       \
+    defined(__NR_fallocate) && (                \
+        defined(__ARM_EABI__) ||                \
+        defined(__i386__))
+__attribute__((unused))
+static int
+xfallocate(int fd, int mode, uint64_t offset, uint64_t length)
+{
+# ifdef __ARM_EABI__
+    return syscall(__NR_fallocate, fd, mode,
+                   (uint32_t)(offset >> 32),
+                   (uint32_t)(offset >> 0),
+                   (uint32_t)(length >> 32),
+                   (uint32_t)(length >> 0));
+# else
+    return syscall(__NR_fallocate, fd, mode, offset, length);
+# endif
+}
+# define HAVE_XFALLOCATE 1
+#endif
+
+#ifndef OFF_T_MAX
+# if SIZEOF_OFF_T==8
+#  define OFF_T_MAX INT64_MAX
+# elif SIZEOF_OFF_T==4
+#  define OFF_T_MAX INT32_MAX
+# else
+#  error "bizarre system"
+# endif
+#endif
+
+bool
+fallocate_if_supported(int fd, uint64_t size)
+{
+    int ret;
+    uint64_t max_size;
+
+#if defined(HAVE_XFALLOCATE)
+    max_size = INT64_MAX;
+#else
+    max_size = OFF_T_MAX;
+#endif
+
+    if (size > max_size)
+        die(EINVAL, "file size too large");
+
+#if HAVE_FALLOCATE && SIZEOF_OFF_T==4
+    ret = xfallocate(fd, 0, 0, size);
+#elif defined(HAVE_POSIX_FALLOCATE) && !defined(__GLIBC__)
+    // Use the Linux system call directly instead of posix_fallocate
+    // because glibc exceeds even its high standard of badness and
+    // tries to emulate posix_fallocate using goddamn pwrite on
+    // filesystem where rela fallocate isn't available.
+    // This emulation is unforgivable: it causes silent data loss!
+    //
+    // tl;dr: we can't trust posix_fallocate on glibc systems.  How
+    // the hell do open source systems manage to boot?
+    ret = posix_fallocate(fd, 0, size);
+#elif defined(HAVE_FALLOCATE)
+    ret = fallocate(fd, 0, 0, size);
+#elif defined(HAVE_XFALLOCATE)
+    ret = xfallocate(fd, 0, 0, size);
+#else
+    ret = -1;
+    errno = ENOSYS;
+#endif
+
+    if (ret == -1) {
+        if (errno != ENOSYS && errno != EOPNOTSUPP)
+            die_errno("fallocate");
+        return false;
+    }
+
+    return true;
+}
+
+void
+xfsync(int fd)
+{
+    if (fsync(fd) == -1)
+        die_errno("fsync");
+}
+
+void
+xftruncate(int fd, uint64_t size)
+{
+    size_t max_size;
+
+#if SIZEOF_OFF_T==4 && defined(HAVE_FALLOCATE64)
+    max_size = INT64_MAX;
+#else
+    max_size = OFF_T_MAX;
+#endif
+
+    if (size > max_size)
+        die(EINVAL, "file size too large");
+
+    int ret;
+
+#if SIZEOF_OFF_T==4 && defined(HAVE_FALLOCATE64)
+    ret = ftruncate64(fd, (off64_t) size);
+#else
+    ret = ftruncate(fd, (off_t) size);
+#endif
+
+    if (ret == -1)
+        die_errno("ftruncate");
+}
+
+void
+xrename(const char* old, const char* new)
+{
+    if (rename(old, new) == -1)
+        die_errno("rename");
 }

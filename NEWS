@@ -5,6 +5,10 @@ New features:
 
  * finfo command for batch remote filesystem operations
  * fcat command to print remote files
+ * fget and fput for efficient and robust file transfer
+   - Use fallocate, fsync, and atomic rename to transfer files
+     quickly and safely; take advantage of general fb-adb compression
+     and transport options
  * Automatically-generated bash completion specifications
    Just use `eval "$(fb-adb bash-completion)"' to keep up-to-date
  * Completion of device files from host

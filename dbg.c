@@ -67,7 +67,7 @@ dbg_1(const char* fmt, ...)
         SCOPED_RESLIST(rl_dbg);
         dbglock();
         va_list args;
-        fprintf(dbgout, "%s(%04d): ", prgname, getpid());
+        fprintf(dbgout, "%s(%4d): ", prgname, getpid());
         va_start(args, fmt);
         vfprintf(dbgout, fmt, args);
         va_end(args);

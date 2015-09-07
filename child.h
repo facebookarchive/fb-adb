@@ -9,6 +9,7 @@
  *
  */
 #pragma once
+#include <stdint.h>
 #include "util.h"
 
 #define CHILD_PTY_STDIN  (1<<0)
@@ -68,3 +69,5 @@ struct child_communication* child_communicate(
     size_t data_for_child_size);
 
 bool child_status_success_p(int status);
+
+int child_status_to_exit_code(int status);

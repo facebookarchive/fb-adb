@@ -638,6 +638,9 @@ _fb_adb_complete_value() {
                 return 1
             fi
             ;;
+        host-path)
+            compopt -o default
+            ;;
         hostname)
             local hostname
             local -a hostnames=()
@@ -935,6 +938,8 @@ _fb_adb_complete() {
     _fb_adb_msg_need_newline=yes
 
     compopt +o nospace
+    compopt +o bashdefault
+    compopt +o default
 
     local i=
     local command=

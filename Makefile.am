@@ -18,6 +18,9 @@ EXTRA_DIST =
 # See the comment in Makefile.am.stub.
 check_LIBRARIES = libfb-adb.a
 
+# CMD_SOURCES are ones depending on autocmd.h Need to manually specify
+# the sources that depend on autocmd.h so that we always build
+# autocmd.h first when bootstrapping.
 CMD_SOURCES = \
 	cmd_stub.c \
 	cmd_logw.c \
@@ -26,6 +29,10 @@ CMD_SOURCES = \
 	cmd_fcat.c \
 	cmd_help.c \
 	cmd_bash_completion.c \
+	fb-adb.c \
+	cmd.h \
+	cmd.c \
+	xfer.c \
 	$(EMPTY)
 
 libfb_adb_a_SOURCES = \
@@ -50,7 +57,6 @@ libfb_adb_a_SOURCES = \
 	core.h \
 	dbg.c \
 	dbg.h \
-	fb-adb.c \
 	proto.h \
 	ringbuf.c \
 	ringbuf.h \
@@ -69,8 +75,6 @@ libfb_adb_a_SOURCES = \
 	lz4.h \
 	xenviron.c \
 	xenviron.h \
-	cmd.h \
-	cmd.c \
 	$(CMD_SOURCES) \
 	$(EMPTY)
 
@@ -97,19 +101,13 @@ $(srcdir)/termbits.c: termnames.h
 termnames.h: termnames.h.in termnames.sed
 	$(SED) -Ef $(srcdir)/termnames.sed $< >$@
 
-# Need to manually specify the sources that depend on autocmd.h so
-# that we always build autocmd.h first when bootstrapping.
-$(CMD_SOURCES) $(srcdir)/fb-adb.c $(srcdir)/cmd.c: autocmd.h
-
 COMMANDS_XML=$(srcdir)/commands.xml
 CMDSPROC_FLAGS=
 CMDSPROC=$(PYTHON3) $(srcdir)/cmdsproc.py $(CMDSPROC_FLAGS)
 
 CLEANFILES += autocmd.h
 autocmd.h: $(COMMANDS_XML) $(srcdir)/cmdsproc.py
-	$(CMDSPROC) h $(COMMANDS_XML) > $@.tmp
-	if ! cmp $@ $@.tmp 2>/dev/null; then mv $@.tmp $@; fi
-	rm -f $@.tmp
+	$(CMDSPROC) h $(COMMANDS_XML) > $@
 
 CLEANFILES += autocmd.c
 autocmd.c: $(COMMANDS_XML) $(srcdir)/cmdsproc.py
@@ -153,3 +151,5 @@ include Makefile.am.fb-adb
 endif
 
 .DELETE_ON_ERROR:
+
+$(CMD_SOURCES): autocmd.h

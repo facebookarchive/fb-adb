@@ -84,9 +84,13 @@ fi
 AM_INIT_AUTOMAKE([-Wall -Werror foreign])
 AC_SUBST([PATH])
 
-AC_PROG_CC
-AC_PROG_SED
+AC_USE_SYSTEM_EXTENSIONS
 
+AC_PROG_CC
+AC_SYS_LARGEFILE
+AC_CHECK_SIZEOF([off_t])
+
+AC_PROG_SED
 AC_CHECK_TOOLS(RANLIB, [gcc-ranlib ranlib])
 AC_CHECK_TOOLS(AR, [gcc-ar ar])
 AC_CHECK_TOOLS(STRIP, [strip])
@@ -128,13 +132,14 @@ fi
 
 AC_CHECK_FUNCS([ppoll signalfd4 dup3 mkostemp kqueue pipe2 ptsname])
 AC_CHECK_FUNCS([accept4 fopencookie funopen clock_gettime execvpe])
+AC_CHECK_FUNCS([fallocate futimes posix_fallocate ftruncate64])
 
 is_android=$(echo "$CC" | grep android)
 if test -n "$BUILD_STUB" && test -z "$is_android" ; then
    AC_MSG_ERROR([could not find Android cross-compiler for $host])
 fi
 
-CPPFLAGS="$CPPFLAGS -Wall -D_GNU_SOURCE=1"
+CPPFLAGS="$CPPFLAGS -Wall"
 
 dnl _FORTIFY_SOURCE produces too many false positives: read(fd, buf,
 dnl min(sizeof(buf), x)), unsigned x, tricks _FORTIFY_SOURCE into

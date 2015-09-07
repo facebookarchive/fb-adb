@@ -63,7 +63,6 @@ code, and bash completion file.
     </ul>
   </section>
 
-  <?ifdef FBADB_MAIN?>
   <optgroup name="adb"
             forward="no"
             export-emit-args="yes"
@@ -197,7 +196,37 @@ code, and bash completion file.
       Unset the environment variable <i>envvar</i>.
     </option>
   </optgroup>
-  <?endif?>
+  <optgroup name="xfer" human="File Transfer">
+    <option long="write-mode" arg="write-mode" type="enum:atomic;inplace">
+      Control how we write files on whatever machine receives them.
+      <vspace/>
+      In <b>atomic</b> mode, we write to a uniquely-named temporary
+      file in the same directory as the target file, then rename the
+      temporary file on top of the destination file after fully
+      writing it.  This way, no program can observe an
+      incompletely-written file under the destination filename.
+      <vspace/>
+      In <b>inplace</b> mode, we write directly to the target file,
+      first truncating it.
+      <vspace/>
+      By default, we use <b>atomic</b> mode, except that we use
+      <b>inplace</b> when the destination file has a link count
+      greater than one (in which case atomic mode would break the hard
+      link), when the destination is not a regular file, or when we do
+      not have write access to the destination file's parent
+      directory.  The <i>write-mode</i> option overrides
+      this heuristic.
+    </option>
+    <option long="sync">
+      Use fsync(2) to make sure written files reach stable storage
+      before indicating success.
+    </option>
+    <option short="p" long="preserve">
+      Preserve modification times and UGO permission bits.  (We don't
+      try to preserve ownership, this UIDs aren't the same across
+      different systems.)
+    </option>
+  </optgroup>
   <command names="help">
     Display help.
     <argument name="for-command" optional="yes" type="fbadb-command">
@@ -289,6 +318,63 @@ code, and bash completion file.
     <optgroup-reference name="cwd"/>
     <?endif?>
   </command>
+  <command names="xfer-stub" internal="true">
+    Internal command for implementing the device side of file transfer.
+    <argument name="mode" type="enum:send;receive">
+      <tt>send</tt> or <tt>recv</tt> indicating that the stub
+      should receive or send, respectively, the file data.
+    </argument>
+    <argument name="filename">
+      Name of the file to open.
+    </argument>
+    <argument name="desired-basename" optional="yes">
+      Basename of desired file in case <i>filename</i> is a directory.
+    </argument>
+    <optgroup-reference name="xfer" />
+  </command>
+  <?ifdef FBADB_MAIN?>
+  <command names="fget">
+    Retrieve a file from device.
+    <argument name="remote" type="device-path">
+      Name of the file on device.
+    </argument>
+    <argument name="local"
+              type="host-path"
+              optional="yes">
+      Name of the file to write on the host.  If <i>local</i> is a
+      directory, write to the file <tt>basename(<i>remote</i>)</tt> in
+      this directory.  If <i>local</i> is omitted, it defaults to the
+      current directory.
+    </argument>
+    <optgroup-reference name="adb"/>
+    <optgroup-reference name="transport" />
+    <optgroup-reference name="user"/>
+    <optgroup-reference name="cwd"/>
+    <optgroup-reference name="xfer" />
+  </command>
+  <?endif?>
+  <?ifdef FBADB_MAIN?>
+  <command names="fput">
+    Retrieve a file from device.
+    <argument name="local" type="host-path">
+      Name of the file on host.
+    </argument>
+    <argument name="remote"
+              type="device-path"
+              optional="yes">
+      Name of the file to write on the device.  If <i>remote</i> is a
+      directory, write to the file <tt>basename(<i>local</i>)</tt> in
+      this directory.  If <i>remote</i> is omitted, it defaults to
+      <tt>basename(<i>local</i>)</tt> in the default directory for
+      <b>fb-adb rcmd</b>.
+    </argument>
+    <optgroup-reference name="adb"/>
+    <optgroup-reference name="transport" />
+    <optgroup-reference name="user"/>
+    <optgroup-reference name="cwd"/>
+    <optgroup-reference name="xfer" />
+  </command>
+  <?endif?>
   <?ifdef FBADB_MAIN?>
   <command names="shell,shellx,sh">
     Run a command on device.  If <i>command</i> is not supplied, run

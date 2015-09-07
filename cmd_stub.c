@@ -820,7 +820,7 @@ stub_main(const struct cmd_stub_info* info)
             return 1; // Exit silently
         }
 
-        die(ei.err, "%s", ei.msg);
+        die_rethrow(&ei);
     }
 
     return ret;

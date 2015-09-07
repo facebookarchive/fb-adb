@@ -462,3 +462,13 @@ child_status_success_p(int status)
 {
     return WIFEXITED(status) && WEXITSTATUS(status) == 0;
 }
+
+int
+child_status_to_exit_code(int status)
+{
+    if (WIFEXITED(status))
+        return WEXITSTATUS(status);
+    if (WIFSIGNALED(status))
+        return 128 + WTERMSIG(status);
+    abort();
+}

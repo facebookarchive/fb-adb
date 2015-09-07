@@ -12,6 +12,7 @@
 #include <stdio.h>
 #include <stdarg.h>
 #include <stddef.h>
+#include <stdint.h>
 #include <sys/stat.h>
 #include <fcntl.h>
 #include <sys/time.h>
@@ -27,6 +28,8 @@
 #ifndef ECOMM
 #define ECOMM EBADRPC
 #endif
+
+#define ERR_ERRNO_WAS_ZERO -1
 
 #define ARRAYSIZE(ar) (sizeof (ar) / sizeof (*(ar)))
 
@@ -123,7 +126,7 @@ struct cleanup* cleanup_allocate(void);
 // object is allocated to a resource, it is re-inserted at the head of
 // the current reslist.  Reslists clean up their resources in reverse
 // order of insertion.
-void cleanup_commit(struct cleanup* cl, cleanupfn fn, void* fndata);
+void cleanup_commit(struct cleanup* cl, cleanupfn fn, const void* fndata);
 
 // Deregister and deallocate the given cleanup object CL, but do not
 // run any cleanup functions to which CL may have been committed.
@@ -148,6 +151,7 @@ void* xcalloc(size_t sz);
 // Open a file.  The returned file descriptor is owned by the
 // current reslist.
 int xopen(const char* pathname, int flags, mode_t mode);
+int try_xopen(const char* pathname, int flags, mode_t mode);
 
 // Close a file descriptor.  Fail if FD is not an open file
 // descriptor.  Do not use to close file descriptors owned
@@ -195,6 +199,16 @@ typedef struct errinfo {
 bool catch_error(void (*fn)(void* fndata),
                  void* fndata,
                  struct errinfo* ei);
+
+// Like catch_error, but return true only in the case
+// that we get an error matching ERRNUM; otherwise, rethrow.
+bool catch_one_error(
+    void (*fn)(void* fndata),
+    void* fndata,
+    int errnum);
+
+__attribute__((noreturn))
+void die_rethrow(struct errinfo* ei);
 
 __attribute__((noreturn))
 void diev(int err, const char* fmt, va_list args);
@@ -387,3 +401,18 @@ void sigtstp_unregister(struct sigtstp_cookie* cookie);
 // a SIGALRM, raise a die-exception from IO context.  Restore signals
 // and timer on unwind.
 void set_timeout(const struct itimerval* timer);
+
+// See dirname(3)
+char* xdirname(const char* path);
+
+// See basename(3)
+char* xbasename(const char* path);
+
+// Try to make sure FD has SIZE bytes available total; if the
+// filesystem or OS doesn't support preallocation, return false.
+// Otherwise, return true on success or die on failure.
+bool fallocate_if_supported(int fd, uint64_t size);
+
+void xfsync(int fd);
+void xftruncate(int fd, uint64_t size);
+void xrename(const char* old, const char* new);
