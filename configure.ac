@@ -133,6 +133,7 @@ fi
 AC_CHECK_FUNCS([ppoll signalfd4 dup3 mkostemp kqueue pipe2 ptsname])
 AC_CHECK_FUNCS([accept4 fopencookie funopen clock_gettime execvpe])
 AC_CHECK_FUNCS([fallocate futimes posix_fallocate ftruncate64])
+AC_CHECK_FUNCS([posix_fadvise])
 
 is_android=$(echo "$CC" | grep android)
 if test -n "$BUILD_STUB" && test -z "$is_android" ; then

@@ -2034,3 +2034,20 @@ xrename(const char* old, const char* new)
     if (rename(old, new) == -1)
         die_errno("rename");
 }
+
+#if defined(__linux__) && !defined(POSIX_FADV_SEQUENTIAL)
+#define POSIX_FADV_SEQUENTIAL 2
+#endif
+
+void
+hint_sequential_access(int fd)
+{
+    int advice = POSIX_FADV_SEQUENTIAL;
+#if defined(HAVE_POSIX_FADVISE)
+    (void) posix_fadvise(fd, 0, 0, advice);
+#elif defined(__linux__) && defined(__NR_arm_fadvise64_64)
+    (void) syscall(__NR_arm_fadvise64_64, fd, advice, 0, 0, 0, 0);
+#elif defined(__linux__) && defined(__NR_fadvise64)
+    (void) syscall(__NR_fadvise64, fd, 0, 0, 0, 0, advice);
+#endif
+}

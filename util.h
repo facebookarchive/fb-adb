@@ -416,3 +416,5 @@ bool fallocate_if_supported(int fd, uint64_t size);
 void xfsync(int fd);
 void xftruncate(int fd, uint64_t size);
 void xrename(const char* old, const char* new);
+
+void hint_sequential_access(int fd);

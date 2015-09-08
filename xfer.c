@@ -369,6 +369,7 @@ do_xfer_send(int to_peer, const char* filename)
     dbg("opened %s as %d", filename, fd);
     send_stat_packet(to_peer, fd);
     dbg("sent stat packet; entering copy loop");
+    hint_sequential_access(fd);
     copy_loop_posix_send(to_peer, fd);
 }
 
