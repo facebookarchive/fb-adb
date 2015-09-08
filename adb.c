@@ -103,7 +103,7 @@ adb_rename_file(const char* old_name,
 
     struct child_communication* com =
         run_adb(adb_args,
-                api_level >= 19
+                api_level > 19
                 ? ARGV("shell",
                        "mv",
                        "-f",
