@@ -136,7 +136,7 @@ fputs_translate_ansi(FILE* out, const char* text, bool use_ansi)
                 if (c == '\033') {
                     state = AFTER_ESC;
                 } else {
-                    putc(c, out);
+                    xputc(c, out);
                 }
                 break;
             case AFTER_ESC:

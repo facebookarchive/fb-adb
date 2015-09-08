@@ -281,6 +281,48 @@ code, and bash completion file.
     <optgroup-reference name="user"/>
     <?endif?>
   </command>
+  <command names="getprop">
+    Read zero, more, or all system properties from a device and
+    describe them in JSON.  Standard output is a JSON object with one
+    field per property, the property name being the string value of
+    the property.  If any requested property is not found, emit null
+    in the JSON output and exit with status code 4.  (Ordinarily, we
+    exit with status code 1 on error.)
+    <argument name="properties"
+              type="device-property"
+              optional="yes"
+              repeat="yes">
+      Names of properties to read.  If omitted, print all properties.
+    </argument>
+    <optgroup name="getprop">
+      <option short="f" long="format" arg="format-string">
+        Provide a format string for printing property values.  In this
+        format string, <b>fb-adb getprop</b> substitutes <tt>%n</tt>
+        with the property name and substitutes <tt>%v</tt> with the
+        property value.  A newline is printed after each property
+        unless <b>-0</b> is supplied; in that case, a NUL separates
+        each property.  To output a literal <tt>%</tt>, write
+        <tt>%%</tt>.  Only properties that are found are output this way.
+      </option>
+      <option short="F" long="format-not-found" arg="format-string">
+        Provide a format string for printing property values not
+        found.  In this format string, <b>fb-adb getprop</b>
+        substitutes <tt>%n</tt> with the name of the property not
+        found.  A newline is printed after each property unless
+        <b>-0</b> is supplied; in that case, a NUL separates each
+        property.  To output a literal <tt>%</tt>, write <tt>%%</tt>.
+      </option>
+      <option short="0" long="null">
+        When using <b>-f</b> for formatting instead of emitting JSON,
+        separate properties with a NUL byte instead of with a newline.
+      </option>
+    </optgroup>
+    <?ifdef FBADB_MAIN?>
+    <optgroup-reference name="adb"/>
+    <optgroup-reference name="transport" />
+    <optgroup-reference name="user"/>
+    <?endif?>
+  </command>
   <command names="finfo">
     Print information in JSON format about paths on device.
     The output is a JSON array with one entry for each of the

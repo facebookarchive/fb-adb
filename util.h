@@ -296,3 +296,6 @@ void set_timeout(const struct itimerval* timer);
 // When set, caller promises to re-raise pending quit signals, so
 // don't longjmp out of them immediately.
 extern bool hack_defer_quit_signals;
+
+void xputc(char c, FILE* out);
+void xputs(const char* s, FILE* out);

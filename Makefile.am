@@ -29,6 +29,7 @@ CMD_SOURCES = \
 	cmd_fcat.c \
 	cmd_help.c \
 	cmd_bash_completion.c \
+	cmd_getprop.c \
 	fb-adb.c \
 	cmd.h \
 	cmd.c \

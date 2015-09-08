@@ -189,7 +189,7 @@ _fb_adb_device_ls_1() {
     set -o pipefail
     fb-adb finfo "${slurped_adb_options[@]}" -i "ls:$1" "${@:2}" \
            2>/dev/null | \
-           jq -r -e -C '(.[].ls.result[]?)|(.d_name,.d_type,.execp.result)|@sh'
+           jq -r -e '(.[].ls.result[]?)|(.d_name,.d_type,.execp.result)|@sh'
 }
 
 _fb_adb_getopts_default() {
@@ -236,6 +236,26 @@ _fb_adb_device_ls() {
     data="$(_fb_adb_device_ls_1 "$ls_opts" "$@")"
     if (($? != 0)); then
         _fb_adb_msg 'fb-adb file listing failed'
+        return 1
+    fi
+    eval "aresult=($data)" # actually safe: jq shell-quotes for us
+}
+
+# Helper for _fb_adb_device_properties; run in subshell only.
+_fb_adb_device_properties_1() {
+    set -o pipefail
+    fb-adb getprop "${slurped_adb_options[@]}" \
+           2>/dev/null | \
+           jq -r -e '.|keys|@sh'
+}
+
+# Retrieve names of device properties.
+# Result list is in $aresult.
+_fb_adb_device_properties() {
+    local data
+    data="$(_fb_adb_device_properties_1 "$@")"
+    if (($? != 0)); then
+        _fb_adb_msg 'fb-adb property listing failed'
         return 1
     fi
     eval "aresult=($data)" # actually safe: jq shell-quotes for us
@@ -634,6 +654,18 @@ _fb_adb_complete_value() {
         device-command)
             if ! _fb_adb_complete_device_path \
                  -epb -- "$word" "$orig_escaped_word";
+            then
+                return 1
+            fi
+            ;;
+        device-property)
+            if ! _fb_adb_device_properties; then
+                return 1
+            fi
+            if ! _fb_adb_add_candidates \
+                 -p "$word" \
+                 -t "$orig_escaped_word" \
+                 -- "${aresult[@]}";
             then
                 return 1
             fi

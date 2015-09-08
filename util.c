@@ -1092,3 +1092,17 @@ set_timeout(const struct itimerval* timer)
 
     reslist_xfer(rl->parent, rl);
 }
+
+void
+xputc(char c, FILE* out)
+{
+    if (putc(c, out) == EOF)
+        die_errno("putc");
+}
+
+void
+xputs(const char* s, FILE* out)
+{
+    if (fputs(s, out) == EOF)
+        die_errno("fputs");
+}

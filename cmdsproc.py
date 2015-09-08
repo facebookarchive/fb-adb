@@ -37,6 +37,7 @@ KNOW_TYPE_REGEX = re.compile(
     "device-path",
     "device-command",
     "device-exe",
+    "device-property",
     "enum:([a-zA-Z_][:a-zA-Z0-9_-]*\\*?;?)*",
     ])+")$")
 
@@ -793,10 +794,10 @@ def op_c(commands_file, defs, optgroups, commands):
       command.has_doc = False
     else:
       command.has_doc = True
-      hf.writeln("static const char %s_usage[] = %s;" % (
-        command.symbol,
-        hf.quote_string(
-          pod2text(pod_documentation))))
+      hf.writeln("static const char %s_usage[] = %s;",
+                 command.symbol,
+                 hf.quote_string(
+                   pod2text(pod_documentation)))
 
     emit_make_args_cmd_function(hf, command)
     emit_parse_args_cmd_function(hf, command)

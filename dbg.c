@@ -72,7 +72,7 @@ dbg_1(const char* fmt, ...)
         va_start(args, fmt);
         vfprintf(dbgout, fmt, args);
         va_end(args);
-        fputc('\n', dbgout);
+        putc('\n', dbgout);
         fflush(dbgout);
     }
     errno = saved_errno;
