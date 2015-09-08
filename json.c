@@ -89,6 +89,7 @@ json_writer_cleanup(void* data)
     struct json_writer* writer = data;
     while (writer->context)
         json_pop_context(writer);
+    free(writer);
 }
 
 static enum json_state
@@ -147,7 +148,7 @@ struct json_writer*
 json_writer_create(FILE* out)
 {
     struct cleanup* cl = cleanup_allocate();
-    struct json_writer* writer = malloc(sizeof (*writer));
+    struct json_writer* writer = calloc(1, sizeof (*writer));
     if (writer == NULL)
         die_oom();
     cleanup_commit(cl, json_writer_cleanup, writer);
