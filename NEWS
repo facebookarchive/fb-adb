@@ -3,6 +3,8 @@ Version 1.6.0
 
 New features:
 
+ * logcat-json command makes it easy to consume logcat records
+   pragmatically
  * getprop command for zero, more, or all properties; outputs JSON or
    uses user-specified format strings
  * finfo command for batch remote filesystem operations

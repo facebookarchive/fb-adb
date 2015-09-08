@@ -23,7 +23,6 @@
 #include <sys/un.h>
 
 #ifdef __ANDROID__
-#include <sys/system_properties.h>
 #include <android/log.h>
 #define LOG_TAG PACKAGE
 #endif
@@ -417,30 +416,6 @@ re_exec_as_root()
     die_errno("execlp of su");
 }
 
-#ifdef __ANDROID__
-static unsigned
-api_level()
-{
-    static unsigned cached_api_level;
-    unsigned api_level = cached_api_level;
-    if (api_level == 0) {
-        char api_level_str[PROP_VALUE_MAX];
-        if (__system_property_get("ro.build.version.sdk", api_level_str) == 0)
-            die(ENOENT, "cannot query system API level");
-
-        api_level = cached_api_level = (unsigned) atoi(api_level_str);
-    }
-
-    return api_level;
-}
-#else
-static unsigned
-api_level()
-{
-    return 15; // Fake it
-}
-#endif
-
 static void __attribute__((noreturn))
 re_exec_as_user(const char* username, bool shell_thunk)
 {
@@ -611,9 +586,16 @@ stub_main_1(void)
     for (int fd = 0; fd <= 1; ++fd)
         xmkraw(fd);
 
+    unsigned my_api_level;
+#ifdef __ANDROID__
+    my_api_level = api_level();
+#else
+    my_api_level = 15; // Fake
+#endif
+
     printf(FB_ADB_PROTO_START_LINE "\n", build_fingerprint,
-           (int) getuid(), (unsigned) api_level());
-    fflush(stdout);
+           (int) getuid(), my_api_level);
+    xflush(stdout);
 
     should_send_error_packet = true;
 

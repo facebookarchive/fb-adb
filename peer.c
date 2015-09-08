@@ -33,7 +33,7 @@ start_peer(
     rcmdi.shex.exename = "/proc/self/exe";
 
     struct strlist* stub_args = strlist_new();
-    strlist_append(stub_args, "fb-adb");
+    strlist_append(stub_args, orig_argv0);
     strlist_append(stub_args, "rcmd");
     strlist_xfer(stub_args,
                  make_args_cmd_rcmd(
@@ -42,7 +42,7 @@ start_peer(
 
     struct child_start_info csi = {
         .flags = (CHILD_INHERIT_STDERR),
-        .exename = "/proc/self/exe",
+        .exename = my_exe(),
         .argv = strlist_to_argv(stub_args),
     };
 

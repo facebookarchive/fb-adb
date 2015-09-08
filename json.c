@@ -1,6 +1,11 @@
 #include <stdlib.h>
+#include <string.h>
+#include <assert.h>
 #include "json.h"
 #include "util.h"
+#include "utf8.h"
+
+#define UTF8_FULL 0
 
 enum json_state {
     VALUE            =  (1<<0),
@@ -8,7 +13,8 @@ enum json_state {
     ARRAY_NONEMPTY   =  (1<<2),
     OBJECT_EMPTY     =  (1<<3),
     OBJECT_NONEMPTY  =  (1<<4),
-    IOERR            =  (1<<5),
+    STRING           =  (1<<5),
+    IOERR            =  (1<<6),
 };
 
 struct json_context {
@@ -18,7 +24,11 @@ struct json_context {
 
 struct json_writer {
     FILE* out;
+    struct json_writer_config config;
     struct json_context* context;
+    uint32_t utf8_state;
+    uint8_t utf8_buf[5];
+    uint8_t utf8_bufsz;
 };
 
 static const char*
@@ -31,6 +41,7 @@ json_state_name(enum json_state state)
         case ARRAY_NONEMPTY: return "ARRAY_NONEMPTY";
         case OBJECT_EMPTY: return "OBJECT_EMPTY";
         case OBJECT_NONEMPTY: return "OBJECT_NONEMPTY";
+        case STRING: return "STRING";
         case IOERR: return "IOERR";
     }
     return "?"; // Keep outside switch to preserve compiler warnings
@@ -153,6 +164,8 @@ json_writer_create(FILE* out)
         die_oom();
     cleanup_commit(cl, json_writer_cleanup, writer);
     writer->out = out;
+    writer->config.bad_utf8_mode = JSON_WRITER_BAD_UTF8_REPLACE;
+    writer->config.bad_utf8_replacement = "\\uFFFD";
     json_push_context(writer, VALUE);
     return writer;
 }
@@ -192,27 +205,108 @@ json_end_object(struct json_writer* writer)
 }
 
 static void
-json_emit_string_no_state_check(struct json_writer* writer,
-                                const char* string)
+json_emit_ascii(struct json_writer* writer, uint8_t c)
 {
-    char c;
-    json_emitc(writer, '"');
-    while ((c = *string++) != '\0') {
-        if (c == '"') {
-            json_emitc(writer, '\\');
-            json_emitc(writer, '"');
-        } else if (c == '\\') {
-            json_emitc(writer, '\\');
-            json_emitc(writer, '\\');
-        } else if (c <= 0x1F) {
-            char buf[sizeof ("\\uXXXX")];
-            sprintf(buf, "\\u%04X", (unsigned) c);
-            json_emits(writer, buf);
-        } else {
-            json_emitc(writer, c);
+    if (c == '"' || c == '\\') {
+        json_emitc(writer, '\\');
+        json_emitc(writer, c);
+    } else if (c == '\n') {
+        json_emits(writer, "\\n");
+    } else if (c == '\r') {
+        json_emits(writer, "\\r");
+    } else if (c == '\t') {
+        json_emits(writer, "\\t");
+    } else if (c == '\f') {
+        json_emits(writer, "\\f");
+    } else if (c <= 0x1F || c == 0x7F) {
+        char buf[sizeof ("\\uFFFF")];
+        sprintf(buf, "\\u%04x", (unsigned) c);
+        json_emits(writer, buf);
+    } else {
+        json_emitc(writer, c);
+    }
+}
+
+static void
+json_bad_utf8(struct json_writer* writer)
+{
+    switch (writer->config.bad_utf8_mode) {
+        case JSON_WRITER_BAD_UTF8_DELETE:
+            break;
+        case JSON_WRITER_BAD_UTF8_DIE:
+            die(EINVAL, "invalid UTF-8 sequence");
+        case JSON_WRITER_BAD_UTF8_REPLACE:
+            json_emits(writer, writer->config.bad_utf8_replacement);
+            break;
+    }
+}
+
+void
+json_emit_string_part(struct json_writer* writer,
+                      const char* s,
+                      size_t n)
+{
+    json_check_state(writer, STRING);
+    for (size_t i = 0; i < n; ++i) {
+        uint8_t c = s[i];
+        assert(writer->utf8_bufsz < sizeof (writer->utf8_buf));
+        writer->utf8_buf[writer->utf8_bufsz++] = c;
+        switch (utf8_decode(&writer->utf8_state, c)) {
+            case UTF8_ACCEPT: {
+                if (writer->utf8_bufsz == 1) {
+                    json_emit_ascii(writer, c);
+                } else {
+                    for (uint8_t j = 0; j < writer->utf8_bufsz; ++j) {
+                        json_emitc(writer, writer->utf8_buf[j]);
+                    }
+                }
+                writer->utf8_bufsz = 0;
+                writer->utf8_state = UTF8_ACCEPT;
+                break;
+            }
+            case UTF8_REJECT: {
+                uint8_t utf8_bufsz;
+                utf8_bufsz = writer->utf8_bufsz;
+                writer->utf8_bufsz = 0;
+                writer->utf8_state = UTF8_ACCEPT;
+                json_bad_utf8(writer);
+                if (utf8_bufsz > 1) {
+                    i -= 1; // Reconsider individually
+                }
+                break;
+            }
+            default: {
+                break;
+            }
         }
     }
+}
+
+static void
+json_begin_string_no_check(struct json_writer* writer)
+{
+    json_push_context(writer, STRING);
     json_emitc(writer, '"');
+    writer->utf8_state = UTF8_ACCEPT;
+    writer->utf8_bufsz = 0;
+}
+
+void
+json_begin_string(struct json_writer* writer)
+{
+    json_value_start(writer);
+    json_begin_string_no_check(writer);
+}
+
+void
+json_end_string(struct json_writer* writer)
+{
+    json_check_state(writer, STRING);
+    if (writer->utf8_state != UTF8_ACCEPT)
+        json_bad_utf8(writer);
+    json_pop_context(writer);
+    json_emitc(writer, '"');
+    json_value_end(writer);
 }
 
 void
@@ -223,17 +317,27 @@ json_begin_field(struct json_writer* writer, const char* name)
         json_emitc(writer, ',');
     else if (json_writer_state(writer) == OBJECT_EMPTY)
         writer->context->state = OBJECT_NONEMPTY;
-    json_emit_string_no_state_check(writer, name);
+    json_begin_string_no_check(writer);
+    json_emit_string_part(writer, name, strlen(name));
+    json_end_string(writer);
     json_emitc(writer, ':');
     json_push_context(writer, VALUE);
 }
 
 void
+json_emit_string_n(struct json_writer* writer,
+                   const char* string,
+                   size_t n)
+{
+    json_begin_string(writer);
+    json_emit_string_part(writer, string, n);
+    json_end_string(writer);
+}
+
+void
 json_emit_string(struct json_writer* writer, const char* string)
 {
-    json_value_start(writer);
-    json_emit_string_no_state_check(writer, string);
-    json_value_end(writer);
+    json_emit_string_n(writer, string, strlen(string));
 }
 
 void
@@ -241,7 +345,6 @@ json_emit_i64(struct json_writer* writer, int64_t number)
 {
     char buf[sizeof ("-18446744073709551616")];
     sprintf(buf, "%lld", (long long) number);
-
     json_value_start(writer);
     json_emits(writer, buf);
     json_value_end(writer);
@@ -252,7 +355,6 @@ json_emit_u64(struct json_writer* writer, uint64_t number)
 {
     char buf[sizeof ("18446744073709551615")];
     sprintf(buf, "%llu", (unsigned long long) number);
-
     json_value_start(writer);
     json_emits(writer, buf);
     json_value_end(writer);
@@ -296,6 +398,9 @@ json_pop_to_saved_context(struct json_writer* writer,
             case OBJECT_EMPTY:
             case OBJECT_NONEMPTY:
                 json_end_object(writer);
+                break;
+            case STRING:
+                json_end_string(writer);
                 break;
             case IOERR:
                 die(EINVAL, "json object saw IO error");

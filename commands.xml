@@ -323,6 +323,25 @@ code, and bash completion file.
     <optgroup-reference name="user"/>
     <?endif?>
   </command>
+  <?ifdef FBADB_MAIN?>
+  <command names="logcat-json">
+    Write logcat records as JSON, one JSON-formatted log record per
+    line.  We always use line buffering; combining this mode with
+    jq(1) is recommended for readability.
+    <optgroup name="logcat-json">
+      <option long="time-format" arg="strftime-format-string">
+        Specify how to format time in log records.  Defaults to
+        RFC822 time.
+      </option>
+      <option long="gmt">
+        Print time in GMT, not local time.
+      </option>
+    </optgroup>
+    <optgroup-reference name="adb"/>
+    <optgroup-reference name="transport" />
+    <optgroup-reference name="user"/>
+  </command>
+  <?endif?>
   <command names="finfo">
     Print information in JSON format about paths on device.
     The output is a JSON array with one entry for each of the

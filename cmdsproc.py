@@ -54,6 +54,9 @@ def check_id(string):
     die("invalid ID %r", string)
   return string
 
+def dashed_id_to_symbol(id):
+  return check_id(id.replace("-", "_"))
+
 def check_type(string):
   if not KNOW_TYPE_REGEX.match(string):
     die("invalid option or argument type %r", string)
@@ -162,7 +165,7 @@ class Command(object):
     names = list(map(check_id_dash, names.split(",")))
     if not names: die("no names given")
     self.name = names[0]
-    self.symbol = names[0].replace("-", "_")
+    self.symbol = dashed_id_to_symbol(names[0])
     self.altnames = names[1:]
     self.optgroups = []
     self.known_arguments = set()
@@ -244,8 +247,8 @@ class OptGroup(object):
                export_emit_args=False,
                human=None,
                completion_relevant=False):
-    self.name = check_id(name)
-    self.symbol = check_id(name)
+    self.name = check_id_dash(name)
+    self.symbol = dashed_id_to_symbol(name)
     self.forward = check_bool(forward)
     self.export_emit_args = check_bool(export_emit_args)
     self.known_options = set()
@@ -266,12 +269,12 @@ class OptGroup(object):
     return False
 
   def struct_name(self):
-    return "%s_opts" % self.name
+    return "%s_opts" % self.symbol
 
   def emit_args_function(self):
     return FunctionSignature(
       "void",
-      "emit_args_%s_opts" % self.name,
+      "emit_args_%s_opts" % self.symbol,
       (("struct strlist*", "dest"),
        ("const struct %s*" % self.struct_name(), "info")))
 
@@ -310,7 +313,7 @@ class Option(object):
 
     self.short = short
     self.long = check_id_dash(long)
-    self.symbol = check_id(long.replace("-", "_"))
+    self.symbol = dashed_id_to_symbol(long)
     self.arg = arg
     self.type = None if type is None else check_type(type)
     if accumulate is not None:
@@ -332,7 +335,7 @@ class Option(object):
 class Argument(object):
   def __init__(self, name, type=None, repeat=False, optional=False):
     self.name = check_id_dash(name)
-    self.symbol = check_id(self.name.replace("-", "_"))
+    self.symbol = dashed_id_to_symbol(self.name)
     self.type = check_type(type or "string")
     self.repeat = check_bool(repeat)
     self.optional = check_bool(optional)

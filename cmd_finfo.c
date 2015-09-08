@@ -465,10 +465,7 @@ finfo_main(const struct cmd_finfo_info* info)
         json_end_object(writer);
     }
     json_end_array(writer);
-
-    if (fflush(stdout) == EOF)
-        die_errno("fflush");
-
+    xflush(stdout);
     return 0;
 }
 

@@ -148,6 +148,10 @@ void xrename(const char* old, const char* new);
 void hint_sequential_access(int fd);
 void _fs_on_init(void);
 
+void xputc(char c, FILE* out);
+void xputs(const char* s, FILE* out);
+void xflush(FILE* out);
+
 // Internal for communication with util.c
 #if XPPOLL == XPPOLL_KQUEUE
 extern int ppoll_kq;

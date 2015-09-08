@@ -297,5 +297,8 @@ void set_timeout(const struct itimerval* timer);
 // don't longjmp out of them immediately.
 extern bool hack_defer_quit_signals;
 
-void xputc(char c, FILE* out);
-void xputs(const char* s, FILE* out);
+#ifdef __ANDROID__
+unsigned api_level(void);
+#endif
+
+const char* my_exe(void);

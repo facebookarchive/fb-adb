@@ -141,8 +141,7 @@ send_stub(const void* data,
 
     if (fwrite(data, datasz, 1, tmpfile) != 1)
         die_errno("fwrite");
-    if (fflush(tmpfile) == -1)
-        die_errno("fflush");
+    xflush(tmpfile);
 
     // N.B. The device-side adb server helpfully copies the user
     // permission bits to group and world, so if we were to make this

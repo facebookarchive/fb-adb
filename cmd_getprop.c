@@ -325,8 +325,7 @@ getprop_main(const struct cmd_getprop_info* info)
     if (writer != NULL)
         json_end_object(writer);
 
-    if (fflush(stdout) == -1)
-        die_errno("fflush");
+    xflush(stdout);
     return exit_status;
 }
 

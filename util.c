@@ -27,13 +27,18 @@
 #include <sys/queue.h>
 #include <libgen.h>
 #include "fs.h"
+#include "valgrind.h"
+
+#ifdef __ANDROID__
+# include <sys/system_properties.h>
+#endif
 
 #if !defined(HAVE_EXECVPE)
-#include <paths.h>
+# include <paths.h>
 #endif
 
 #ifdef HAVE_SIGNALFD_4
-#include <sys/signalfd.h>
+# include <sys/signalfd.h>
 #endif
 
 #include "util.h"
@@ -641,7 +646,9 @@ hex_encode_bytes(const void* bytes_in, size_t nr_bytes)
 
     char* buffer = xalloc(nr_encoded_bytes);
     for (size_t i = 0; i < nr_bytes; ++i) {
-        sprintf(buffer + i*2, "%x%x", bytes[i] >> 4, bytes[i] & 0xF);
+        sprintf(buffer + i*2, "%02x%02x",
+                bytes[i] >> 4,
+                bytes[i] & 0xF);
     }
 
     buffer[nr_encoded_bytes - 1] = '\0';
@@ -1093,16 +1100,31 @@ set_timeout(const struct itimerval* timer)
     reslist_xfer(rl->parent, rl);
 }
 
-void
-xputc(char c, FILE* out)
+#ifdef __ANDROID__
+unsigned
+api_level()
 {
-    if (putc(c, out) == EOF)
-        die_errno("putc");
-}
+    static unsigned cached_api_level;
+    unsigned api_level = cached_api_level;
+    if (api_level == 0) {
+        char api_level_str[PROP_VALUE_MAX];
+        if (__system_property_get("ro.build.version.sdk", api_level_str) == 0)
+            die(ENOENT, "cannot query system API level");
+        errno = 0;
+        char* endptr;
+        unsigned long l_api_level = strtoul(api_level_str, &endptr, 10);
+        if (errno != 0 || *endptr != '\0' || l_api_level > UINT_MAX)
+            die(EINVAL, "bogus API level: \"%s\"", api_level_str);
+        api_level = cached_api_level = (unsigned) l_api_level;
+    }
 
-void
-xputs(const char* s, FILE* out)
+    return api_level;
+}
+#endif
+
+const char*
+my_exe(void)
 {
-    if (fputs(s, out) == EOF)
-        die_errno("fputs");
+    unsigned on_valgrind = RUNNING_ON_VALGRIND;
+    return on_valgrind ? orig_argv0 : "/proc/self/exe";
 }

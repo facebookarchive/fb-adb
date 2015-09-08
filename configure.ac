@@ -221,7 +221,7 @@ fi
 
 AC_ARG_ENABLE([debuggable-stubs],
         AS_HELP_STRING(
-          [--debuggable-stubs],
+          [--enable-debuggable-stubs],
           [allow stubs to be debuggable; causes build to be]
           [non-deterministic]),
         [true],

@@ -78,6 +78,9 @@ libfb_adb_a_SOURCES = \
 	lz4.h \
 	xenviron.c \
 	xenviron.h \
+	valgrind.h \
+	utf8.h \
+	utf8.c \
 	$(CMD_SOURCES) \
 	$(EMPTY)
 

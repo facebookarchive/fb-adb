@@ -971,6 +971,27 @@ hint_sequential_access(int fd)
 }
 
 void
+xputc(char c, FILE* out)
+{
+    if (putc(c, out) == EOF)
+        die_errno("putc");
+}
+
+void
+xputs(const char* s, FILE* out)
+{
+    if (fputs(s, out) == EOF)
+        die_errno("fputs");
+}
+
+void
+xflush(FILE* out)
+{
+    if (fflush(out) == -1)
+        die_errno("fflush");
+}
+
+void
 _fs_on_init(void)
 {
 #if XPPOLL == XPPOLL_KQUEUE

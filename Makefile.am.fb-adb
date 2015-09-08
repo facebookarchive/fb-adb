@@ -17,7 +17,7 @@ AM_CPPFLAGS += -DFBADB_MAIN=1 -DFBADB_CHANNEL_NONBLOCK_HACK=1
 CMD_SOURCES += cmd_shex.c
 libfb_adb_a_SOURCES += stubs.h
 
-CMD_SOURCES += cmd_fget.c cmd_fput.c peer.c
+CMD_SOURCES += cmd_fget.c cmd_fput.c peer.c cmd_logcat_json.c
 
 CMDSPROC_FLAGS += -DFBADB_MAIN
 
