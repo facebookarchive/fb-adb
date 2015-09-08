@@ -17,6 +17,7 @@
 #include "child.h"
 #include "peer.h"
 #include "xfer.h"
+#include "fs.h"
 
 int
 fput_main(const struct cmd_fput_info* info)

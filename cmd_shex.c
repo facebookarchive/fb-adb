@@ -40,6 +40,7 @@
 #include "strutil.h"
 #include "net.h"
 #include "xmkraw.h"
+#include "fs.h"
 
 #define ARG_DEFAULT_SH ((const char*)MSG_CMDLINE_DEFAULT_SH)
 #define ARG_DEFAULT_SH_LOGIN ((const char*)MSG_CMDLINE_DEFAULT_SH_LOGIN)

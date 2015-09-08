@@ -20,6 +20,7 @@
 #include "channel.h"
 #include "constants.h"
 #include "lz4.h"
+#include "fs.h"
 
 // If non-zero, transfer as much data as possible between ringbuffers.
 // If zero, run the event loop (and do IO) between iterations.

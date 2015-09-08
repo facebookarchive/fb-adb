@@ -20,6 +20,7 @@
 #include "cmd.h"
 #include "autocmd.h"
 #include "strutil.h"
+#include "fs.h"
 
 void
 usage_error(const char* fmt, ...)

@@ -9,6 +9,7 @@
 #include "util.h"
 #include "net.h"
 #include "child.h"
+#include "fs.h"
 
 #if defined(__linux__) && !defined(SOCK_CLOEXEC)
 # define SOCK_CLOEXEC O_CLOEXEC

@@ -19,6 +19,7 @@
 #include "ringbuf.h"
 #include "adbenc.h"
 #include "xmkraw.h"
+#include "fs.h"
 
 static bool
 channel_nonblock_hack_p(struct channel* c)

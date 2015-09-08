@@ -43,6 +43,7 @@
 #include "net.h"
 #include "xenviron.h"
 #include "autocmd.h"
+#include "fs.h"
 
 static bool should_send_error_packet = false;
 

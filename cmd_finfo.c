@@ -22,6 +22,7 @@
 #include "json.h"
 #include "sha2.h"
 #include "argv.h"
+#include "fs.h"
 
 FORWARD(finfo);
 

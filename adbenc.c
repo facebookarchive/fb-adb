@@ -12,6 +12,7 @@
 #include <stddef.h>
 #include "adbenc.h"
 #include "util.h"
+#include "fs.h"
 
 /* The sequences [\n ~ .] and [\r ~ .] typed into an adb pty act as an
  * emergency escape sequences and cause immediate disconnection.  Make

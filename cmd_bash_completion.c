@@ -14,6 +14,7 @@
 #include <limits.h>
 #include "util.h"
 #include "autocmd.h"
+#include "fs.h"
 
 #if FBADB_MAIN
 static const char bash_completion[] = {

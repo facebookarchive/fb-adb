@@ -17,6 +17,7 @@
 #include "child.h"
 #include "peer.h"
 #include "xfer.h"
+#include "fs.h"
 
 int
 fget_main(const struct cmd_fget_info* info)

@@ -17,6 +17,7 @@
 #include "util.h"
 #include "autocmd.h"
 #include "xfer.h"
+#include "fs.h"
 #if FBADB_MAIN
 # include "peer.h"
 #endif

@@ -13,15 +13,12 @@
 #include <stdarg.h>
 #include <stddef.h>
 #include <stdint.h>
-#include <sys/stat.h>
-#include <fcntl.h>
 #include <sys/time.h>
 #include <sys/types.h>
 #include <unistd.h>
 #include <stdbool.h>
 #include <time.h>
 #include <errno.h>
-#include <poll.h>
 #include <signal.h>
 #include "dbg.h"
 
@@ -133,9 +130,6 @@ void cleanup_commit(struct cleanup* cl, cleanupfn fn, const void* fndata);
 // If CL is NULL, do nothing.
 void cleanup_forget(struct cleanup* cl);
 
-// Commit a cleanup object to closing the given file descriptor.
-void cleanup_commit_close_fd(struct cleanup* cl, int fd);
-
 // Allocate and commit a cleanup object that will unlink a file of the
 // given name.  Failure to unlink the file is ignored.
 struct unlink_cleanup;
@@ -147,36 +141,6 @@ __attribute__((malloc))
 void* xalloc(size_t sz);
 __attribute__((malloc))
 void* xcalloc(size_t sz);
-
-// Open a file.  The returned file descriptor is owned by the
-// current reslist.
-int xopen(const char* pathname, int flags, mode_t mode);
-int try_xopen(const char* pathname, int flags, mode_t mode);
-
-// Close a file descriptor.  Fail if FD is not an open file
-// descriptor.  Do not use to close file descriptors owned
-// by reslists.
-void xclose(int fd);
-
-// Allocate a pipe.  The file descriptors are owned by the
-// current reslits.
-void xpipe(int* read_end, int* write_end);
-
-// Duplicate a file descriptor.  The new file descriptor is owned by
-// the current reslist.
-int xdup(int fd);
-int xdup3nc(int oldfd, int newfd, int flags);
-
-// Open a file descriptor as a stream.  The returned FILE object is
-// owned by the current reslist.  It does _not_ own FD.  Instead, FILE
-// owns a new, duped file descriptor.
-FILE* xfdopen(int fd, const char* mode);
-
-// All file descriptors we allocate are configured to be
-// close-on-exit.  This routine allows FD to be inherited across exec.
-void allow_inherit(int fd);
-
-char* xreadlink(const char* path);
 
 // Code that fails calls die() or one of its variants below.
 // Control then flows to the nearest enclosing catch_error.
@@ -218,23 +182,6 @@ __attribute__((noreturn,format(printf, 1, 2)))
 void die_errno(const char* fmt, ...);
 __attribute__((noreturn))
 void die_oom(void);
-
-// A FDH (File Descriptor Handle) is a package of a file descriptor
-// and a reslist that owns it.  It allows us to allocate an file
-// descriptor owned by a reslist and close that file descriptor before
-// its owning reslist is destroyed.
-
-struct fdh {
-    struct reslist* rl; // Owns both fd and fdh
-    int fd;
-};
-
-// Duplicate an existing FD as an FDH
-struct fdh* fdh_dup(int fd);
-
-// Deallocate an FDH, closing its file descriptor.  FDH is invalid
-// after this call.
-void fdh_destroy(struct fdh* fdh);
 
 __attribute__((malloc,format(printf, 1, 2)))
 char* xaprintf(const char* fmt, ...);
@@ -289,58 +236,10 @@ size_t nextpow2sz(size_t sz);
 struct iovec;
 size_t iovec_sum(const struct iovec* iov, unsigned niovec);
 
-enum blocking_mode { blocking, non_blocking };
-enum blocking_mode fd_set_blocking_mode(int fd, enum blocking_mode mode);
-
-void hack_reopen_tty(int fd);
-
-// Read SZ bytes from FD into BUF, retrying on EINTR.
-// May return short read on EOF.
-size_t read_all(int fd, void* buf, size_t sz);
-
-// Write SZ bytes to FD, retrying on EINTR.
-void write_all(int fd, const void* buf, size_t sz);
-
-#ifndef HAVE_DUP3
-int dup3(int oldfd, int newfd, int flags);
-#endif
-
-#define XPPOLL_LINUX_SYSCALL 1
-#define XPPOLL_KQUEUE 2
-#define XPPOLL_SYSTEM 3
-#define XPPOLL_STUPID_WRAPPER 4
-
-#if defined(__linux__)
-# define XPPOLL XPPOLL_LINUX_SYSCALL
-#elif defined(HAVE_KQUEUE)
-# define XPPOLL XPPOLL_KQUEUE
-#elif defined(HAVE_PPOLL)
-# define XPPOLL XPPOLL_SYSTEM
-# define XPPOLL_BROKEN 1
-#else
-# define XPPOLL XPPOLL_STUPID_WRAPPER
-# define XPPOLL_BROKEN 1
-#endif
-
-// See ppoll(2) or ppoll(3).  If XPPOLL_BROKEN is defined, this
-// routine may not atomically set SIGMASK and begin waiting, so you'll
-// need to arrange for some other wakeup mechanism to avoid racing
-// against signal delivery.
-int xppoll(struct pollfd *fds, nfds_t nfds,
-           const struct timespec *timeout_ts,
-           const sigset_t *sigmask);
-
-#ifndef HAVE_MKOSTEMP
-int mkostemp(char *template, int flags);
-#endif
-
-FILE* xnamed_tempfile(const char** name);
-
 #ifndef _POSIX_VDISABLE
 #define _POSIX_VDISABLE 0
 #endif
 
-void replace_with_dev_null(int fd);
 void* generate_random_bytes(size_t howmany);
 char* hex_encode_bytes(const void* bytes, size_t n);
 char* gen_hex_random(size_t nr_bytes);
@@ -352,14 +251,6 @@ bool string_ends_with_p(const char* string, const char* suffix);
 #ifdef HAVE_CLOCK_GETTIME
 double xclock_gettime(clockid_t clk_id);
 #endif
-
-#ifndef NDEBUG
-void assert_cloexec(int fd);
-#else
-# define assert_cloexec(_fd) ((void)(_fd))
-#endif
-
-int merge_O_CLOEXEC_into_fd_flags(int fd, int flags);
 
 extern sigset_t signals_unblock_for_io;
 extern sigset_t orig_sigmask;
@@ -402,19 +293,6 @@ void sigtstp_unregister(struct sigtstp_cookie* cookie);
 // and timer on unwind.
 void set_timeout(const struct itimerval* timer);
 
-// See dirname(3)
-char* xdirname(const char* path);
-
-// See basename(3)
-char* xbasename(const char* path);
-
-// Try to make sure FD has SIZE bytes available total; if the
-// filesystem or OS doesn't support preallocation, return false.
-// Otherwise, return true on success or die on failure.
-bool fallocate_if_supported(int fd, uint64_t size);
-
-void xfsync(int fd);
-void xftruncate(int fd, uint64_t size);
-void xrename(const char* old, const char* new);
-
-void hint_sequential_access(int fd);
+// When set, caller promises to re-raise pending quit signals, so
+// don't longjmp out of them immediately.
+extern bool hack_defer_quit_signals;

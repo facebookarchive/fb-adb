@@ -24,6 +24,7 @@
 #include <limits.h>
 #include "child.h"
 #include "net.h"
+#include "fs.h"
 
 extern char** environ;
 

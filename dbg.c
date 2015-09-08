@@ -27,6 +27,7 @@
 #include "proto.h"
 #include "channel.h"
 #include "constants.h"
+#include "fs.h"
 
 #ifndef NDEBUG
 

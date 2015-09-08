@@ -14,6 +14,7 @@
 #include <ctype.h>
 #include "util.h"
 #include "chat.h"
+#include "fs.h"
 
 __attribute__((noreturn))
 static void chat_die(void)

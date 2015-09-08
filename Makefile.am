@@ -67,6 +67,8 @@ libfb_adb_a_SOURCES = \
 	timestamp.h \
 	util.c \
 	util.h \
+	fs.c \
+	fs.h \
 	xmkraw.c \
 	xmkraw.h \
 	net.c \
