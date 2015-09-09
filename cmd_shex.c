@@ -41,9 +41,11 @@
 #include "net.h"
 #include "xmkraw.h"
 #include "fs.h"
+#include "elfid.h"
 
 #define ARG_DEFAULT_SH ((const char*)MSG_CMDLINE_DEFAULT_SH)
 #define ARG_DEFAULT_SH_LOGIN ((const char*)MSG_CMDLINE_DEFAULT_SH_LOGIN)
+#define ARG_EXEC_FILE ((const char*)MSG_CMDLINE_EXEC_FILE)
 
 enum transport {
     transport_shell,
@@ -87,7 +89,8 @@ tc_chat_new(const struct childcom* tc)
 
 struct child_hello {
     char ver[FB_ADB_FINGERPRINT_LENGTH+1];
-    int uid;
+    unsigned abi_mask;
+    unsigned uid;
     unsigned api_level;
 };
 
@@ -104,6 +107,7 @@ parse_child_hello(const char* line, struct child_hello* chello)
     int n = -1;
     sscanf(line, FB_ADB_PROTO_START_LINE "%n",
            &chello->ver[0],
+           &chello->abi_mask,
            &chello->uid,
            &chello->api_level,
            &n);
@@ -557,6 +561,10 @@ send_cmdline_argument(const struct childcom* tc, const void* val)
         val = NULL;
         valsz = 0;
         type = MSG_CMDLINE_DEFAULT_SH_LOGIN;
+    } else if (val == ARG_EXEC_FILE) {
+        val = NULL;
+        valsz = 0;
+        type = MSG_CMDLINE_EXEC_FILE;
     } else {
         valsz = strlen((const char*)val);
         type = MSG_CMDLINE_ARGUMENT;
@@ -809,11 +817,7 @@ reconnect_over_unix_socket(
 
     char* host_socket =
         xaprintf("%s/fb-adb-conn-%s.sock",
-                 (char*) first_non_null(
-                     getenv("TEMP"),
-                     getenv("TMP"),
-                     getenv("TMPDIR"),
-                     DEFAULT_TEMP_DIR),
+                 system_tempdir(),
                  gen_hex_random(10));
 
     char* remote = xaprintf("localabstract:%s", device_socket);
@@ -1155,6 +1159,7 @@ struct shex_common_info {
     struct transport_opts transport;
     const char* command;
     const char** args;
+    struct strlist* xcmd_candidates;
 };
 
 static struct environ_op*
@@ -1197,6 +1202,199 @@ parse_uenvops(const struct strlist* uenvops)
     }
 
     return environ_ops; // Reversed at this point
+}
+
+__attribute__((unused))
+static const char*
+describe_abi_mask(unsigned abi_mask)
+{
+    const char* description = "";
+    static const struct {
+        const char* name;
+        unsigned bit;
+    } abi_names[] = {
+        {"FB_ADB_ARCH_X86",      FB_ADB_ARCH_X86 },
+        {"FB_ADB_ARCH_ADM64",    FB_ADB_ARCH_AMD64 },
+        {"FB_ADB_ARCH_ARM",      FB_ADB_ARCH_ARM },
+        {"FB_ADB_ARCH_AARCH64",  FB_ADB_ARCH_AARCH64 },
+    };
+
+    while (abi_mask != 0) {
+        const char* abi_name = NULL;
+        for (size_t i = 0; abi_name == NULL
+                 && i < ARRAYSIZE(abi_names); ++i)
+        {
+            if (abi_mask && abi_names[i].bit) {
+                abi_name = abi_names[i].name;
+                abi_mask &= ~abi_names[i].bit;
+                break;
+            }
+        }
+
+        if (abi_name == NULL) {
+            abi_name = xaprintf("[unknown: 0x%08x]", abi_mask);
+            abi_mask = 0;
+        }
+
+        if (description[0] == '\0') {
+            description = abi_name;
+        } else {
+            description = xaprintf("%s,%s", description, abi_name);
+        }
+    }
+
+    if (description[0] == '\0')
+        description = "[none]";
+
+    return description;
+}
+
+static void
+send_open_exec_file(const struct childcom* tc,
+                    const struct sha256_hash* hash,
+                    int candidate_fd,
+                    const char* exe_basename)
+{
+    size_t exe_basename_length = strlen(exe_basename);
+    size_t msglen = sizeof (struct msg_open_exec_file);
+    if (SATADD(&msglen, msglen, exe_basename_length) ||
+        msglen > MSG_MAX_SIZE)
+        die(EINVAL, "xcmd proram name too long");
+    struct msg_open_exec_file oef = {
+        .msg.size = msglen,
+        .msg.type = MSG_OPEN_EXEC_FILE,
+    };
+
+    _Static_assert(
+        sizeof (oef.expected_sha256_hash) <= sizeof (hash->digest),
+        "hash size mismatch");
+
+    memcpy(&oef.expected_sha256_hash[0],
+           hash->digest,
+           sizeof (oef.expected_sha256_hash));
+
+    tc_write(tc, &oef, sizeof (oef));
+    tc_write(tc, exe_basename, exe_basename_length);
+}
+
+static void
+send_file_to_device_pre_exec(void* data)
+{
+    int fd = (intptr_t) data;
+    if (dup2(fd, STDIN_FILENO) == -1)
+        die_errno("dup2");
+}
+
+static void
+send_file_to_device(
+    const struct adb_opts* adb,
+    const struct transport_opts* transport,
+    const struct user_opts* user,
+    int fd,
+    const char* device_file_name,
+    mode_t mode)
+{
+    SCOPED_RESLIST(rl);
+
+    dbg("sending file to device: remote name [%s]",
+        device_file_name);
+
+    struct strlist* args = strlist_new();
+    strlist_append(args, orig_argv0);
+    strlist_append(args, "fput");
+
+    struct cmd_fput_info fpi = {
+        .adb = *adb,
+        .transport = *transport,
+        .user = *user,
+        .xfer.write_mode = "atomic",
+        .xfer.mode = xaprintf("%o", mode),
+        .local = "-",
+        .remote = device_file_name,
+    };
+
+    strlist_xfer(args, make_args_cmd_fput(CMD_ARG_ALL, &fpi));
+
+    struct child_start_info csi = {
+        .flags = (CHILD_NULL_STDIN |
+                  CHILD_NULL_STDOUT |
+                  CHILD_INHERIT_STDERR),
+        .pre_exec = send_file_to_device_pre_exec,
+        .pre_exec_data = (void*) (intptr_t) fd,
+        .exename = my_exe(),
+        .argv = strlist_to_argv(args),
+    };
+
+    int exit_code = child_status_to_exit_code(
+        child_wait(child_start(&csi)));
+
+    if (exit_code != 0)
+        die(EIO, "failed sending file to device");
+}
+
+static int
+find_xcmd_candidate(
+    const char* program,
+    const struct strlist* candidates,
+    unsigned api_level,
+    unsigned abi_mask)
+{
+    for (const char* candidate = strlist_rewind(candidates);
+         candidate != NULL;
+         candidate = strlist_next(candidates))
+    {
+        SCOPED_RESLIST(rl);
+        int candidate_fd = try_xopen(candidate, O_RDONLY, 0);
+        if (candidate_fd == -1) {
+            dbg("could not open candidate %s: %s",
+                candidate, strerror(errno));
+            continue;
+        }
+
+        dbg("testing candidate %s for compatibility", candidate);
+        if (elf_compatible_p(candidate_fd, api_level, abi_mask)) {
+            dbg("candidate is compatible");
+            reslist_xfer(rl->parent, rl);
+            return candidate_fd;
+        }
+    }
+
+    die(ENOENT, "no suitable candidate found for xcmd %s", program);
+}
+
+static bool
+handle_open_exec_response(const struct shex_common_info* info,
+                          const struct childcom* tc,
+                          int candidate_fd)
+{
+    SCOPED_RESLIST(rl);
+
+    struct msg* msg = tc_recvmsg(tc);
+    if (msg->type == MSG_EXEC_FILE_OK)
+        return true;
+
+    if (msg->type != MSG_EXEC_FILE_MISMATCH)
+        die(ECOMM, "unexpected message type");
+
+    struct msg_exec_file_mismatch* efm =
+        CHECK_MSG_CAST(
+            msg,
+            struct msg_exec_file_mismatch);
+
+    char* filename_to_update = xstrndup(
+        efm->filename_to_update,
+        efm->msg.size - offsetof(struct msg_exec_file_mismatch,
+                                 filename_to_update));
+
+
+    xrewindfd(candidate_fd);
+    send_file_to_device(&info->adb,
+                        &info->transport,
+                        &info->user,
+                        candidate_fd,
+                        filename_to_update,
+                        0500 /* -r-x------ */);
+    return false;
 }
 
 static int
@@ -1376,6 +1574,7 @@ shex_main_common(const struct shex_common_info* info)
     // that don't have network access.
 
     dbg("remote API level is %u", chello.api_level);
+    dbg("remote ABI support: %s", describe_abi_mask(chello.abi_mask));
 
     if (chello.api_level < 21) {
         if (transport == transport_unix)
@@ -1418,6 +1617,20 @@ shex_main_common(const struct shex_common_info* info)
 
     if (info->cwd.chdir)
         send_chdir(tc, info->cwd.chdir);
+
+    if (info->xcmd_candidates != NULL) {
+        SCOPED_RESLIST(rl_xcmd);
+        int candidate_fd = find_xcmd_candidate(
+            info->command,
+            info->xcmd_candidates,
+            chello.api_level,
+            chello.abi_mask);
+        xrewindfd(candidate_fd);
+        struct sha256_hash hash = sha256_fd(candidate_fd);
+        do {
+            send_open_exec_file(tc, &hash, candidate_fd, info->command);
+        } while (!handle_open_exec_response(info, tc, candidate_fd));
+    }
 
     send_environ_ops(tc, environ_ops);
     send_cmdline(tc, info->shex.exename, command, argv);
@@ -1605,6 +1818,67 @@ rcmd_main(const struct cmd_rcmd_info* info)
         .transport = info->transport,
         .command = info->command,
         .args = info->args,
+    };
+    return shex_main_common(&cinfo);
+}
+
+int
+xcmd_main(const struct cmd_xcmd_info* info)
+{
+    struct strlist* candidates = strlist_new();
+    const char* program = info->program;
+
+    if (strchr(program, '/'))
+        usage_error("PROGRAM option to xcmd cannot contain slashes");
+
+    if (program[0] == '\0')
+        usage_error("PROGRAM option to xcmd cannot be empty");
+
+    if (info->shex.exename)
+        usage_error("--exename makes no sense with xcmd");
+
+    if (info->xcmd.candidates != NULL) {
+        const struct strlist* explicit_candidates = info->xcmd.candidates;
+        for (const char* carg = strlist_rewind(explicit_candidates);
+             carg != NULL;
+             carg = strlist_next(explicit_candidates))
+        {
+            const char* prefix = "candidate=";
+            if (!string_starts_with_p(carg, prefix))
+                die(EINVAL, "invalid candidate option");
+            strlist_append(candidates, carg + strlen(prefix));
+        }
+    }
+
+    const char* candidate_path = info->xcmd.candidate_path;
+    if (candidate_path == NULL)
+        candidate_path = getenv("FB_ADB_XCMD_PATH");
+
+    if (candidate_path != NULL) {
+        char* saveptr = NULL;
+        char* s = xstrdup(candidate_path);
+        for (const char* c = strtok_r(s, ":", &saveptr);
+             c != NULL;
+             c = strtok_r(NULL, ":", &saveptr))
+        {
+            strlist_append(candidates, xaprintf("%s/%s", c, program));
+        }
+    }
+
+    if (strlist_empty_p(candidates))
+        usage_error("no candidates given for xcmd and "
+                    "candidate path empty");
+
+    struct shex_common_info cinfo = {
+        .adb = info->adb,
+        .user = info->user,
+        .cwd = info->cwd,
+        .shex = info->shex,
+        .shex.exename = ARG_EXEC_FILE,
+        .transport = info->transport,
+        .command = info->program,
+        .args = info->args,
+        .xcmd_candidates = candidates,
     };
     return shex_main_common(&cinfo);
 }

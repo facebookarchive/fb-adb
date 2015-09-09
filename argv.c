@@ -213,3 +213,9 @@ strlist_xfer(struct strlist* recipient, struct strlist* donor)
 {
     STAILQ_CONCAT(&recipient->head, &donor->head);
 }
+
+bool
+strlist_empty_p(const struct strlist* sl)
+{
+    return STAILQ_EMPTY(&sl->head);
+}

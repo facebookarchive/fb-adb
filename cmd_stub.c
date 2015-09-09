@@ -23,8 +23,9 @@
 #include <sys/un.h>
 
 #ifdef __ANDROID__
-#include <android/log.h>
-#define LOG_TAG PACKAGE
+# include <android/log.h>
+# include <sys/system_properties.h>
+# define LOG_TAG PACKAGE
 #endif
 
 #include "util.h"
@@ -172,24 +173,6 @@ setup_pty(int master, int slave, void* arg)
     }
 }
 
-static void*
-check_msg_cast(struct msg* h, size_t minimum_size)
-{
-    if (h->size < minimum_size) {
-        die(ECOMM,
-            "bad handshake: short message:"
-            "type=%u expected=%u received=%u",
-            (unsigned) h->type,
-            (unsigned) minimum_size,
-            (unsigned) h->size);
-    }
-
-    return h;
-}
-
-#define CHECK_MSG_CAST(_mhdr, _type) \
-    ((_type *) check_msg_cast((_mhdr), sizeof (_type)))
-
 static void
 die_setup_eof(void)
 {
@@ -202,6 +185,81 @@ die_setup_overflow(void)
     die(ECOMM, "bad handshake: length too big");
 }
 
+static const char*
+my_fb_adb_directory(void)
+{
+    const char* mydir;
+    int mkdir_result;
+#ifdef __ANDROID__
+    mydir = xaprintf("%s/.fb-adb.%u",
+                     DEVICE_TEMP_DIR,
+                     (unsigned) getuid());
+    mkdir_result = mkdir(mydir, 0700);
+    if (mkdir_result == -1 && errno == EACCES) {
+        // CWD hopefully in app data directory
+        mydir = xaprintf("./.fb-adb.%u", (unsigned) getuid());
+        mkdir_result = mkdir(mydir, 0700);
+    }
+#else
+    const char* home = getenv("HOME");
+    if (home == NULL)
+        die(EINVAL, "HOME not set");
+    mydir = xaprintf("%s/.fb-adb", home);
+    mkdir_result = mkdir(mydir, 0700);
+#endif
+    if (mkdir_result == -1 && errno != EEXIST)
+        die_errno("mkdir(\"%s\")", mydir);
+    return mydir;
+}
+
+static int
+handle_open_exec_file(struct msg_open_exec_file* oef)
+{
+    SCOPED_RESLIST(rl);
+    char* xcmd_basename = xstrndup(
+        oef->basename,
+        oef->msg.size - offsetof(struct msg_open_exec_file, basename));
+    if (strchr(xcmd_basename, '/'))
+        die(ECOMM, "xcmd command cannot contain slashes");
+    const char* exec_filename =
+        xaprintf("%s/%s",
+                 my_fb_adb_directory(),
+                 xcmd_basename);
+    SCOPED_RESLIST(rl_exec_file);
+    int exec_file = try_xopen(exec_filename, O_RDONLY, 0);
+    WITH_CURRENT_RESLIST(rl);
+    if (exec_file == -1 && errno != ENOENT)
+        die_errno("open(\"%s\")", exec_filename);
+    if (exec_file != -1) {
+        struct sha256_hash hash = sha256_fd(exec_file);
+        _Static_assert(
+            sizeof (oef->expected_sha256_hash) <= sizeof (hash.digest),
+            "hash size mismatch");
+        if (memcmp(oef->expected_sha256_hash,
+                   hash.digest,
+                   sizeof (oef->expected_sha256_hash)) == 0)
+        {
+            struct msg m = {
+                .type = MSG_EXEC_FILE_OK,
+                .size = sizeof (m),
+            };
+
+            write_all(1, &m, sizeof (m));
+            reslist_xfer(rl->parent, rl_exec_file);
+            return exec_file;
+        }
+    }
+
+    size_t exec_filename_length = strlen(exec_filename);
+    struct msg_exec_file_mismatch errm = {
+        .msg.type = MSG_EXEC_FILE_MISMATCH,
+        .msg.size = sizeof (errm) + exec_filename_length,
+    };
+    write_all(1, &errm, sizeof (errm));
+    write_all(1, exec_filename, exec_filename_length);
+    return -1;
+}
+
 static void
 read_child_arglist(reader rdr,
                    size_t expected,
@@ -212,6 +270,7 @@ read_child_arglist(reader rdr,
     char** argv;
     const char* cwd = NULL;
     struct xenviron* xe = NULL;
+    int exec_file = -1;
 
     if (expected >= SIZE_MAX / sizeof (*argv))
         die(EFBIG, "too many arguments");
@@ -239,6 +298,11 @@ read_child_arglist(reader rdr,
             if (mhdr->type == MSG_CMDLINE_DEFAULT_SH_LOGIN)
                 argval = xaprintf("-%s", argval);
 
+            arglen = strlen(argval);
+        } else if(mhdr->type == MSG_CMDLINE_EXEC_FILE) {
+            if (exec_file == -1)
+                die(ECOMM, "exec file not set");
+            argval = xaprintf("/proc/self/fd/%d", exec_file);
             arglen = strlen(argval);
         } else if (mhdr->type == MSG_CMDLINE_ARGUMENT_JUMBO) {
             struct msg_cmdline_argument_jumbo* mj =
@@ -337,6 +401,13 @@ read_child_arglist(reader rdr,
             struct msg_chdir* mchd = CHECK_MSG_CAST(mhdr, struct msg_chdir);
             WITH_CURRENT_RESLIST(rl_read_arg->parent);
             cwd = xstrndup(mchd->dir, mhdr->size - sizeof (*mchd));
+        } else if (mhdr->type == MSG_OPEN_EXEC_FILE) {
+            if (exec_file != -1)
+                die(ECOMM, "exec file already open");
+            struct msg_open_exec_file* oef =
+                CHECK_MSG_CAST(mhdr, struct msg_open_exec_file);
+            WITH_CURRENT_RESLIST(rl_read_arg->parent);
+            exec_file = handle_open_exec_file(oef);
         } else {
             die(ECOMM,
                 "bad handshake: unknown init msg s=%u t=%u",
@@ -575,6 +646,58 @@ xmkraw(int fd)
     xtcsetattr(fd, &attr);
 }
 
+#ifdef __ANDROID__
+static unsigned
+abi_to_abi_bit(const char* abi)
+{
+    if (string_starts_with_p(abi, "armeabi"))
+        return FB_ADB_ARCH_ARM;
+    if (string_starts_with_p(abi, "arm64"))
+        return FB_ADB_ARCH_AARCH64;
+    if (!strcmp(abi, "x86"))
+        return FB_ADB_ARCH_X86;
+    if (!strcmp(abi, "x86_64"))
+        return FB_ADB_ARCH_AMD64;
+    return 0;
+}
+#endif
+
+static unsigned
+make_abi_mask(unsigned api_level)
+{
+    unsigned abi_mask = 0;
+
+#ifdef __ANDROID__
+    char propval[PROP_VALUE_MAX];
+    const prop_info* pi;
+    if (api_level < 21) {
+        pi = __system_property_find("ro.product.cpu.abi");
+        if (pi) {
+            __system_property_read(pi, NULL, propval);
+            abi_mask |= abi_to_abi_bit(propval);
+        }
+        pi = __system_property_find("ro.product.cpu.abi2");
+        if (pi) {
+            __system_property_read(pi, NULL, propval);
+            abi_mask |= abi_to_abi_bit(propval);
+        }
+    } else {
+        pi = __system_property_find("ro.product.cpu.abilist");
+        if (pi) {
+            __system_property_read(pi, NULL, propval);
+            char* savepos = NULL;
+            for (char* abi = strtok_r(propval, ",", &savepos);
+                 abi != NULL;
+                 abi = strtok_r(NULL, ",", &savepos))
+            {
+                abi_mask |= abi_to_abi_bit(abi);
+            }
+        }
+    }
+#endif
+    return abi_mask;
+}
+
 static int
 stub_main_1(void)
 {
@@ -594,7 +717,9 @@ stub_main_1(void)
 #endif
 
     printf(FB_ADB_PROTO_START_LINE "\n", build_fingerprint,
-           (int) getuid(), my_api_level);
+           make_abi_mask(my_api_level),
+           (unsigned) getuid(),
+           my_api_level);
     xflush(stdout);
 
     should_send_error_packet = true;

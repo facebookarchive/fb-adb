@@ -17,6 +17,7 @@
 #include <limits.h>
 #include "fs.h"
 #include "constants.h"
+#include "sha2.h"
 
 #if XPPOLL == XPPOLL_KQUEUE
 # include <sys/event.h>
@@ -999,4 +1000,49 @@ _fs_on_init(void)
     if (ppoll_kq < 0)
         die_errno("kqueue");
 #endif
+}
+
+const char*
+system_tempdir(void)
+{
+#ifdef __ANDROID__
+    return DEFAULT_TEMP_DIR;
+#else
+    return (const char*) first_non_null(
+        getenv("TEMP"),
+        getenv("TMP"),
+        getenv("TMPDIR"),
+        DEFAULT_TEMP_DIR);
+#endif
+}
+
+struct sha256_hash
+sha256_fd(int fd)
+{
+    struct sha256_hash sh;
+
+    SCOPED_RESLIST(rl);
+
+    _Static_assert(
+        sizeof (sh.digest) == SHA256_DIGEST_LENGTH,
+        "hash size mismatch");
+
+    size_t bufsz = 32768;
+    uint8_t* buf = xalloc(bufsz);
+    size_t nr_read;
+    SHA256_CTX sha256;
+
+    SHA256_Init(&sha256);
+    while ((nr_read = read_all(fd, buf, bufsz)) > 0) {
+        SHA256_Update(&sha256, buf, nr_read);
+    }
+    SHA256_Final(sh.digest, &sha256);
+    return sh;
+}
+
+void
+xrewindfd(int fd)
+{
+    if (lseek(fd, 0, SEEK_SET) == (off_t) -1)
+        die_errno("lseek");
 }

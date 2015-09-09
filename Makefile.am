@@ -81,6 +81,8 @@ libfb_adb_a_SOURCES = \
 	valgrind.h \
 	utf8.h \
 	utf8.c \
+	elfid.h \
+	elfid.c \
 	$(CMD_SOURCES) \
 	$(EMPTY)
 

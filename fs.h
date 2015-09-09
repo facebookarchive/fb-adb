@@ -152,7 +152,10 @@ void xputc(char c, FILE* out);
 void xputs(const char* s, FILE* out);
 void xflush(FILE* out);
 
-// Internal for communication with util.c
-#if XPPOLL == XPPOLL_KQUEUE
-extern int ppoll_kq;
-#endif
+const char* system_tempdir(void);
+
+struct sha256_hash {
+    uint8_t digest[32];
+};
+struct sha256_hash sha256_fd(int fd);
+void xrewindfd(int fd);

@@ -36,13 +36,17 @@
     _m(MSG_ENVIRONMENT_VARIABLE_UNSET_JUMBO)       \
     _m(MSG_CMDLINE_DEFAULT_SH)                     \
     _m(MSG_CMDLINE_DEFAULT_SH_LOGIN)               \
+    _m(MSG_CMDLINE_EXEC_FILE)                      \
     _m(MSG_EXEC_AS_ROOT)                           \
     _m(MSG_EXEC_AS_USER)                           \
     _m(MSG_CHDIR)                                  \
     _m(MSG_REBIND_TO_UNIX_SOCKET)                  \
     _m(MSG_REBIND_TO_TCP4_SOCKET)                  \
     _m(MSG_REBIND_TO_TCP6_SOCKET)                  \
-    _m(MSG_LISTENING_ON_SOCKET)
+    _m(MSG_LISTENING_ON_SOCKET)                    \
+    _m(MSG_OPEN_EXEC_FILE)                         \
+    _m(MSG_EXEC_FILE_OK)                           \
+    _m(MSG_EXEC_FILE_MISMATCH)
 
 enum msg_type {
     MSG_TYPE_PRE = 39, // Make sure zero is not a valid message
@@ -193,6 +197,18 @@ struct msg_rebind_to_tcp6_socket {
     uint8_t addr[16]; // Like in6_addr
 };
 
+struct msg_open_exec_file {
+    struct msg msg;
+    // No need for all 32 bytes of the hash
+    uint8_t expected_sha256_hash[16];
+    char basename[0];
+};
+
+struct msg_exec_file_mismatch {
+    struct msg msg;
+    char filename_to_update[0];
+};
+
 #pragma pack(pop)
 
 static const unsigned CHILD_STDIN = 2;
@@ -200,5 +216,11 @@ static const unsigned CHILD_STDOUT = 3;
 static const unsigned CHILD_STDERR = 4;
 
 // Base64 of 128 bits is 22 characters long; plus NUL, 23
+
+#define FB_ADB_ARCH_X86      (1<<0)
+#define FB_ADB_ARCH_AMD64    (1<<1)
+#define FB_ADB_ARCH_ARM      (1<<2)
+#define FB_ADB_ARCH_AARCH64  (1<<3)
+
 #define FB_ADB_FINGERPRINT_LENGTH 22
-#define FB_ADB_PROTO_START_LINE "FB_ADB %23s (uid=%d) (api=%u)"
+#define FB_ADB_PROTO_START_LINE "FB_ADB %22s (x=%x) (u=%x) (a=%x)"

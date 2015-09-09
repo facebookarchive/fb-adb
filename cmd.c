@@ -48,7 +48,6 @@ accumulate_option(struct strlist** slp,
                   const char* opt,
                   const char* val)
 {
-    SCOPED_RESLIST(rl);
     struct strlist* sl = *slp;
     if (sl == NULL)
         sl = *slp = strlist_new();

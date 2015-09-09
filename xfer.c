@@ -289,7 +289,25 @@ do_xfer_recv(const struct xfer_opts xfer_opts,
 
     bool regular_file = true;
     bool preallocated = false;
-    mode_t creat_mode = (xfer_opts.preserve ? 0200 : 0666);
+    bool chmod_explicit = false;
+    mode_t chmod_explicit_modes = 0;
+
+    if (xfer_opts.preserve) {
+        chmod_explicit = true;
+        chmod_explicit_modes = statm.u.stat.ugo_bits;
+    }
+
+    if (xfer_opts.mode) {
+        char* endptr = NULL;
+        errno = 0;
+        unsigned long omode = strtoul(xfer_opts.mode, &endptr, 8);
+        if (errno != 0 || *endptr != '\0' || (omode &~ 0777) != 0)
+            die(EINVAL, "invalid mode bits: %s", xfer_opts.mode);
+        chmod_explicit = true;
+        chmod_explicit_modes = (mode_t) omode;
+    }
+
+    mode_t creat_mode = (chmod_explicit_modes ? 0200 : 0666);
 
     if (atomic) {
         rename_to = filename;
@@ -347,9 +365,11 @@ do_xfer_recv(const struct xfer_opts xfer_opts,
         if (utimes(filename, times) == -1)
             die_errno("times");
 #endif
-        if (fchmod(dest_fd, statm.u.stat.ugo_bits) == -1)
-            die_errno("fchmod");
     }
+
+    if (chmod_explicit)
+        if (fchmod(dest_fd, chmod_explicit_modes) == -1)
+            die_errno("fchmod");
 
     if (xfer_opts.sync)
         xfsync(dest_fd);
@@ -366,7 +386,12 @@ do_xfer_recv(const struct xfer_opts xfer_opts,
 static void
 do_xfer_send(int to_peer, const char* filename)
 {
-    int fd = xopen(filename, O_RDONLY, 0);
+    int fd;
+
+    if (!strcmp(filename, "-"))
+        fd = xdup(STDIN_FILENO);
+    else
+        fd = xopen(filename, O_RDONLY, 0);
     dbg("opened %s as %d", filename, fd);
     send_stat_packet(to_peer, fd);
     dbg("sent stat packet; entering copy loop");
@@ -442,7 +467,7 @@ xfer_handle_command(
         spi,
         "xfer-stub",
         make_args_cmd_xfer_stub(
-            CMD_ARG_ALL,
+            CMD_ARG_FORWARDED,
             remote));
 
     struct xfer_ctx ctx = {

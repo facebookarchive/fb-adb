@@ -604,3 +604,18 @@ read_msg(int fd, reader rdr)
 
     return m;
 }
+
+void*
+check_msg_cast(struct msg* h, size_t minimum_size)
+{
+    if (h->size < minimum_size) {
+        die(ECOMM,
+            "bad handshake: short message:"
+            "type=%u expected=%u received=%u",
+            (unsigned) h->type,
+            (unsigned) minimum_size,
+            (unsigned) h->size);
+    }
+
+    return h;
+}

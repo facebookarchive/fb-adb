@@ -38,7 +38,9 @@ fput_main(const struct cmd_fput_info* info)
     struct cmd_xfer_stub_info xiremote = {
         .mode = "recv",
         .filename = info->remote ?: ".",
-        .desired_basename = xbasename(info->local),
+        .desired_basename = (strcmp(info->local, "-") == 0
+                             ? NULL
+                             : xbasename(info->local)),
         .xfer = info->xfer,
     };
 

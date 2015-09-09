@@ -30,3 +30,4 @@ const char* strlist_rewind(const struct strlist* sl);
 const char* strlist_next(const struct strlist* sl);
 const char** strlist_to_argv(const struct strlist* sl);
 void strlist_xfer(struct strlist* recipient, struct strlist* donor);
+bool strlist_empty_p(const struct strlist* sl);

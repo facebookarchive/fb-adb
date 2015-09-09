@@ -169,29 +169,14 @@ finfo_readlink(struct json_writer* writer, const char* filename, void* data)
 static char*
 hex_sha256_fd(int fd)
 {
-    SCOPED_RESLIST(rl);
-
-    size_t bufsz = 32768;
-    uint8_t* buf = xalloc(bufsz);
-    size_t nr_read;
-    SHA256_CTX sha256;
-
-    SHA256_Init(&sha256);
-
-    while ((nr_read = read_all(fd, buf, bufsz)) > 0) {
-        SHA256_Update(&sha256, buf, nr_read);
-    }
-
-    uint8_t digest[SHA256_DIGEST_LENGTH];
-    SHA256_Final(digest, &sha256);
-
-    WITH_CURRENT_RESLIST(rl->parent);
-    return hex_encode_bytes(digest, sizeof (digest));
+    struct sha256_hash hash = sha256_fd(fd);
+    return hex_encode_bytes(hash.digest, sizeof (hash.digest));
 }
 
 static void
 finfo_sha256(struct json_writer* writer, const char* filename, void* data)
 {
+
     json_emit_string(writer, hex_sha256_fd(xopen(filename, O_RDONLY, 0)));
 }
 

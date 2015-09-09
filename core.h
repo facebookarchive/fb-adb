@@ -57,3 +57,7 @@ typedef size_t (*reader)(int, void*,size_t);
 
 __attribute__((malloc))
 struct msg* read_msg(int fd, reader rdr);
+
+void* check_msg_cast(struct msg* h, size_t minimum_size);
+#define CHECK_MSG_CAST(_mhdr, _type) \
+    ((_type *) check_msg_cast((_mhdr), sizeof (_type)))

@@ -226,6 +226,11 @@ code, and bash completion file.
       try to preserve ownership, this UIDs aren't the same across
       different systems.)
     </option>
+    <option long="mode" arg="octal-ugo">
+      Set an explicit permissions on the written file, overriding both
+      the default umask and permissions from the
+      <b>--preserve</b> option.
+    </option>
   </optgroup>
   <command names="help">
     Display help.
@@ -418,7 +423,8 @@ code, and bash completion file.
   <command names="fput">
     Retrieve a file from device.
     <argument name="local" type="host-path">
-      Name of the file on host.
+      Name of the file on host.  If <tt>-</tt> (a single dash)
+      read from standard input.
     </argument>
     <argument name="remote"
               type="device-path"
@@ -427,7 +433,8 @@ code, and bash completion file.
       directory, write to the file <tt>basename(<i>local</i>)</tt> in
       this directory.  If <i>remote</i> is omitted, it defaults to
       <tt>basename(<i>local</i>)</tt> in the default directory for
-      <b>fb-adb rcmd</b>.
+      <b>fb-adb rcmd</b> (except if <i>local</i> is <tt>-</tt>, in
+      which case the command fails as we have no basename.)
     </argument>
     <optgroup-reference name="adb"/>
     <optgroup-reference name="transport" />
@@ -474,6 +481,49 @@ code, and bash completion file.
     <optgroup-reference name="cwd"/>
     <optgroup-reference name="shex"/>
   </command>
+  <command names="xcmd">
+    Run a program on device, transferring it to the device first
+    if necessary.
+    <vspace/>
+    <b>fb-adb xcmd</b> makes it easy to run arbitrary programs on
+    Android devices without having to worry about getting them to
+    devices first, making sure that specific builds are compatible
+    with specific devices, and other headaches.  <b>fb-adb xcmd</b>
+    works by first identifying <i>candidate</i> binaries matching the
+    <i>command</i> argument, making sure that binary exists on the
+    system, then running it.
+    <vspace/>
+    <b>fb-adb xcmd</b> finds candidates first by considering all the
+    explicitly passed <b>--candidate</b> options, then searching for
+    <b>program</b> in all the directories given in
+    <b>FB_ADB_XCMD_PATH</b>.  The first file matching the architecture
+    of the device is the one we use.
+    <argument name="program" type="host-path">
+      Name of the program to run; it must not contain a slash.
+    </argument>
+    <argument name="args" repeat="yes" optional="yes" type="device-path">
+      Arguments to send to the <i>program</i>.
+    </argument>
+    <optgroup name="xcmd">
+      <option long="candidate" arg="executable" accumulate="candidates">
+        Candidate to consider for execution.  <i>executable</i> is a
+        filename; it is considered as an xcmd execution candidate
+        before entries found in the candidate path.
+        <b>--candidate</b> can be given multiple times; each supplied
+        <i>executable</i> is considered in order.
+      </option>
+      <option long="candidate-path" arg="path">
+        Colon-separated list of paths to search for xcmd binaries; if
+        supplied, overrides the value of the <b>FB_ADB_XCMD_PATH</b>
+        environment variable.
+      </option>
+    </optgroup>
+    <optgroup-reference name="adb"/>
+    <optgroup-reference name="transport" />
+    <optgroup-reference name="user"/>
+    <optgroup-reference name="cwd"/>
+    <optgroup-reference name="shex"/>
+  </command>
   <?endif?>
   <command names="stub" internal="yes">
     Internal command that the fb-adb host program invokes on device to
@@ -481,6 +531,12 @@ code, and bash completion file.
   </command>
   <section name="Environment Variables">
     <dl>
+      <?ifdef FBADB_MAIN?>
+      <dt>FB_ADB_XCMD_PATH</dt>
+      <dd>Colon-separated list of directories in which to search for
+      xcmd commands; see the discussion of <b>fb-adb xcmd</b>
+      above.</dd>
+      <?endif?>
       <dt>ADB_SHELL_OLD_BEHAVIOR</dt>
       <dd>When set, <b>fb-adb</b> does not override any <b>adb</b>
       commands, exposing only new names for new commands.  Using this
