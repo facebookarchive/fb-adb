@@ -1400,6 +1400,8 @@ handle_open_exec_response(const struct shex_common_info* info,
 static int
 shex_main_common(const struct shex_common_info* info)
 {
+    SCOPED_RESLIST(rl);
+
     size_t max_cmdsz = DEFAULT_MAX_CMDSZ;
     bool local_mode = false;
     enum { TTY_AUTO,
