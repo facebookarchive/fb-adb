@@ -328,7 +328,7 @@ poll_channel_nonblock_hack(struct channel* c)
     };
 
     SCOPED_RESLIST(rl);
-    set_timeout(&nonblock_timer);
+    set_timeout(&nonblock_timer, EAGAIN, "timeout hack");
     poll_channel_2(c);
 }
 

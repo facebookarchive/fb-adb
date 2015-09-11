@@ -84,9 +84,28 @@ reslist_insert_after(struct resource* pos, struct resource* r)
     r->next->prev = r;
 }
 
+// Assert that reslist RL is not CHECK or any parent of CHECK.
+static void
+assert_not_parent(struct reslist* rl, struct reslist* check)
+{
+#ifndef NDEBUG
+    do {
+        assert(rl != check);
+    } while ((check = check->parent));
+#endif
+}
+
 static void
 reslist_insert_head(struct reslist* rl, struct resource* r)
 {
+#ifndef NDEBUG
+    if (r->type == RES_RESLIST_ONHEAP ||
+        r->type == RES_RESLIST_ONSTACK)
+    {
+        assert_not_parent((struct reslist*) r, rl);
+    }
+#endif
+
     reslist_insert_after(&rl->head, r);
 }
 
@@ -199,6 +218,7 @@ _reslist_guard_pop(struct reslist** saved_rl)
 void
 reslist_xfer(struct reslist* recipient, struct reslist* donor)
 {
+    assert_not_parent(donor, recipient);
     if (!reslist_empty_p(donor)) {
         struct resource* donor_first = donor->head.next;
         struct resource* donor_last = donor->head.prev;
@@ -249,33 +269,6 @@ cleanup_forget(struct cleanup* cl)
         cl->fn = NULL;
         cleanup_destroy(cl);
     }
-}
-
-struct unlink_cleanup {
-    struct cleanup* cl;
-    char* filename;
-};
-
-static void
-unlink_cleanup_action(void* data)
-{
-    struct unlink_cleanup* ucl = data;
-    (void) unlink(ucl->filename);
-}
-
-struct unlink_cleanup*
-unlink_cleanup_allocate(const char* filename)
-{
-    struct unlink_cleanup* ucl = xcalloc(sizeof (*ucl));
-    ucl->cl = cleanup_allocate();
-    ucl->filename = xstrdup(filename);
-    return ucl;
-}
-
-void
-unlink_cleanup_commit(struct unlink_cleanup* ucl)
-{
-    cleanup_commit(ucl->cl, unlink_cleanup_action, ucl);
 }
 
 bool
@@ -646,7 +639,7 @@ hex_encode_bytes(const void* bytes_in, size_t nr_bytes)
 
     char* buffer = xalloc(nr_encoded_bytes);
     for (size_t i = 0; i < nr_bytes; ++i) {
-        sprintf(buffer + i*2, "%02x%02x",
+        sprintf(buffer + i*2, "%x%x",
                 bytes[i] >> 4,
                 bytes[i] & 0xF);
     }
@@ -972,7 +965,12 @@ job_control_signal_sigaction(int signum,
     current_errh = saved_errh;
 }
 
+static int timeout_err;
+static const char* timeout_msg;
+
 struct set_timeout_context {
+    int old_timeout_err;
+    const char* old_timeout_msg;
     struct sigaction old_sigalrm;
     sigset_t old_sigmask;
     sigset_t old_signals_unblock_for_io;
@@ -992,6 +990,9 @@ static void
 cleanup_set_timeout(void* data)
 {
     struct set_timeout_context* ctx = data;
+
+    timeout_err = ctx->old_timeout_err;
+    timeout_msg = ctx->old_timeout_msg;
 
     if (ctx->restore_real_timer)
         setitimer(ITIMER_REAL, &ctx->old_real_timer, NULL);
@@ -1028,18 +1029,27 @@ set_timeout_handle_sigalrm(int signum,
                            siginfo_t* info,
                            void* context)
 {
-    die(EAGAIN, "timeout");
+    die(timeout_err, "%s", timeout_msg);
 }
 
 void
-set_timeout(const struct itimerval* timer)
+set_timeout(const struct itimerval* timer, int err, const char* msg)
 {
     SCOPED_RESLIST(rl);
 
     struct cleanup* cl = cleanup_allocate();
     struct set_timeout_context* ctx = calloc(1, sizeof (*ctx));
     if (ctx == NULL) die_oom();
+
+    ctx->old_timeout_err = timeout_err;
+    ctx->old_timeout_msg = timeout_msg;
+
     cleanup_commit(cl, cleanup_set_timeout, ctx);
+
+    assert(err != 0);
+    assert(msg != NULL);
+    timeout_err = err;
+    timeout_msg = msg;
 
     sigset_t sigalrm_set;
     sigemptyset(&sigalrm_set);
@@ -1090,7 +1100,8 @@ set_timeout(const struct itimerval* timer)
         sigaction(SIGALRM, &new_sigalrm, NULL);
     }
 
-    setitimer(ITIMER_REAL, timer, NULL);
+    if (setitimer(ITIMER_REAL, timer, NULL) == -1)
+        die_errno("setitimer");
     memcpy(&ctx->old_signals_unblock_for_io,
            &signals_unblock_for_io,
            sizeof (sigset_t));
@@ -1098,6 +1109,28 @@ set_timeout(const struct itimerval* timer)
     sigaddset(&signals_unblock_for_io, SIGALRM);
 
     reslist_xfer(rl->parent, rl);
+}
+
+static struct timeval
+milliseconds_to_timeval(unsigned milliseconds)
+{
+    return (struct timeval) {
+        .tv_sec = milliseconds / 1000,
+        .tv_usec = (milliseconds % 1000) * 1000
+    };
+}
+
+void
+set_timeout_ms(int timeout_ms, int err, const char* msg)
+{
+    if (timeout_ms >= 0) {
+        struct itimerval expiration = {
+            .it_value = milliseconds_to_timeval(timeout_ms),
+        };
+        if (timeout_ms == 0)
+            expiration.it_value.tv_usec = 1; // Minimum non-zero
+        set_timeout(&expiration, err, msg);
+    }
 }
 
 #ifdef __ANDROID__
@@ -1123,8 +1156,70 @@ api_level()
 #endif
 
 const char*
-my_exe(void)
+maybe_my_exe(const char* exename)
 {
     unsigned on_valgrind = RUNNING_ON_VALGRIND;
-    return on_valgrind ? orig_argv0 : "/proc/self/exe";
+    if (on_valgrind && !strcmp(exename, "/proc/self/exe"))
+        return orig_argv0;
+    return exename;
+}
+
+const char*
+my_exe(void)
+{
+    return maybe_my_exe("/proc/self/exe");
+}
+
+static void
+cleanup_status_pipe(void* data)
+{
+    int* status_pipe = data;
+    if (status_pipe[0] != -1)
+        xclose(status_pipe[0]);
+    if (status_pipe[1] != -1)
+        xclose(status_pipe[1]);
+}
+
+void
+become_daemon(void (*daemon_setup)(void* setup_data),
+              void* setup_data)
+{
+    SCOPED_RESLIST(rl);
+    struct cleanup* cl = cleanup_allocate();
+    uint8_t status;
+    int status_pipe[2];
+    if (pipe(status_pipe) == -1)
+        die_errno("pipe");
+    cleanup_commit(cl, cleanup_status_pipe, status_pipe);
+
+    pid_t child = fork();
+
+    if (child == (pid_t) -1)
+        die_errno("fork");
+
+    if (child != 0) {
+        xclose(status_pipe[1]);
+        status_pipe[1] = -1;
+        status = 1;
+        read_all(status_pipe[0], &status, sizeof (status));
+        _exit(status);
+    }
+
+    xclose(status_pipe[0]);
+    status_pipe[0] = -1;
+
+    (void) signal(SIGHUP, SIG_IGN);
+    (void) signal(SIGTTOU, SIG_IGN);
+
+    if (setsid() == (pid_t) -1)
+        die_errno("setsid");
+
+    int devnull = xopen("/dev/null", O_RDWR, 0);
+
+    daemon_setup(setup_data);
+    xdup3nc(devnull, STDIN_FILENO, 0);
+    xdup3nc(devnull, STDOUT_FILENO, 0);
+    xdup3nc(devnull, STDERR_FILENO, 0);
+    status = 0;
+    write_all(status_pipe[1], &status, sizeof (status));
 }

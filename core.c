@@ -619,3 +619,15 @@ check_msg_cast(struct msg* h, size_t minimum_size)
 
     return h;
 }
+
+bool
+parse_daemon_hello(const char* line, struct daemon_hello* dhello)
+{
+    int n = -1;
+    sscanf(line, FB_ADB_STUB_DAEMON_LINE "%n",
+           &dhello->ver[0],
+           &dhello->socket_name[0],
+           &dhello->pid,
+           &n);
+    return n != -1;
+}

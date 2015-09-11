@@ -543,6 +543,9 @@ class CWriter(ProgramWriter):
 def emit_make_args_cmd_function(hf, command):
   with hf.function_definition(command.make_args_function()):
     hf.writeln("struct strlist* dest = strlist_new();")
+    with hf.if_("which & CMD_ARG_NAME"):
+      hf.writeln("strlist_append(dest, %s);",
+                 hf.quote_string(command.name))
     for og in command.optgroups:
       if og.forward:
         flag = "CMD_ARG_FORWARDED"

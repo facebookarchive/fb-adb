@@ -18,6 +18,7 @@
 #include <sys/wait.h>
 #include <termios.h>
 #include <sys/ioctl.h>
+#include <stdarg.h>
 #include <limits.h>
 #include <sys/socket.h>
 #include <sys/un.h>
@@ -46,6 +47,33 @@
 #include "fs.h"
 
 static bool should_send_error_packet = false;
+
+#ifndef __ANDROID__
+# define ANDROID_LOG_DEBUG 0
+# define ANDROID_LOG_INFO 0
+# define ANDROID_LOG_WARN 0
+# define ANDROID_LOG_ERROR 0
+#endif
+
+__attribute__((format(printf, 2, 3)))
+static void
+android_msg(int prio, const char* fmt, ...)
+{
+    va_list args;
+    (void) args;
+#ifdef __ANDROID__
+    va_start(args, fmt);
+    (void) __android_log_vprint(prio, LOG_TAG, fmt, args);
+    va_end(args);
+#endif
+#ifndef NDEBUG
+    if (dbg_enabled_p()) {
+        va_start(args, fmt);
+        dbg_1v(fmt, args);
+        va_end(args);
+    }
+#endif
+}
 
 static void
 send_exit_message(int status, struct fb_adb_sh* sh)
@@ -185,33 +213,6 @@ die_setup_overflow(void)
     die(ECOMM, "bad handshake: length too big");
 }
 
-static const char*
-my_fb_adb_directory(void)
-{
-    const char* mydir;
-    int mkdir_result;
-#ifdef __ANDROID__
-    mydir = xaprintf("%s/.fb-adb.%u",
-                     DEVICE_TEMP_DIR,
-                     (unsigned) getuid());
-    mkdir_result = mkdir(mydir, 0700);
-    if (mkdir_result == -1 && errno == EACCES) {
-        // CWD hopefully in app data directory
-        mydir = xaprintf("./.fb-adb.%u", (unsigned) getuid());
-        mkdir_result = mkdir(mydir, 0700);
-    }
-#else
-    const char* home = getenv("HOME");
-    if (home == NULL)
-        die(EINVAL, "HOME not set");
-    mydir = xaprintf("%s/.fb-adb", home);
-    mkdir_result = mkdir(mydir, 0700);
-#endif
-    if (mkdir_result == -1 && errno != EEXIST)
-        die_errno("mkdir(\"%s\")", mydir);
-    return mydir;
-}
-
 static int
 handle_open_exec_file(struct msg_open_exec_file* oef)
 {
@@ -221,10 +222,8 @@ handle_open_exec_file(struct msg_open_exec_file* oef)
         oef->msg.size - offsetof(struct msg_open_exec_file, basename));
     if (strchr(xcmd_basename, '/'))
         die(ECOMM, "xcmd command cannot contain slashes");
-    const char* exec_filename =
-        xaprintf("%s/%s",
-                 my_fb_adb_directory(),
-                 xcmd_basename);
+    const char* mydir = my_fb_adb_directory();
+    const char* exec_filename = xaprintf("%s/%s", mydir, xcmd_basename);
     SCOPED_RESLIST(rl_exec_file);
     int exec_file = try_xopen(exec_filename, O_RDONLY, 0);
     WITH_CURRENT_RESLIST(rl);
@@ -303,6 +302,9 @@ read_child_arglist(reader rdr,
             if (exec_file == -1)
                 die(ECOMM, "exec file not set");
             argval = xaprintf("/proc/self/fd/%d", exec_file);
+            arglen = strlen(argval);
+        } else if(mhdr->type == MSG_CMDLINE_SELF_ARGV0) {
+            argval = orig_argv0;
             arglen = strlen(argval);
         } else if (mhdr->type == MSG_CMDLINE_ARGUMENT_JUMBO) {
             struct msg_cmdline_argument_jumbo* mj =
@@ -454,7 +456,7 @@ start_child(reader rdr, struct msg_shex_hello* shex_hello)
 
     struct child_start_info csi = {
         .flags = CHILD_SETSID,
-        .exename = child_args[0],
+        .exename = maybe_my_exe(child_args[0]),
         .argv = (const char* const *) child_args + 1,
         .environ = child_xe ? xenviron_as_environ(child_xe) : NULL,
         .pty_setup = setup_pty,
@@ -698,16 +700,106 @@ make_abi_mask(unsigned api_level)
     return abi_mask;
 }
 
+struct xaccept_timed_ctx {
+    int listening_fd;
+    int timeout_ms;
+    int client_fd;
+};
+
+static void
+xaccept_timed_1(void* data) {
+    SCOPED_RESLIST(rl);
+    struct xaccept_timed_ctx* ctx = data;
+    set_timeout_ms(ctx->timeout_ms, ETIMEDOUT, "accept timed out");
+    WITH_CURRENT_RESLIST(rl->parent);
+    ctx->client_fd = xaccept(ctx->listening_fd);
+}
+
 static int
-stub_main_1(void)
+xaccept_timed(int listening_fd, int timeout_ms)
 {
+    struct xaccept_timed_ctx ctx = {
+        .listening_fd = listening_fd,
+        .timeout_ms = timeout_ms,
+    };
+
+    if (catch_one_error(xaccept_timed_1, &ctx, ETIMEDOUT))
+        return -1;
+    return ctx.client_fd;
+}
+
+static void
+stub_daemon_setup(void* data)
+{
+    const char* socket_name = data;
+    if (printf(FB_ADB_STUB_DAEMON_LINE "\n",
+               build_fingerprint,
+               socket_name,
+               (unsigned) getpid()) < 0)
+        die_errno("printf");
+    if (fflush(stdout) == -1)
+        die_errno("flush");
+}
+
+static bool
+run_daemon(const struct cmd_stub_info* info)
+{
+    SCOPED_RESLIST(rl);
+    const char* socket_name =
+        xaprintf("fb-adb-stub-%s",
+                 gen_hex_random(ENOUGH_ENTROPY));
+    int listening_socket = xsocket(AF_UNIX, SOCK_STREAM, 0);
+    xbind(listening_socket,
+          make_addr_unix_abstract(
+              socket_name, strlen(socket_name)));
+    xlisten(listening_socket, 5);
+
+    if (info->stub.daemonize)
+        become_daemon(stub_daemon_setup, (void*) socket_name);
+    else
+        stub_daemon_setup((void*) socket_name);
+
+    dbg("accepting connections");
+
+    for (;;) {
+        SCOPED_RESLIST(accept_rl);
+        int client_fd = xaccept_timed(listening_socket, DAEMON_TIMEOUT_MS);
+        if (client_fd == -1) {
+            android_msg(ANDROID_LOG_INFO,
+                        "fb-adb daemon timed out; exiting");
+            return false;
+        }
+        dbg("accepted client: fd=%d", client_fd);
+        pid_t child = fork();
+        if (child == (pid_t) -1) {
+            android_msg(ANDROID_LOG_WARN,
+                        "fork failed: %s",
+                        strerror(errno));
+            continue;
+        }
+
+        if (child == 0) {
+            xdup3nc(client_fd, STDIN_FILENO, 0);
+            xdup3nc(client_fd, STDOUT_FILENO, 0);
+            return true;
+        }
+    }
+}
+
+static int
+stub_main_1(const struct cmd_stub_info* info)
+{
+    if (info->stub.listen && !run_daemon(info))
+        return 0;
+
     /* Never unset raw mode.  We never change from raw back to cooked
      * mode on exit.  The connection dies on exit anyway, and
      * resetting the pty can send some extra bytes that can confuse
      * our peer. */
 
     for (int fd = 0; fd <= 1; ++fd)
-        xmkraw(fd);
+        if (isatty(fd))
+            xmkraw(fd);
 
     unsigned my_api_level;
 #ifdef __ANDROID__
@@ -725,11 +817,7 @@ stub_main_1(void)
     should_send_error_packet = true;
 
     struct msg_shex_hello* shex_hello;
-    reader rdr = read_all_adb_encoded;
-
-    if (!isatty(0))
-        rdr = read_all;
-
+    reader rdr = isatty(0) ? read_all_adb_encoded : read_all;
     struct msg* mhdr = read_msg(0, rdr);
 
     if (mhdr->type == MSG_REBIND_TO_UNIX_SOCKET ||
@@ -785,12 +873,12 @@ stub_main_1(void)
 
     ch[FROM_PEER]->window = UINT32_MAX;
     ch[FROM_PEER]->adb_encoding_hack = !!(rdr == read_all_adb_encoded);
-    replace_with_dev_null(0);
 
     ch[TO_PEER] = channel_new(fdh_dup(1),
                               shex_hello->stub_send_bufsz,
                               CHANNEL_TO_FD);
-    replace_with_dev_null(1);
+
+    replace_stdin_stdout_with_dev_null();
 
     // See comment in cmd_shex.c
     ch[TO_PEER]->always_buffer = true;
@@ -888,10 +976,16 @@ stub_main_1(void)
     return 0;
 }
 
+struct stub_main_context {
+    const struct cmd_stub_info *info;
+    int ret;
+};
+
 static void
 stub_main_trampoline(void* data)
 {
-    *(int*)data = stub_main_1();
+    struct stub_main_context* ctx = data;
+    ctx->ret = stub_main_1(ctx->info);
 }
 
 static void
@@ -913,23 +1007,19 @@ send_error_packet(void* data)
 int
 stub_main(const struct cmd_stub_info* info)
 {
-    int ret;
+    if (info->stub.daemonize && !info->stub.listen)
+        usage_error("--daemonize without --listen is nonsensical");
+
+    struct stub_main_context ctx = { .info = info };
     struct errinfo ei = { .want_msg = true };
-    if (catch_error(stub_main_trampoline, &ret, &ei)) {
-#ifdef __ANDROID__
-        (void) __android_log_print(
-            ANDROID_LOG_ERROR,
-            LOG_TAG,
-            "%s: %s",
-            ei.prgname, ei.msg);
-#endif
+    if (catch_error(stub_main_trampoline, &ctx, &ei)) {
+        android_msg(ANDROID_LOG_ERROR, "%s", ei.msg);
         if (should_send_error_packet) {
             (void) catch_error(send_error_packet, &ei, NULL);
             return 1; // Exit silently
         }
-
         die_rethrow(&ei);
     }
 
-    return ret;
+    return ctx.ret;
 }

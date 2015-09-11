@@ -37,6 +37,7 @@
     _m(MSG_CMDLINE_DEFAULT_SH)                     \
     _m(MSG_CMDLINE_DEFAULT_SH_LOGIN)               \
     _m(MSG_CMDLINE_EXEC_FILE)                      \
+    _m(MSG_CMDLINE_SELF_ARGV0)                     \
     _m(MSG_EXEC_AS_ROOT)                           \
     _m(MSG_EXEC_AS_USER)                           \
     _m(MSG_CHDIR)                                  \
@@ -224,3 +225,5 @@ static const unsigned CHILD_STDERR = 4;
 
 #define FB_ADB_FINGERPRINT_LENGTH 22
 #define FB_ADB_PROTO_START_LINE "FB_ADB %22s (x=%x) (u=%x) (a=%x)"
+#define FB_ADB_STUB_DAEMON_SOCKET_NAME_LENGTH 44
+#define FB_ADB_STUB_DAEMON_LINE "FB_ADB %22s (listening@%44s pid=%u)"

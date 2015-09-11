@@ -197,7 +197,7 @@ logcat_json_main(const struct cmd_logcat_json_info* info)
     struct strlist* args = strlist_new();
     strlist_append(args, orig_argv0);
     strlist_append(args, "shell");
-    strlist_xfer(args, make_args_cmd_shell(CMD_ARG_ALL, &shcmdi));
+    strlist_xfer(args, make_args_cmd_shell(CMD_ARG_FORWARDED, &shcmdi));
 
     struct child_start_info csi = {
         .flags = (CHILD_NULL_STDIN | CHILD_INHERIT_STDERR),

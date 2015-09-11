@@ -32,3 +32,15 @@
 // LZ4 will emit all literals for blocks smaller than this value, so
 // don't bother attempting to compressing them.
 #define MIN_COMPRESSION_BLOCK 13
+
+// This number of bytes of entropy protects against file and socket
+// name collisions and makes the names of these things unguessable.
+#define ENOUGH_ENTROPY 16
+
+// Number of milliseconds the stub daemon will wait for a new
+// connection before exiting
+#define DAEMON_TIMEOUT_MS (5*60*1000)
+
+// Number of milliseconds we wait for a TCP connection callback when
+// we don't have an ADB stub process to monitor.
+#define TCP_CALLBACK_MS (1*1000)

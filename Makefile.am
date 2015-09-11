@@ -30,6 +30,7 @@ CMD_SOURCES = \
 	cmd_help.c \
 	cmd_bash_completion.c \
 	cmd_getprop.c \
+	cmd_start_daemon.c \
 	fb-adb.c \
 	cmd.h \
 	cmd.c \
@@ -83,6 +84,7 @@ libfb_adb_a_SOURCES = \
 	utf8.c \
 	elfid.h \
 	elfid.c \
+	errcodes.h \
 	$(CMD_SOURCES) \
 	$(EMPTY)
 

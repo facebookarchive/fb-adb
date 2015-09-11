@@ -26,6 +26,7 @@ struct strlist* strlist_new(void);
 void strlist_append(struct strlist* sl, const char* s);
 void strlist_extend(struct strlist* sl, const struct strlist* src);
 void strlist_extend_argv(struct strlist* sl, const char* const* src);
+struct strlist* strlist_from_argv(const char* const* argv);
 const char* strlist_rewind(const struct strlist* sl);
 const char* strlist_next(const struct strlist* sl);
 const char** strlist_to_argv(const struct strlist* sl);

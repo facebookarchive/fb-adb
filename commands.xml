@@ -351,6 +351,7 @@ code, and bash completion file.
     Print information in JSON format about paths on device.
     The output is a JSON array with one entry for each of the
     given paths.
+    <!-- XXX: DOCUMENT ME BETTER! -->
     <argument name="paths"
               repeat="yes"
               optional="yes"
@@ -369,8 +370,6 @@ code, and bash completion file.
     <optgroup-reference name="user"/>
     <optgroup-reference name="cwd"/>
     <?endif?>
-    <vspace/>
-    <!-- XXX: DOCUMENT ME BETTER! -->
   </command>
   <command names="fcat">
     Write the contents of zero or more device files to standard output.
@@ -463,7 +462,7 @@ code, and bash completion file.
     <optgroup-reference name="cwd"/>
     <optgroup-reference name="shex"/>
   </command>
-  <command names="rcmd" export-parse-args="yes">
+  <command names="rcmd">
     Run a command on device.  Unlike <b>fb-adb shell</b>, this command
     does not invoke the shell.  It instead runs
     <b>command</b> directly.
@@ -474,6 +473,20 @@ code, and bash completion file.
     </argument>
     <argument name="args" repeat="yes" optional="yes" type="device-path">
       Arguments to send to the <i>command</i>.
+    </argument>
+    <optgroup-reference name="adb"/>
+    <optgroup-reference name="transport" />
+    <optgroup-reference name="user"/>
+    <optgroup-reference name="cwd"/>
+    <optgroup-reference name="shex"/>
+  </command>
+  <command names="rcmd-self" internal="yes" export-parse-args="yes">
+    Like <b>fb-adb rcmd</b>, except that the program to run is
+    hard-wired to be the <b>fb-adb</b> stub itself.  This special case
+    is necessary to properly propagate argv0.
+    <argument name="args" repeat="yes" optional="yes" type="device-path">
+      Arguments to send to the inferior <b>fb-adb</b>.  The first
+      argument is the command to run.
     </argument>
     <optgroup-reference name="adb"/>
     <optgroup-reference name="transport" />
@@ -525,9 +538,40 @@ code, and bash completion file.
     <optgroup-reference name="shex"/>
   </command>
   <?endif?>
+  <command names="start-daemon">
+    Start a daemon on a randomly-named abstract AF_UNIX socket and
+    emit an FB_ADB_STUB_DAEMONIZED_LINE describing the daemon name on
+    standard output.  <b>fb-adb</b> will connect to this daemon the
+    next time it runs a command as user <i>package</i>.
+    <vspace/>
+    This command is intended primarily for internal use (we invoke it
+    automatically to work around bugs in the Android <b>run-as</b>
+    utility), but as starting daemons manually may be useful for
+    performance reasons, we document the command here.
+    <argument name="package">
+      The name of the package in which to start a daemon.
+    </argument>
+    <?ifdef FBADB_MAIN?>
+    <optgroup-reference name="adb"/>
+    <?endif?>
+  </command>
   <command names="stub" internal="yes">
     Internal command that the fb-adb host program invokes on device to
-    implement remote commands.
+    implement remote commands.  Start speaking the <b>fb-adb</b> protocol
+    on standard input and output.
+    <optgroup name="stub">
+      <option short="l" long="listen">
+        Instead of speaking the <b>fb-adb</b> protocol on standard
+        input and output, listen on a randomly-named abstract AF_UNIX
+        socket, print FB_ADB_STUB_DAEMONIZED_LINE on standard output,
+        and begin accepting connections.  We use this mode of
+        operation to work around bugs in Android <b>run-as</b>.
+      </option>
+      <option short="d" long="daemonize">
+        Put this program into the background before beginning to
+        listen for connections.  Useful only with <b>--listen</b>.
+      </option>
+    </optgroup>
   </command>
   <section name="Environment Variables">
     <dl>
@@ -554,6 +598,7 @@ code, and bash completion file.
       an effect when <b>fb-adb</b> is compiled with the
       --enable-checking option.
       </dd>
+      <?ifdef FBADB_MAIN?>
       <dt>FB_ADB_REMOTE_DEBUG</dt>
       <dd>This option, set on the host system, becomes the value of
       <b>FB_ADB_DEBUG</b> on the target system.
@@ -576,6 +621,7 @@ code, and bash completion file.
         This environment variable provides the default value of the
         <b>--transport</b> option.
       </dd>
+      <?endif?>
       <dt>FB_ADB_COLOR</dt>
       <dd>
         <b>fb-adb</b> normally tries to print help messages in color

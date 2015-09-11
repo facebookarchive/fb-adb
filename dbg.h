@@ -10,6 +10,8 @@
  */
 #pragma once
 #include <stdio.h>
+#include <stdarg.h>
+#include <stdbool.h>
 
 #ifdef NDEBUG
 #define dbg(...) ({;})
@@ -27,6 +29,7 @@ extern FILE* dbgout;
 #define dbg(...) ({ if (dbgout) dbg_1(__VA_ARGS__); })
 __attribute__((format(printf, 1, 2)))
 void dbg_1(const char* fmt, ...);
+void dbg_1v(const char* fmt, va_list args);
 void dbg_init(void);
 void dbglock(void);
 void dbglock_init(void);
@@ -36,3 +39,13 @@ const char* chname(int chno);
 void dbgmsg(const struct msg* msg, const char* tag);
 void dbgch(const char* label, struct channel** ch, unsigned nrch);
 #endif
+
+static inline bool
+dbg_enabled_p(void)
+{
+#ifdef NDEBUG
+    return false;
+#else
+    return dbgout != NULL;
+#endif
+}

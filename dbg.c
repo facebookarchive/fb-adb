@@ -54,30 +54,36 @@ dbg_init(void)
     }
 }
 
-static bool
-dbg_enabled_p(void)
+static void
+dbg_internal(const char* fmt, va_list args)
 {
-    return dbgout != NULL;
+    int saved_errno = errno;
+    SCOPED_RESLIST(rl_dbg);
+    dbglock();
+    fprintf(dbgout, "%s(%4d): ", prgname, getpid());
+    vfprintf(dbgout, fmt, args);
+    putc('\n', dbgout);
+    fflush(dbgout);
+    errno = saved_errno;
+}
+
+void
+dbg_1v(const char* fmt, va_list args)
+{
+    if (dbg_enabled_p())
+        dbg_internal(fmt, args);
 }
 
 void
 dbg_1(const char* fmt, ...)
 {
-    int saved_errno = errno;
     if (dbg_enabled_p()) {
-        SCOPED_RESLIST(rl_dbg);
-        dbglock();
         va_list args;
-        fprintf(dbgout, "%s(%4d): ", prgname, getpid());
         va_start(args, fmt);
-        vfprintf(dbgout, fmt, args);
+        dbg_internal(fmt, args);
         va_end(args);
-        putc('\n', dbgout);
-        fflush(dbgout);
     }
-    errno = saved_errno;
 }
-
 
 static void
 cleanup_dbginit(void* arg)

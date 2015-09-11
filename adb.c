@@ -22,31 +22,10 @@
 #include "argv.h"
 #include "strutil.h"
 
-static bool
-errend_p(char c)
-{
-    return c == '\0' || c == '\n' || c == '\r';
-}
-
 static char*
 output2str(struct child_communication* com)
 {
-    const char* s = (const char*) com->out[0].bytes;
-    size_t nr_bytes = com->out[0].nr;
-    size_t endpos = 0;
-    static const char prefix[] = "error: ";
-
-    if (strlen(prefix) <= nr_bytes &&
-        strncmp(s, prefix, strlen(prefix)) == 0)
-    {
-        s += strlen(prefix);
-        nr_bytes -= strlen(prefix);
-    }
-
-    while (endpos < nr_bytes && !errend_p(s[endpos]))
-        ++endpos;
-
-    return xstrndup(s, endpos);
+    return massage_output(com->out[0].bytes, com->out[0].nr);
 }
 
 static struct child_communication*

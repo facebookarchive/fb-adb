@@ -42,21 +42,34 @@
 #include "xmkraw.h"
 #include "fs.h"
 #include "elfid.h"
+#include "errcodes.h"
+#include "peer.h"
 
 #define ARG_DEFAULT_SH ((const char*)MSG_CMDLINE_DEFAULT_SH)
 #define ARG_DEFAULT_SH_LOGIN ((const char*)MSG_CMDLINE_DEFAULT_SH_LOGIN)
 #define ARG_EXEC_FILE ((const char*)MSG_CMDLINE_EXEC_FILE)
+#define ARG_CMDLINE_SELF_ARGV0 ((const char*)MSG_CMDLINE_SELF_ARGV0)
 
-enum transport {
+enum transport_type {
     transport_shell,
     transport_unix,
     transport_tcp,
+};
+
+struct transport {
+    enum transport_type type;
+    const char* tcp_addr;
 };
 
 struct childcom {
     struct fdh* to_child;
     struct fdh* from_child;
     void (*writer)(int, const void*, size_t);
+};
+
+struct adb_info {
+    const char* const* adb_args;
+    const struct adb_opts* adb_opts;
 };
 
 static void
@@ -103,7 +116,6 @@ struct fb_adb_shex {
 static bool
 parse_child_hello(const char* line, struct child_hello* chello)
 {
-    memset(chello, 0, sizeof (*chello));
     int n = -1;
     sscanf(line, FB_ADB_PROTO_START_LINE "%n",
            &chello->ver[0],
@@ -565,6 +577,10 @@ send_cmdline_argument(const struct childcom* tc, const void* val)
         val = NULL;
         valsz = 0;
         type = MSG_CMDLINE_EXEC_FILE;
+    } else if (val == ARG_CMDLINE_SELF_ARGV0) {
+        val = NULL;
+        valsz = 0;
+        type = MSG_CMDLINE_SELF_ARGV0;
     } else {
         valsz = strlen((const char*)val);
         type = MSG_CMDLINE_ARGUMENT;
@@ -659,34 +675,29 @@ command_re_exec_as_root(const struct childcom* tc)
             chello.uid);
 }
 
-enum re_exec_status {
-    RE_EXEC_OKAY,
-    RE_EXEC_STUB_NEEDED
-};
-
-struct re_exec_info {
+struct re_exec_as_user_ctx {
     const struct childcom* tc;
-    const char* username;
+    const char* want_user;
     bool shell_thunk;
 };
 
 static void
 command_re_exec_as_user_1(void* arg)
 {
-    const struct re_exec_info* info = arg;
+    const struct re_exec_as_user_ctx* info = arg;
 
     SCOPED_RESLIST(rl_re_exec_as_user);
 
     // Tell child to re-exec itself as our user.  It'll send another
     // hello message, which we read below.
 
-    const char* username = info->username;
+    const char* want_user = info->want_user;
     const struct childcom* tc = info->tc;
 
     struct msg_exec_as_user* m;
-    size_t username_length = strlen(username);
+    size_t want_user_length = strlen(want_user);
     size_t alloc_size = sizeof (*m);
-    if (SATADD(&alloc_size, alloc_size, username_length) ||
+    if (SATADD(&alloc_size, alloc_size, want_user_length) ||
         alloc_size > MSG_MAX_SIZE)
     {
         die(EINVAL, "username too long");
@@ -696,7 +707,7 @@ command_re_exec_as_user_1(void* arg)
     m->msg.size = alloc_size;
     m->msg.type = MSG_EXEC_AS_USER;
     m->shell_thunk = info->shell_thunk;
-    memcpy(m->username, username, username_length);
+    memcpy(m->username, want_user, want_user_length);
     tc_sendmsg(tc, &m->msg);
 
     struct chat* cc = tc_chat_new(tc);
@@ -708,40 +719,27 @@ command_re_exec_as_user_1(void* arg)
 
     struct child_hello chello;
     if (!parse_child_hello(resp, &chello))
-        die(ECOMM, "trouble re-execing adb stub as %s: %s", username, resp);
+        die(ECOMM, "trouble re-execing adb stub as %s: %s",
+            want_user, resp);
+
+    if (strcmp(chello.ver, build_fingerprint) != 0)
+        die(ERR_FINGERPRINT_MISMATCH, "stale child");
 }
 
-static enum re_exec_status
-command_re_exec_as_user(
-    const struct childcom* tc,
-    const char* username,
-    bool shell_thunk)
+static bool
+re_exec_error_permission_denied_p(const struct errinfo* ei)
 {
-    struct re_exec_info info = {
-        .tc = tc,
-        .username = username,
-        .shell_thunk = shell_thunk,
-    };
+    return (ei->err == ECOMM &&
+            string_starts_with_p(ei->msg, "trouble re-execing adb stub as ") &&
+            strstr(ei->msg, ": exec failed ") &&
+            string_ends_with_p(ei->msg, ": Permission denied"));
+}
 
-    struct errinfo ei = {
-        .want_msg = 1,
-    };
-
-    if (catch_error(command_re_exec_as_user_1, &info, &ei)) {
-        if (ei.err == ECOMM &&
-            string_starts_with_p(ei.msg, "trouble re-execing adb stub as ") &&
-            string_ends_with_p(ei.msg, "Error:Permission denied") &&
-            shell_thunk == false)
-        {
-            dbg("error indicating retry with stub hack needed: [%s]",
-                ei.msg);
-            return RE_EXEC_STUB_NEEDED;
-        }
-
-        die_rethrow(&ei);
-    }
-
-    return RE_EXEC_OKAY;
+static bool
+re_exec_error_package_unknown_p(const struct errinfo* ei)
+{
+    return (ei->err == ECOMM &&
+            string_ends_with_p(ei->msg, "' is unknown"));
 }
 
 static void
@@ -792,6 +790,39 @@ send_rebind_to_unix_socket_message(const struct childcom* tc,
 }
 
 static struct childcom*
+connect_to_device_socket(
+    const char* const* adb_args,
+    const char* device_socket)
+{
+    SCOPED_RESLIST(rl);
+    char* host_socket =
+        xaprintf("%s/fb-adb-conn-%s.sock",
+                 system_tempdir(),
+                 gen_hex_random(ENOUGH_ENTROPY));
+
+    char* remote = xaprintf("localabstract:%s", device_socket);
+    char* local = xaprintf("localfilesystem:%s", host_socket);
+
+    struct cleanup* ucl = cleanup_allocate();
+    struct remove_forward_cleanup* crf =
+        remove_forward_cleanup_allocate(local, adb_args);
+    adb_add_forward(local, remote, adb_args);
+    cleanup_commit(ucl, unlink_cleanup, host_socket);
+    remove_forward_cleanup_commit(crf);
+
+    int scon = xsocket(AF_UNIX, SOCK_STREAM, 0);
+    xconnect(scon, make_addr_unix_filesystem(host_socket));
+
+    WITH_CURRENT_RESLIST(rl->parent);
+    struct childcom* ntc = xcalloc(sizeof (*ntc));
+    ntc->from_child = fdh_dup(scon);
+    ntc->to_child = fdh_dup(scon);
+    ntc->writer = write_all;
+    dbg("AF_UNIX connection local:%s remote:%s", local, remote);
+    return ntc;
+}
+
+static struct childcom*
 reconnect_over_unix_socket(
     const struct childcom* tc,
     const char* const* adb_args)
@@ -815,32 +846,8 @@ reconnect_over_unix_socket(
         die(ECOMM, "child sent incorrect reply %u to socket bind",
             (unsigned) reply->type);
 
-    char* host_socket =
-        xaprintf("%s/fb-adb-conn-%s.sock",
-                 system_tempdir(),
-                 gen_hex_random(10));
-
-    char* remote = xaprintf("localabstract:%s", device_socket);
-    char* local = xaprintf("localfilesystem:%s", host_socket);
-
-    struct unlink_cleanup* ucl = unlink_cleanup_allocate(host_socket);
-    struct remove_forward_cleanup* crf =
-        remove_forward_cleanup_allocate(local, adb_args);
-
-    adb_add_forward(local, remote, adb_args);
-    unlink_cleanup_commit(ucl);
-    remove_forward_cleanup_commit(crf);
-
-    int scon = xsocket(AF_UNIX, SOCK_STREAM, 0);
-    xconnect(scon, make_addr_unix_filesystem(host_socket));
-
     WITH_CURRENT_RESLIST(rl->parent);
-    struct childcom* ntc = xcalloc(sizeof (*ntc));
-    ntc->from_child = fdh_dup(scon);
-    ntc->to_child = fdh_dup(scon);
-    ntc->writer = write_all;
-    dbg("rebound stub connection local:%s remote:%s", local, remote);
-    return ntc;
+    return connect_to_device_socket(adb_args, device_socket);
 }
 
 static struct child* monitored_child;
@@ -954,7 +961,18 @@ reconnect_over_tcp_socket(const struct childcom* tc,
         __builtin_unreachable();
     }
 
-    int conn = accept_die_on_sigchld(sock, adb);
+    int conn;
+
+    if (adb != NULL) {
+        conn = accept_die_on_sigchld(sock, adb);
+    } else {
+        SCOPED_RESLIST(rl_accept_timeo);
+        set_timeout_ms(TCP_CALLBACK_MS,
+                       ETIMEDOUT,
+                       "timed out waiting for TCP callback");
+        WITH_CURRENT_RESLIST(rl_accept_timeo->parent);
+        conn = xaccept(sock);
+    }
 
     disable_tcp_nagle(conn);
 
@@ -975,24 +993,26 @@ block_signal(int signo)
     sigprocmask(SIG_BLOCK, &blocked_signals, NULL);
 }
 
-static void
-parse_transport(const char* s,
-                enum transport* transport,
-                const char** tcp_addr)
+static struct transport
+parse_transport(const char* s)
 {
+    struct transport transport = { 0 };
+
     if (strcmp(s, "shell") == 0) {
-        *transport = transport_shell;
+        transport.type = transport_shell;
     } else if (strcmp(s, "socket") == 0) {
-        *transport = transport_unix;
+        transport.type = transport_unix;
     } else if (string_starts_with_p(s, "tcp:")) {
-        *transport = transport_tcp;
+        transport.type = transport_tcp;
         const char* addrpart = s + strlen("tcp:");
         if (!strchr(addrpart, ','))
             die(EINVAL, "invalid tcp spec: no port");
-        *tcp_addr = addrpart;
+        transport.tcp_addr = addrpart;
     } else {
         die(EINVAL, "unknown transport %s", s);
     }
+
+    return transport;
 }
 
 static void
@@ -1397,49 +1417,389 @@ handle_open_exec_response(const struct shex_common_info* info,
     return false;
 }
 
-static int
-shex_main_common(const struct shex_common_info* info)
+static char*
+daemon_cache_file_name(const char* want_user)
+{
+    return xaprintf("%s/socket-name-cache-%s",
+                    my_fb_adb_directory(),
+                    want_user /* already sanity-checked */);
+
+}
+
+static struct childcom*
+connect_fb_adb_daemon(const char* const* adb_args,
+                      const char* want_user,
+                      struct child_hello* chello)
+{
+    SCOPED_RESLIST(rl);
+    const char* cache_file_name = daemon_cache_file_name(want_user);
+    dbg("looking for cached socket name for fb-adb daemon "
+        "running as user %s in cache file [%s]",
+        want_user, cache_file_name);
+    struct stat st;
+    if (stat(cache_file_name, &st) != 0)
+        die(ECOMM, "fb-adb daemon cache stat failed: %s",
+            strerror(errno));
+    time_t now = time(NULL);
+    if (st.st_mtime > now)
+        die(ECOMM, "fb-adb daemon cache file from future");
+    struct cleanup* cache_unlink_cl = cleanup_allocate();
+    cleanup_commit(cache_unlink_cl, unlink_cleanup, cache_file_name);
+    uint64_t cache_file_age_s = now - st.st_mtime;
+    uint64_t cache_max_age_s = (DAEMON_TIMEOUT_MS+999)/1000;
+    dbg("cache file age is %llu seconds",
+        (unsigned long long) cache_file_age_s);
+    dbg("maximum valid cache file age is %llu seconds",
+        (unsigned long long) cache_max_age_s);
+    if (cache_file_age_s >= cache_max_age_s)
+        die(ECOMM, "fb-adb daemon cache file stale");
+    int cache_file_fd = xopen(cache_file_name, O_RDONLY, 0);
+    char buf[256]; // Bounded by AF_UNIX name length
+    xflock(cache_file_fd, LOCK_SH);
+    size_t nr_read = read_all(cache_file_fd, buf, sizeof (buf) - 1);
+    xflock(cache_file_fd, LOCK_UN);
+    if (nr_read == sizeof (buf) - 1 || buf[0] != '\1' || nr_read < 10)
+        die(ECOMM, "invalid cache file format");
+    buf[nr_read] = '\0';
+    const char* socknam = &buf[1];
+    SCOPED_RESLIST(rl_tc);
+    struct childcom* tc = connect_to_device_socket(adb_args, socknam);
+    WITH_CURRENT_RESLIST(rl_tc->parent);
+    struct chat* cc = tc_chat_new(tc);
+    char* resp = chat_read_line(cc);
+    if (!parse_child_hello(resp, chello))
+        die(ECOMM, "trouble reading daemon socket for %s: [%s]",
+            want_user, resp);
+    if (strcmp(chello->ver, build_fingerprint) != 0)
+        die(ERR_FINGERPRINT_MISMATCH, "stale daemon");
+    struct timeval new_cache_filetimes[2];
+    VERIFY(gettimeofday(&new_cache_filetimes[0], NULL) == 0);
+    new_cache_filetimes[1] = new_cache_filetimes[0];
+    int touch_ret;
+#ifdef HAVE_FUTIMES
+    touch_ret = futimes(cache_file_fd, new_cache_filetimes);
+#else
+    touch_ret = utimes(cache_file_name, new_cache_filetimes);
+#endif
+
+    if (touch_ret == -1)
+        dbg("warning: could not touch cache file [%s]: %s",
+            cache_file_name, strerror(errno));
+    else
+        dbg("refreshed time on cache file [%s] for user [%s]",
+            cache_file_name, want_user);
+
+    cleanup_forget(cache_unlink_cl);
+    reslist_xfer(rl->parent, rl_tc);
+    return tc;
+}
+
+struct try_connect_fb_adb_daemon_ctx {
+    const char* const* adb_args;
+    const char* want_user;
+    struct child_hello* chello;
+    struct childcom* tc;
+};
+
+static void
+try_connect_fb_adb_daemon_1(void* data)
+{
+    struct try_connect_fb_adb_daemon_ctx* ctx = data;
+    ctx->tc = connect_fb_adb_daemon(
+        ctx->adb_args,
+        ctx->want_user,
+        ctx->chello);
+}
+
+static struct childcom*
+try_connect_fb_adb_daemon(const char* const* adb_args,
+                          const char* want_user,
+                          struct child_hello* chello)
+{
+    struct try_connect_fb_adb_daemon_ctx ctx = {
+        .adb_args = adb_args,
+        .want_user = want_user,
+        .chello = chello,
+    };
+
+    struct errinfo ei = {
+#ifndef NDEBUG
+        .want_msg = true
+#endif
+    };
+
+    if (catch_error(try_connect_fb_adb_daemon_1, &ctx, &ei)) {
+        dbg("could not connect to fb-adb daemon: %s", ei.msg);
+        return NULL;
+    }
+
+    return ctx.tc;
+}
+
+static void
+check_sane_user_name(const char* want_user)
+{
+    bool bad_user_name = false;
+    if (!strcmp(want_user, ".") ||
+        !strcmp(want_user, "..") ||
+        !strcmp(want_user, ""))
+    {
+        bad_user_name = true;
+    }
+
+    for (size_t i = 0; !bad_user_name && i < strlen(want_user); ++i) {
+        if (want_user[i] <= 0x1F ||
+            want_user[i] == 0x7F ||
+            want_user[i] == '/')
+        {
+            bad_user_name = true;
+        }
+    }
+
+    if (bad_user_name)
+        die(EINVAL, "invalid user name");
+}
+
+static struct childcom*
+tc_for_child(struct child* child)
+{
+    struct childcom* tc = xcalloc(sizeof (*tc));
+    tc->to_child = child->fd[0];
+    tc->from_child = child->fd[1];
+    tc->writer = write_all_adb_encoded;
+    return tc;
+}
+
+struct tc_connect_user_state {
+    bool shell_thunk;
+    bool tried_starting_service;
+};
+
+static struct childcom*
+tc_upgrade(struct childcom* tc,
+           const char* const* adb_args,
+           struct transport transport,
+           struct child* child)
+{
+    if (transport.type == transport_unix)
+        tc = reconnect_over_unix_socket(tc, adb_args);
+    else if (transport.type == transport_tcp)
+        tc = reconnect_over_tcp_socket(tc, child, transport.tcp_addr);
+    return tc;
+}
+
+void
+start_fb_adb_service(const struct adb_opts* adb_opts,
+                     const char* want_user)
 {
     SCOPED_RESLIST(rl);
 
-    size_t max_cmdsz = DEFAULT_MAX_CMDSZ;
-    bool local_mode = false;
-    enum { TTY_AUTO,
-           TTY_SOCKPAIR,
-           TTY_DISABLE,
-           TTY_ENABLE,
-           TTY_SUPER_ENABLE } tty_mode = TTY_AUTO;
+    struct start_peer_info spi = {
+        .adb = *adb_opts,
+    };
 
-    struct tty_flags tty_flags[3];
-    struct strlist* adb_args_list = strlist_new();
-    emit_args_adb_opts(adb_args_list, &info->adb);
-    const char* const* adb_args = strlist_to_argv(adb_args_list);
+    struct cmd_start_daemon_info spdi = {
+        .package = want_user,
+    };
+
+    struct child* peer = start_peer(
+        &spi,
+        make_args_cmd_start_daemon(
+            CMD_ARG_NAME | CMD_ARG_FORWARDED,
+            &spdi));
+
+    fdh_destroy(peer->fd[0]);
+    peer->fd[0] = NULL;
+
+    char* output;
+    {
+        SCOPED_RESLIST(slurp_rl);
+        size_t bufsz = 1024;
+        uint8_t* buf = xalloc(bufsz);
+        size_t sz = read_all(peer->fd[1]->fd, buf, bufsz);
+        fdh_destroy(peer->fd[1]);
+        peer->fd[1] = NULL;
+        WITH_CURRENT_RESLIST(slurp_rl->parent);
+        output = massage_output(buf, sz);
+    }
+
+    struct daemon_hello dhello;
+    bool have_dhello = false;
+    int peer_status = child_wait(peer);
+    if (child_status_success_p(peer_status)) {
+        SCOPED_RESLIST(rl_parse);
+        char* saveptr = NULL;
+        for (char* line = strtok_r(xstrdup(output), "\n", &saveptr);
+             line != NULL;
+             line = strtok_r(NULL, "\n", &saveptr))
+        {
+            if (parse_daemon_hello(line, &dhello)) {
+                have_dhello = true;
+                    break;
+            }
+        }
+    }
+
+    if (!have_dhello)
+        die(ECOMM, "error starting daemon: (exit:%d) %s",
+            child_status_to_exit_code(peer_status),
+            (output && output[0]) ? output : "[no output]");
+
+    dbg("started daemon on device; listening socket [%s]",
+        dhello.socket_name);
+
+    const char* cache_file_name = daemon_cache_file_name(want_user);
+    int cache_file_fd = xopen(cache_file_name, O_RDWR | O_CREAT, 0600);
+    xflock(cache_file_fd, LOCK_EX);
+    if (ftruncate(cache_file_fd, 0) == -1)
+        die_errno("ftruncate");
+    uint8_t vertag = '\1';
+    write_all(cache_file_fd, &vertag, sizeof (vertag));
+    write_all(cache_file_fd,
+              dhello.socket_name,
+              strlen(dhello.socket_name));
+    xflock(cache_file_fd, LOCK_UN);
+}
+
+static struct childcom*
+tc_connect_user_attempt(const struct adb_info* ai,
+                        const char* want_user,
+                        struct transport transport,
+                        struct child_hello* chello,
+                        struct tc_connect_user_state* state)
+{
+    SCOPED_RESLIST(rl);
+    const char* const* adb_args = ai->adb_args;
+    struct childcom* tc = try_connect_fb_adb_daemon(
+        ai->adb_args, want_user, chello);
+    if (tc != NULL) {
+        dbg("connected to fb-adb daemon");
+        if (transport.type == transport_tcp)
+            tc = reconnect_over_tcp_socket(tc, NULL, transport.tcp_addr);
+        reslist_xfer(rl->parent, rl);
+        return tc;
+    }
+
+    struct child* adb = start_stub_adb(adb_args, chello);
+
+    if (state->shell_thunk == false && chello->api_level >= 21) {
+        // See the comments in re_exec_as_root over in cmd_stub.c
+        // for the reason we need this hack.  On API level 21 and
+        // above, we use a shell thunk unconditionally, but a few
+        // downlevel devices also need it, so handle this rare
+        // case by catching errors arising from this condition and
+        // trying again below.
+        dbg("using shell thunk unconditionally on API21+ device");
+        state->shell_thunk = true;
+    }
+
+    tc = tc_for_child(adb);
+
+    // Prefer to upgrade connection before user switch so that
+    // accounts without NETWORK access can use network fb-adb
+    // transports; defeated by SELinux on later versions of Android,
+    // where we have to upgrade the connection after the switch.
+
+    if (chello->api_level < 19)
+        tc = tc_upgrade(tc, adb_args, transport, adb);
+
+    struct errinfo ei = {
+        .want_msg = true
+    };
+
+    struct re_exec_as_user_ctx ctx = {
+        .tc = tc,
+        .want_user = want_user,
+        .shell_thunk = state->shell_thunk,
+    };
+
+    if (catch_error(command_re_exec_as_user_1, &ctx, &ei)) {
+        if (re_exec_error_permission_denied_p(&ei) &&
+            state->shell_thunk == false)
+        {
+            dbg("run-as permission denied: trying shell thunk");
+            state->shell_thunk = true;
+        } else if (re_exec_error_package_unknown_p(&ei) &&
+                   state->tried_starting_service == false)
+        {
+            dbg("run-as could not find package: did we hit the "
+                "package list size overflow bug?  Try using the "
+                "service mechanism instead.");
+            start_fb_adb_service(ai->adb_opts, want_user);
+            state->tried_starting_service = true;
+        } else if (ei.err == ERR_FINGERPRINT_MISMATCH) {
+            dbg("got wrong build hash from re-execed fb-adb stub; "
+                "trying again from the start");
+        } else {
+            die_rethrow(&ei);
+        }
+
+        return NULL;
+    }
+
+    if (chello->api_level >= 19)
+        tc = tc_upgrade(tc, adb_args, transport, adb);
+
+    reslist_xfer(rl->parent, rl);
+    return tc;
+}
+
+static struct childcom*
+tc_connect_user(const struct adb_info* ai,
+                const char* want_user,
+                struct transport transport,
+                struct child_hello* chello)
+{
+    struct tc_connect_user_state state = { 0 };
+
+    struct childcom* tc;
+    do {
+        tc = tc_connect_user_attempt(
+            ai,
+            want_user,
+            transport,
+            chello,
+            &state);
+    } while (tc == NULL);
+
+    return tc;
+}
+
+static struct childcom*
+tc_connect_normal(const char* const* adb_args,
+                  bool want_root,
+                  struct transport transport,
+                  struct child_hello* chello)
+{
+    struct child* adb = start_stub_adb(adb_args, chello);
+    struct childcom* tc = tc_for_child(adb);
+
+    if (want_root && chello->uid != 0)
+        command_re_exec_as_root(tc);
+
+    tc = tc_upgrade(tc, adb_args, transport, adb);
+    return tc;
+}
+
+static struct childcom*
+tc_connect(const struct shex_common_info* info,
+           const char* const* adb_args,
+           struct child_hello* chello)
+{
+    bool local_mode = false;
     bool want_root = false;
     const char* want_user = NULL;
-    enum transport transport = transport_shell;
-    const char* tcp_addr = NULL;
-    bool compress = !getenv("FB_ADB_NO_COMPRESSION");
-    bool shell_thunk = false;
+    struct transport transport = { transport_shell };
 
-    const char* transport_env = getenv("FB_ADB_TRANSPORT");
-    if (transport_env)
-        parse_transport(transport_env, &transport, &tcp_addr);
-
-    struct environ_op* environ_ops = NULL;
+    const char* utransport = info->transport.transport;
+    if (utransport == NULL)
+        utransport = getenv("FB_ADB_TRANSPORT");
+    if (utransport)
+        transport = parse_transport(utransport);
 
 #ifndef NDEBUG
     local_mode = !!getenv("FB_ADB_LOCAL_MODE");
 #endif
-
-    memset(&tty_flags, 0, sizeof (tty_flags));
-    for (int i = 0; i < 3; ++i)
-        if (isatty(i)) {
-            tty_flags[i].tty_p = true;
-            if (try_hack_reopen_tty(i)) {
-                tty_flags[i].our_very_own_open_file_description = true;
-                dbg("got new file description for fd %d", i);
-            }
-        }
 
     if (info->user.root) {
         if (info->user.user)
@@ -1451,7 +1811,62 @@ shex_main_common(const struct shex_common_info* info)
         if (info->user.root)
             usage_error("cannot both run-as user and su to root");
         want_user = info->user.user;
+        check_sane_user_name(want_user);
     }
+
+    if (local_mode) {
+        const char* thing_not_supported = NULL;
+        if (want_root)
+            thing_not_supported = "root update";
+        if (transport.type != transport_shell)
+            thing_not_supported = "non-shell transport";
+        if (thing_not_supported)
+            die(EINVAL,
+                "%s not supported in local mode",
+                thing_not_supported);
+        memset(&chello, 0, sizeof (chello));
+        return tc_for_child(start_stub_local());
+    }
+
+    struct adb_info ai = {
+        .adb_opts = &info->adb,
+        .adb_args = adb_args,
+    };
+
+    if (want_user)
+        return tc_connect_user(&ai, want_user, transport, chello);
+    return tc_connect_normal(adb_args, want_root, transport, chello);
+}
+
+static int
+shex_main_common(const struct shex_common_info* info)
+{
+    SCOPED_RESLIST(rl);
+
+    size_t max_cmdsz = DEFAULT_MAX_CMDSZ;
+    enum { TTY_AUTO,
+           TTY_SOCKPAIR,
+           TTY_DISABLE,
+           TTY_ENABLE,
+           TTY_SUPER_ENABLE } tty_mode = TTY_AUTO;
+
+    struct tty_flags tty_flags[3];
+    struct strlist* adb_args_list = strlist_new();
+    emit_args_adb_opts(adb_args_list, &info->adb);
+    const char* const* adb_args = strlist_to_argv(adb_args_list);
+    bool compress = !getenv("FB_ADB_NO_COMPRESSION");
+
+    struct environ_op* environ_ops = NULL;
+
+    memset(&tty_flags, 0, sizeof (tty_flags));
+    for (int i = 0; i < 3; ++i)
+        if (isatty(i)) {
+            tty_flags[i].tty_p = true;
+            if (try_hack_reopen_tty(i)) {
+                tty_flags[i].our_very_own_open_file_description = true;
+                dbg("got new file description for fd %d", i);
+            }
+        }
 
     const struct strlist* termops = info->shex.termops;
     if (termops) {
@@ -1474,11 +1889,6 @@ shex_main_common(const struct shex_common_info* info)
 
     if (info->shex.uenvops)
         environ_ops = parse_uenvops(info->shex.uenvops);
-
-    const char* utransport = info->transport.transport;
-
-    if (utransport)
-        parse_transport(utransport, &transport, &tcp_addr);
 
     // Prepend forwarding so that explicit user environment
     // modifications override.
@@ -1508,16 +1918,24 @@ shex_main_common(const struct shex_common_info* info)
         for (int i = 0; i < 3; ++i)
             tty_flags[i].compress = true;
 
+    struct child_hello chello;
+    struct childcom* tc = tc_connect(info, adb_args, &chello);
+
+    dbg("remote API level is %u", chello.api_level);
+    dbg("remote ABI support: %s", describe_abi_mask(chello.abi_mask));
+
+    if (tc->writer != write_all_adb_encoded)
+        max_cmdsz = DEFAULT_MAX_CMDSZ_SOCKET;
+
     // Here, we want to arrange for SIGWINCH to be delivered only
     // while we're blocked and waiting for IO.  N.B. do _not_ add
     // SIGWINCH to signals_unblock_for_io.  We want to receive this
-    // signal only within ppoll.
+    // signal only within ppoll.  We send the initial window size in
+    // the hello message, so block SIGWINCH before we call
+    // make_hello_msg.
 
     block_signal(SIGWINCH);
     signal(SIGWINCH, handle_sigwinch);
-
-    if (transport != transport_shell)
-        max_cmdsz = DEFAULT_MAX_CMDSZ_SOCKET;
 
     size_t command_ringbufsz = max_cmdsz * 4;
     size_t stdio_ringbufsz = max_cmdsz * 2;
@@ -1534,86 +1952,6 @@ shex_main_common(const struct shex_common_info* info)
 
     if (info->shex.no_ctty == 0)
         hello_msg->ctty_p = 1;
-
-    struct child* child;
-    struct child_hello chello;
-
-    reconnect_child:
-
-    if (local_mode) {
-        const char* thing_not_supported = NULL;
-
-        if (want_root)
-            thing_not_supported = "root update";
-
-        if (transport != transport_shell)
-            thing_not_supported = "non-shell transport";
-
-        if (thing_not_supported)
-            die(EINVAL,
-                "%s not supported in local mode",
-                thing_not_supported);
-
-        memset(&chello, 0, sizeof (chello));
-        child = start_stub_local();
-    } else {
-        child = start_stub_adb(adb_args, &chello);
-    }
-
-    struct childcom tc_buf = {
-        .to_child = child->fd[0],
-        .from_child = child->fd[1],
-        .writer = write_all_adb_encoded,
-    };
-
-    struct childcom* tc = &tc_buf;
-
-    // On Lollipop (API level >= 21), SELinux is strict and will not
-    // let us inherit a working socket file descriptor across a
-    // cross-domain exec.  In that environment, we need to exec first
-    // and _then_ rebind.  We prefer to rebind and then exec in other
-    // environments so that we can use the socket transport for users
-    // that don't have network access.
-
-    dbg("remote API level is %u", chello.api_level);
-    dbg("remote ABI support: %s", describe_abi_mask(chello.abi_mask));
-
-    if (chello.api_level < 21) {
-        if (transport == transport_unix)
-            tc = reconnect_over_unix_socket(tc, adb_args);
-        else if (transport == transport_tcp)
-            tc = reconnect_over_tcp_socket(tc, child, tcp_addr);
-    }
-
-    if (chello.api_level >= 21) {
-        // See the comments in re_exec_as_root over in cmd_stub.c for
-        // the reason we need this hack.  On API level 21 and above,
-        // we use a shell thunk unconditionally, but a few downlevel
-        // devices also need it, so handle this rare case by catching
-        // errors arising from this condition and trying again below.
-        shell_thunk = true;
-    }
-
-    if (want_root && chello.uid != 0)
-        command_re_exec_as_root(tc);
-
-    if (want_user) {
-        if (command_re_exec_as_user(tc, want_user, shell_thunk) ==
-            RE_EXEC_STUB_NEEDED)
-        {
-            shell_thunk = true;
-            child_kill(child, SIGTERM);
-            child_wait(child);
-            goto reconnect_child;
-        }
-    }
-
-    if (chello.api_level >= 21) {
-        if (transport == transport_unix)
-            tc = reconnect_over_unix_socket(tc, adb_args);
-        else if (transport == transport_tcp)
-            tc = reconnect_over_tcp_socket(tc, child, tcp_addr);
-    }
 
     tc_sendmsg(tc, &hello_msg->msg);
 
@@ -1729,8 +2067,7 @@ shex_main_common(const struct shex_common_info* info)
 
     sh->ch = ch;
 
-    replace_with_dev_null(0);
-    replace_with_dev_null(1);
+    replace_stdin_stdout_with_dev_null();
 
     io_loop_init(sh);
     dbg("starting main loop");
@@ -1819,6 +2156,22 @@ rcmd_main(const struct cmd_rcmd_info* info)
         .shex = info->shex,
         .transport = info->transport,
         .command = info->command,
+        .args = info->args,
+    };
+    return shex_main_common(&cinfo);
+}
+
+int
+rcmd_self_main(const struct cmd_rcmd_self_info* info)
+{
+    struct shex_common_info cinfo = {
+        .adb = info->adb,
+        .user = info->user,
+        .cwd = info->cwd,
+        .shex = info->shex,
+        .shex.exename = "/proc/self/exe",
+        .transport = info->transport,
+        .command = ARG_CMDLINE_SELF_ARGV0,
         .args = info->args,
     };
     return shex_main_common(&cinfo);

@@ -9,17 +9,6 @@
  *
  */
 #pragma once
+#include "util.h"
 
-#include "autocmd.h"
-#include "child.h"
-
-struct start_peer_info {
-    const struct cwd_opts cwd;
-    const struct adb_opts adb;
-    const struct transport_opts transport;
-    const struct user_opts user;
-};
-
-struct child* start_peer(
-    const struct start_peer_info* spi,
-    struct strlist* stub_arguments);
+#define ERR_FINGERPRINT_MISMATCH (ERR_APP_BASE-0)

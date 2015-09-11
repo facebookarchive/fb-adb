@@ -251,15 +251,13 @@ forward_to_rcmd(struct strlist* non_forwarded_args,
     struct strlist* sl = strlist_new();
     strlist_append(sl, prgname);
     strlist_xfer(sl, non_forwarded_args);
-    strlist_append(sl, "-E/proc/self/exe");
     strlist_append(sl, "--");
-    strlist_append(sl, 1+(strrchr(orig_argv0, '/') ?: orig_argv0-1));
     strlist_append(sl, 1+(strrchr(prgname, ' ') ?: prgname-1));
     strlist_xfer(sl, forwarded_args);
-    struct cmd_rcmd_info rinfo;
+    struct cmd_rcmd_self_info rinfo;
     memset(&rinfo, 0, sizeof (rinfo));
     const char** argv = strlist_to_argv(sl);
-    parse_args_cmd_rcmd(&rinfo, argv_count(argv), argv);
-    return rcmd_main(&rinfo);
+    parse_args_cmd_rcmd_self(&rinfo, argv_count(argv), argv);
+    return rcmd_self_main(&rinfo);
 }
 #endif

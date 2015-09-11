@@ -61,3 +61,16 @@ struct msg* read_msg(int fd, reader rdr);
 void* check_msg_cast(struct msg* h, size_t minimum_size);
 #define CHECK_MSG_CAST(_mhdr, _type) \
     ((_type *) check_msg_cast((_mhdr), sizeof (_type)))
+
+struct daemon_hello {
+    char ver[FB_ADB_FINGERPRINT_LENGTH+1];
+    char socket_name[FB_ADB_STUB_DAEMON_SOCKET_NAME_LENGTH+1];
+    unsigned pid;
+};
+
+bool parse_daemon_hello(const char* line, struct daemon_hello* dhello);
+#ifdef FBADB_MAIN
+struct adb_opts;
+void start_fb_adb_service(const struct adb_opts* adb_opts,
+                          const char* want_user);
+#endif

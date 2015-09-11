@@ -158,6 +158,14 @@ strlist_extend_argv(struct strlist* sl, const char* const* src)
         strlist_append(sl, *src++);
 }
 
+struct strlist*
+strlist_from_argv(const char* const* argv)
+{
+    struct strlist* sl = strlist_new();
+    strlist_extend_argv(sl, argv);
+    return sl;
+}
+
 const char*
 strlist_rewind(const struct strlist* sl)
 {

@@ -18,6 +18,7 @@
 #include "autocmd.h"
 #include "xfer.h"
 #include "fs.h"
+#include "constants.h"
 #if FBADB_MAIN
 # include "peer.h"
 #endif
@@ -114,12 +115,6 @@ send_xfer_msg(int to_peer, const struct xfer_msg* m)
         (unsigned) m->type,
         (unsigned) xfer_msg_size(m->type));
     write_all(to_peer, m, xfer_msg_size(m->type));
-}
-
-static void
-do_unlink_on_error(void* data)
-{
-    (void) unlink((const char*) data);
 }
 
 static void
@@ -314,7 +309,7 @@ do_xfer_recv(const struct xfer_opts xfer_opts,
         filename =
             xaprintf("%s.fb-adb-%s",
                      filename,
-                     gen_hex_random(16));
+                     gen_hex_random(ENOUGH_ENTROPY));
         dest_fd = try_xopen(
             filename,
             O_CREAT | O_WRONLY | O_EXCL,
@@ -341,7 +336,7 @@ do_xfer_recv(const struct xfer_opts xfer_opts,
     }
 
     if (regular_file)
-        cleanup_commit(error_cl, do_unlink_on_error, filename);
+        cleanup_commit(error_cl, unlink_cleanup, filename);
 
     if (regular_file && statm.u.stat.size > 0)
         preallocated = fallocate_if_supported(
@@ -465,9 +460,8 @@ xfer_handle_command(
 {
     struct child* peer = start_peer(
         spi,
-        "xfer-stub",
         make_args_cmd_xfer_stub(
-            CMD_ARG_FORWARDED,
+            CMD_ARG_NAME | CMD_ARG_FORWARDED,
             remote));
 
     struct xfer_ctx ctx = {

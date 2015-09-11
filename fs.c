@@ -720,14 +720,12 @@ mkostemp(char *template, int flags)
 #endif
 
 void
-replace_with_dev_null(int fd)
+replace_stdin_stdout_with_dev_null(void)
 {
     SCOPED_RESLIST(rl);
-    int fd_flags = fcntl(fd, F_GETFD);
-    if (fd_flags < 0)
-        die_errno("F_GETFD");
-    int nfd = xopen("/dev/null", O_RDWR | O_CLOEXEC, 0);
-    xdup3nc(nfd, fd, fd_flags & O_CLOEXEC);
+    int devnull = xopen("/dev/null", O_RDWR, 0);
+    xdup3nc(devnull, STDIN_FILENO, 0);
+    xdup3nc(devnull, STDOUT_FILENO, 0);
 }
 
 struct xnamed_tempfile_save {
@@ -1045,4 +1043,64 @@ xrewindfd(int fd)
 {
     if (lseek(fd, 0, SEEK_SET) == (off_t) -1)
         die_errno("lseek");
+}
+
+#ifdef HAVE_REALPATH
+const char*
+xrealpath(const char* path)
+{
+    struct cleanup* cl = cleanup_allocate();
+    char* resolved_path = realpath(path, NULL);
+    if (resolved_path == NULL)
+        die_errno("realpath(\"%s\")", path);
+    cleanup_commit(cl, free, resolved_path);
+    return resolved_path;
+}
+#endif
+
+const char*
+my_fb_adb_directory()
+{
+    const char* mydir;
+    int mkdir_result;
+#ifdef __ANDROID__
+    mydir = xaprintf("%s/.fb-adb.%u",
+                     DEVICE_TEMP_DIR,
+                     (unsigned) getuid());
+    mkdir_result = mkdir(mydir, 0700);
+    if (mkdir_result == -1 && errno == EACCES) {
+        // CWD hopefully in app data directory
+        mydir = xaprintf("./.fb-adb.%u", (unsigned) getuid());
+        mkdir_result = mkdir(mydir, 0700);
+    }
+#else
+    const char* home = getenv("HOME");
+    if (home == NULL)
+        die(EINVAL, "HOME not set");
+    mydir = xaprintf("%s/.fb-adb", home);
+    mkdir_result = mkdir(mydir, 0700);
+#endif
+    if (mkdir_result == -1 && errno != EEXIST)
+        die_errno("mkdir(\"%s\")", mydir);
+    return mydir;
+}
+
+void
+unlink_cleanup(void* filename)
+{
+    (void) unlink((const char*) filename);
+}
+
+void
+xflock(int fd, int operation)
+{
+    int ret;
+
+    do {
+        WITH_IO_SIGNALS_ALLOWED();
+        ret = flock(fd, operation);
+    } while (ret == -1 && errno == EINTR);
+
+    if (ret < 0)
+        die_errno("flock(%d,%d)", fd, operation);
 }

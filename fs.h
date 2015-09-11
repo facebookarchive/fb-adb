@@ -16,6 +16,7 @@
 #include <sys/stat.h>
 #include <fcntl.h>
 #include <sys/time.h>
+#include <sys/file.h>
 #include <sys/types.h>
 #include <unistd.h>
 #include <stdbool.h>
@@ -120,7 +121,7 @@ int mkostemp(char *template, int flags);
 #endif
 
 FILE* xnamed_tempfile(const char** name);
-void replace_with_dev_null(int fd);
+void replace_stdin_stdout_with_dev_null(void);
 
 #ifndef NDEBUG
 void assert_cloexec(int fd);
@@ -159,3 +160,12 @@ struct sha256_hash {
 };
 struct sha256_hash sha256_fd(int fd);
 void xrewindfd(int fd);
+
+#ifdef HAVE_REALPATH
+const char* xrealpath(const char* path);
+#endif
+
+const char* my_fb_adb_directory(void);
+void unlink_cleanup(void* filename);
+void xflock(int fd, int operation);
+char* xfgets(FILE* file);

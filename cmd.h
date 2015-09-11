@@ -16,6 +16,7 @@
 
 #define CMD_ARG_FORWARDED (1<<0)
 #define CMD_ARG_NON_FORWARDED (1<<1)
+#define CMD_ARG_NAME (1<<2)
 #define CMD_ARG_ALL (CMD_ARG_FORWARDED|CMD_ARG_NON_FORWARDED)
 
 typedef int (*cmdfn)(int argc, const char** argv);

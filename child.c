@@ -200,6 +200,7 @@ child_start(const struct child_start_info* csi)
         parentfd[2] = xdup(pty_master);
     } else if (flags & CHILD_INHERIT_STDERR) {
         childfd[2] = xdup(2);
+        parentfd[2] = xopen("/dev/null", O_RDONLY, 0);
     } else if (flags & CHILD_NULL_STDERR) {
         childfd[2] = xopen("/dev/null", O_WRONLY, 0);
         parentfd[2] = xopen("/dev/null", O_RDONLY, 0);
@@ -215,8 +216,7 @@ child_start(const struct child_start_info* csi)
         child->pty_master = fdh_dup(pty_master);
     child->fd[0] = fdh_dup(parentfd[0]);
     child->fd[1] = fdh_dup(parentfd[1]);
-    if ((flags & CHILD_INHERIT_STDERR) == 0)
-        child->fd[2] = fdh_dup(parentfd[2]);
+    child->fd[2] = fdh_dup(parentfd[2]);
 
     // We need to block all signals until the child calls signal(2) to
     // reset its signal handlers to the default.  If we didn't, the
@@ -472,4 +472,30 @@ child_status_to_exit_code(int status)
     if (WIFSIGNALED(status))
         return 128 + WTERMSIG(status);
     abort();
+}
+
+static bool
+errend_p(char c)
+{
+    return c == '\0' || c == '\n' || c == '\r';
+}
+
+char*
+massage_output(const void* buf, size_t nr_bytes)
+{
+    const char* s = (const char*) buf;
+    size_t endpos = 0;
+    static const char prefix[] = "error: ";
+
+    if (strlen(prefix) <= nr_bytes &&
+        strncmp(s, prefix, strlen(prefix)) == 0)
+    {
+        s += strlen(prefix);
+        nr_bytes -= strlen(prefix);
+    }
+
+    while (endpos < nr_bytes && !errend_p(s[endpos]))
+        ++endpos;
+
+    return xstrndup(s, endpos);
 }

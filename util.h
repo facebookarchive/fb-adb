@@ -27,6 +27,7 @@
 #endif
 
 #define ERR_ERRNO_WAS_ZERO -1
+#define ERR_APP_BASE -1000
 
 #define ARRAYSIZE(ar) (sizeof (ar) / sizeof (*(ar)))
 
@@ -129,12 +130,6 @@ void cleanup_commit(struct cleanup* cl, cleanupfn fn, const void* fndata);
 // run any cleanup functions to which CL may have been committed.
 // If CL is NULL, do nothing.
 void cleanup_forget(struct cleanup* cl);
-
-// Allocate and commit a cleanup object that will unlink a file of the
-// given name.  Failure to unlink the file is ignored.
-struct unlink_cleanup;
-struct unlink_cleanup* unlink_cleanup_allocate(const char* filename);
-void unlink_cleanup_commit(struct unlink_cleanup* ucl);
 
 // Allocate memory owned by the current reslist.
 __attribute__((malloc))
@@ -291,7 +286,10 @@ void sigtstp_unregister(struct sigtstp_cookie* cookie);
 // Set an itimer timeout.  Blocks SIGALRM except inside IO.  If we get
 // a SIGALRM, raise a die-exception from IO context.  Restore signals
 // and timer on unwind.
-void set_timeout(const struct itimerval* timer);
+void set_timeout(const struct itimerval* timer, int err, const char* msg);
+// Set a timeout in milliseconds; if ms is negative, do not set
+// a timeout.
+void set_timeout_ms(int ms, int err, const char* msg);
 
 // When set, caller promises to re-raise pending quit signals, so
 // don't longjmp out of them immediately.
@@ -302,3 +300,7 @@ unsigned api_level(void);
 #endif
 
 const char* my_exe(void);
+const char* maybe_my_exe(const char* exename);
+
+void become_daemon(void (*daemon_setup)(void* setup_data),
+                   void* setup_data);

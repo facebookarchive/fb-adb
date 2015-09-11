@@ -69,5 +69,5 @@ struct child_communication* child_communicate(
     size_t data_for_child_size);
 
 bool child_status_success_p(int status);
-
 int child_status_to_exit_code(int status);
+char* massage_output(const void* buf, size_t nr_bytes);
