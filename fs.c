@@ -1214,3 +1214,12 @@ slurp_line(FILE* file, size_t* nr_bytes_read_out)
 
     return (char*) gb.buf;
 }
+
+struct stat
+xfstat(int fd)
+{
+    struct stat st;
+    if (fstat(fd, &st) == -1)
+        die_errno("fstat");
+    return st;
+}

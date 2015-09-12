@@ -16,6 +16,16 @@
 # parent Makefile.  The "check_" prefix below keeps the targets out of
 # "make all".  You are not expected to understand this.
 
+libfb_adb_a_SOURCES += \
+	stubdaemon.c \
+	stubdaemon.h \
+	$(EMPTY)
+
+CMD_SOURCES += \
+	cmd_stub_package_hack.c \
+	cmd_stub.c \
+	$(EMPTY)
+
 check_PROGRAMS = fb-adb
 CLEANFILES += timestamp.c
 
@@ -23,10 +33,11 @@ AM_CPPFLAGS += -DFBADB_STUB=1
 AM_CFLAGS += -flto -frandom-seed=0
 AM_LDFLAGS += -flto -frandom-seed=0
 
-libfb_adb_a_SOURCES += stubdaemon.c stubdaemon.h
-CMD_SOURCES += cmd_stub_package_hack.c
-
+if !STUB_LOCAL
 fb_adb_LDADD += -llog
+endif
+
+CMDSPROC_ENV = stub
 
 CLEANFILES += stub
 if STRIP_STUBS

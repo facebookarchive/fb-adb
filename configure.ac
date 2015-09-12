@@ -64,7 +64,7 @@ fi
 if test "$platform" = "system"; then
   true
 else
-  if test -n "$BUILD_STUB"; then
+  if test -n "$BUILD_STUB" && test -z "$STUB_LOCAL"; then
      rm -rf toolchain
      mkdir -p toolchain
      if test $host_cpu = i686; then
@@ -136,7 +136,7 @@ AC_CHECK_FUNCS([fallocate futimes posix_fallocate ftruncate64])
 AC_CHECK_FUNCS([posix_fadvise realpath])
 
 is_android=$(echo "$CC" | grep android)
-if test -n "$BUILD_STUB" && test -z "$is_android" ; then
+if test -n "$BUILD_STUB" && test -z "$STUB_LOCAL" && test -z "$is_android"; then
    AC_MSG_ERROR([could not find Android cross-compiler for $host])
 fi
 
@@ -146,25 +146,6 @@ dnl _FORTIFY_SOURCE produces too many false positives: read(fd, buf,
 dnl min(sizeof(buf), x)), unsigned x, tricks _FORTIFY_SOURCE into
 dnl thinking we might overflow the buffer, but we clearly can't.
 CPPFLAGS="$CPPFLAGS -U_FORTIFY_SOURCE -D_FORTIFY_SOURCE=0"
-
-dnl Each of these stub variants has a corresponding source
-dnl subdirectory; each subdirectory contains a dummy configure script
-dnl that re-invokes this script with BUILD_STUB on the command line.
-dnl To add a new stub variant, add a new entry to this list, new
-dnl subdirectories, and new entries in stubs.s.
-
-m4_define([xxstubs], [stub-x86, stub-arm, stub-x86-pic, stub-arm-pic])
-
-if test -z "$BUILD_STUB"; then
-  STUB_BINARIES=
-  STUB_SUBDIRS=
-  m4_foreach([xxstub], [xxstubs], [
-    AC_CONFIG_SUBDIRS(xxstub)
-    STUB_BINARIES="$STUB_BINARIES xxstub/stub"
-    STUB_SUBDIRS="$STUB_SUBDIRS xxstub"
-  ])
-  AC_SUBST([STUB_BINARIES])
-fi
 
 AC_ARG_ENABLE([checking],
         AS_HELP_STRING([--enable-checking],
@@ -177,6 +158,32 @@ elif test "$enable_checking" = "no"; then
   CPPFLAGS="$CPPFLAGS -DNDEBUG=1"
 else
   AC_MSG_ERROR([invalid value for --enable-checking: need yes or no])
+fi
+
+dnl Each of these stub variants has a corresponding source
+dnl subdirectory; each subdirectory contains a dummy configure script
+dnl that re-invokes this script with BUILD_STUB on the command line.
+dnl To add a new stub variant, add a new entry to this list, new
+dnl subdirectories, and new entries in stubs.s.
+
+m4_define([xxstubs], [stub-x86, stub-arm, stub-x86-pic, stub-arm-pic])
+have_local_stub=no
+if test -z "$BUILD_STUB"; then
+  STUB_BINARIES=
+  STUB_SUBDIRS=
+  if test "$enable_checking" = "yes"; then
+    have_local_stub=yes
+    AC_DEFINE([HAVE_LOCAL_STUB], [1])
+    AC_CONFIG_SUBDIRS([stub-local])
+    STUB_BINARIES="stub-local/stub $STUB_BINARIES"
+    STUB_SUBDIRS="stub-local $STUB_SUBDIRS"
+  fi
+  m4_foreach([xxstub], [xxstubs], [
+    AC_CONFIG_SUBDIRS(xxstub)
+    STUB_BINARIES="$STUB_BINARIES xxstub/stub"
+    STUB_SUBDIRS="$STUB_SUBDIRS xxstub"
+  ])
+  AC_SUBST([STUB_BINARIES])
 fi
 
 AC_ARG_ENABLE([input-output-termios],
@@ -240,6 +247,8 @@ AC_CHECK_MEMBERS([struct dirent.d_type], [], [], [
 
 AM_CONDITIONAL([GIT_STAMP], [test "$enable_git_stamp" = "yes"])
 AM_CONDITIONAL([BUILD_STUB], [test -n "$BUILD_STUB"])
+AM_CONDITIONAL([STUB_LOCAL], [test -n "$STUB_LOCAL"])
+AM_CONDITIONAL([HAVE_LOCAL_STUB], [test "$have_local_stub" = "yes"])
 AM_CONDITIONAL([BUILD_PIC], [test -n "$BUILD_PIC"])
 AC_SUBST([STUB_SUBDIRS])
 AC_CONFIG_FILES([Makefile])
@@ -248,7 +257,9 @@ echo "Checking enabled?      ${enable_checking}"
 echo "Git stamp included?    ${enable_git_stamp}"
 echo "Input-output termios?  ${enable_input_output_termios}"
 echo "Using ncurses?         ${ncurses}"
-
+if test -z "$BUILD_STUB"; then
+echo "Local transport?       ${have_local_stub}"
+fi
 if test "$enable_debuggable_stubs" != "no"; then
   # https://gcc.gnu.org/bugzilla/show_bug.cgi?id=65015
   AC_MSG_WARN([allowing debug information stubs; build non-deterministic])

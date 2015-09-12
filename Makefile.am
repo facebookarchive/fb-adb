@@ -22,7 +22,6 @@ check_LIBRARIES = libfb-adb.a
 # the sources that depend on autocmd.h so that we always build
 # autocmd.h first when bootstrapping.
 CMD_SOURCES = \
-	cmd_stub.c \
 	cmd_logw.c \
 	cmd_readlink.c \
 	cmd_finfo.c \
@@ -116,7 +115,7 @@ termnames.h: termnames.h.in termnames.sed
 
 COMMANDS_XML=$(srcdir)/commands.xml
 CMDSPROC_FLAGS=
-CMDSPROC=$(PYTHON3) $(srcdir)/cmdsproc.py $(CMDSPROC_FLAGS)
+CMDSPROC=$(PYTHON3) $(srcdir)/cmdsproc.py $(CMDSPROC_FLAGS) $(CMDSPROC_ENV)
 
 CLEANFILES += autocmd.h
 autocmd.h: $(COMMANDS_XML) $(srcdir)/cmdsproc.py
@@ -165,4 +164,4 @@ endif
 
 .DELETE_ON_ERROR:
 
-$(CMD_SOURCES): autocmd.h
+$(CMD_SOURCES:.c=.o): autocmd.h

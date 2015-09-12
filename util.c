@@ -1133,10 +1133,12 @@ set_timeout_ms(int timeout_ms, int err, const char* msg)
     }
 }
 
-#ifdef __ANDROID__
 unsigned
 api_level()
 {
+#if !defined(__ANDROID__)
+    return 15;
+#else
     static unsigned cached_api_level;
     unsigned api_level = cached_api_level;
     if (api_level == 0) {
@@ -1152,8 +1154,8 @@ api_level()
     }
 
     return api_level;
-}
 #endif
+}
 
 const char*
 maybe_my_exe(const char* exename)

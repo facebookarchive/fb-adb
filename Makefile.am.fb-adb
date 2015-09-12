@@ -8,18 +8,30 @@
 # in the same directory.
 #
 
+libfb_adb_a_SOURCES += \
+	stubs.h \
+	$(EMPTY)
+
+CMD_SOURCES += \
+	cmd_fget.c \
+	cmd_fput.c \
+	peer.c \
+	cmd_logcat_json.c \
+	cmd_shex.c \
+	$(EMPTY)
+
 SUBDIRS = $(STUB_SUBDIRS)
 DIST_SUBDIRS =
 
 bin_PROGRAMS = fb-adb
 
 AM_CPPFLAGS += -DFBADB_MAIN=1 -DFBADB_CHANNEL_NONBLOCK_HACK=1
-CMD_SOURCES += cmd_shex.c
-libfb_adb_a_SOURCES += stubs.h
 
-CMD_SOURCES += cmd_fget.c cmd_fput.c peer.c cmd_logcat_json.c
-
+CMDSPROC_ENV = main
 CMDSPROC_FLAGS += -DFBADB_MAIN
+if HAVE_LOCAL_STUB
+CMDSPROC_FLAGS += -DHAVE_LOCAL_STUB
+endif
 
 AM_MAKEFLAGS +=	FB_ADB_RECURSIVE=1
 

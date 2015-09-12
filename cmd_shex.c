@@ -54,6 +54,9 @@ enum transport_type {
     transport_shell,
     transport_unix,
     transport_tcp,
+#ifdef HAVE_LOCAL_STUB
+    transport_local,
+#endif
 };
 
 struct transport {
@@ -127,23 +130,77 @@ parse_child_hello(const char* line, struct child_hello* chello)
     return n != -1;
 }
 
+#ifdef HAVE_LOCAL_STUB
 static struct child*
-start_stub_local(void)
+start_stub_local(struct child_hello* chello)
 {
+    SCOPED_RESLIST(rl);
+
+    // First, if we're being run from our build directory, try just
+    // running the unstripped stub binary directly.
+
+    const char* stub_exe_name = NULL;
+    int exefd = -1;
+
+    stub_exe_name =
+        xaprintf(
+            "%s/stub-local/fb-adb",
+            xdirname(orig_argv0));
+    exefd = try_xopen(stub_exe_name, O_RDONLY, 0);
+    dbg("trying build dir local stub [%s]: %d", stub_exe_name, exefd);
+    if (exefd != -1 && xfstat(exefd).st_uid != getuid()) {
+        dbg("not using build directory exe: uid mismatch");
+        exefd = -1;
+    }
+
+    if (exefd == -1) {
+        stub_exe_name = xaprintf("%s/local-stub", my_fb_adb_directory());
+        dbg("extracting local stub to private file [%s]", stub_exe_name);
+        {
+            SCOPED_RESLIST(rl_tempwrite);
+            const char* stub_exe_tmp_name = xaprintf(
+                "%s.tmp.%s",
+                stub_exe_name,
+                gen_hex_random(ENOUGH_ENTROPY));
+            int tmpfd = xopen(stub_exe_tmp_name,
+                              O_CREAT | O_EXCL | O_WRONLY,
+                              0700);
+            write_all(tmpfd, stubs[0].data, stubs[0].size);
+            WITH_CURRENT_RESLIST(rl);
+            exefd = xopen(stub_exe_tmp_name, O_RDONLY, 0);
+            xrename(stub_exe_tmp_name, stub_exe_name);
+        }
+    }
+
+    allow_inherit(exefd);
+
     const struct child_start_info csi = {
         .flags = CHILD_INHERIT_STDERR,
-        .exename = orig_argv0,
-        .argv = ARGV(orig_argv0, "stub"),
+        .exename = xaprintf("/proc/self/fd/%d", exefd),
+        .argv = ARGV(stub_exe_name, "stub"),
     };
 
+    SCOPED_RESLIST(rl_child);
     struct child* child = child_start(&csi);
-    char c;
-    do {
-        read_all(child->fd[1]->fd, &c, 1);
-    } while (c != '\n');
+    WITH_CURRENT_RESLIST(rl);
 
+    char* resp;
+    struct chat* cc = chat_new(child->fd[0]->fd, child->fd[1]->fd);
+
+    do {
+        resp = chat_read_line(cc);
+    } while (clowny_output_line_p(resp));
+
+    if (!parse_child_hello(resp, chello))
+        die(ECOMM, "trouble with local adb stub: %s", resp);
+
+    if (strcmp(chello->ver, build_fingerprint) != 0)
+        die(ERR_FINGERPRINT_MISMATCH, "stale stub?!");
+
+    reslist_xfer(rl->parent, rl_child);
     return child;
 }
+#endif
 
 static void
 send_stub(const void* data,
@@ -302,7 +359,11 @@ start_stub_adb(const char* const* adb_args,
         add_cleanup_delete_device_tmpfile(tmp_adb, adb_args);
 
         size_t ns = nr_stubs;
-        for (unsigned i = 0; i < ns && !child; ++i) {
+        size_t first_stub = 0;
+#ifdef HAVE_LOCAL_STUB
+        first_stub = 1;
+#endif
+        for (unsigned i = first_stub; i < ns && !child; ++i) {
             send_stub(stubs[i].data, stubs[i].size, adb_args, tmp_adb);
             child = try_adb_stub(&csi, tmp_adb, chello, &err);
         }
@@ -1000,6 +1061,10 @@ parse_transport(const char* s)
         if (!strchr(addrpart, ','))
             die(EINVAL, "invalid tcp spec: no port");
         transport.tcp_addr = addrpart;
+#ifdef HAVE_LOCAL_STUB
+    } else if (strcmp(s, "local") == 0) {
+        transport.type = transport_local;
+#endif
     } else {
         die(EINVAL, "unknown transport %s", s);
     }
@@ -1773,7 +1838,6 @@ tc_connect(const struct shex_common_info* info,
            const char* const* adb_args,
            struct child_hello* chello)
 {
-    bool local_mode = false;
     bool want_root = false;
     const char* want_user = NULL;
     struct transport transport = { transport_shell };
@@ -1784,8 +1848,22 @@ tc_connect(const struct shex_common_info* info,
     if (utransport)
         transport = parse_transport(utransport);
 
-#ifndef NDEBUG
-    local_mode = !!getenv("FB_ADB_LOCAL_MODE");
+#ifdef HAVE_LOCAL_STUB
+    if (transport.type == transport_local) {
+        const char* unsupported_thing = NULL;
+        struct adb_opts default_adb = { 0 };
+        if (info->user.user != NULL)
+            unsupported_thing = "--user";
+        if (info->user.root)
+            unsupported_thing = "--root";
+        if (memcmp(&default_adb, &info->adb, sizeof (default_adb)))
+            unsupported_thing = "adb device options";
+        if (unsupported_thing)
+            die(EINVAL,
+                "%s not supported with local transport",
+                unsupported_thing);
+        return tc_for_child(start_stub_local(chello));
+    }
 #endif
 
     if (info->user.root) {
@@ -1799,20 +1877,6 @@ tc_connect(const struct shex_common_info* info,
             usage_error("cannot both run-as user and su to root");
         want_user = info->user.user;
         check_sane_user_name(want_user);
-    }
-
-    if (local_mode) {
-        const char* thing_not_supported = NULL;
-        if (want_root)
-            thing_not_supported = "root update";
-        if (transport.type != transport_shell)
-            thing_not_supported = "non-shell transport";
-        if (thing_not_supported)
-            die(EINVAL,
-                "%s not supported in local mode",
-                thing_not_supported);
-        memset(&chello, 0, sizeof (chello));
-        return tc_for_child(start_stub_local());
     }
 
     struct adb_info ai = {

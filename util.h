@@ -295,9 +295,7 @@ void set_timeout_ms(int ms, int err, const char* msg);
 // don't longjmp out of them immediately.
 extern bool hack_defer_quit_signals;
 
-#ifdef __ANDROID__
 unsigned api_level(void);
-#endif
 
 const char* my_exe(void);
 const char* maybe_my_exe(const char* exename);

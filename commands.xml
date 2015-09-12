@@ -120,6 +120,13 @@ code, and bash completion file.
       bypasses <b>adb</b> completely.
       <vspace/>
       Note that traffic to devices is unencrypted.
+      <?ifdef HAVE_LOCAL_STUB?>
+      <vspace/>
+      The <b>local</b> transport is a special mode that makes
+      <b>fb-adb</b> connect to the device on which it's running
+      instead of any connected Android device. This mode is primarily
+      useful for debugging <b>fb-adb</b> itself.
+      <?endif?>
     </option>
   </optgroup>
   <optgroup name="user" forward="no" completion-relevant="yes">
@@ -538,13 +545,11 @@ code, and bash completion file.
     <optgroup-reference name="shex"/>
   </command>
   <?endif?>
-  <?ifndef FBADB_MAIN?>
-  <command names="stub-package-hack" internal="yes">
+  <command names="stub-package-hack" internal="yes" env="stub">
     This internal command attempts to use <tt>FbAdbService</tt> to
     start a daemon in a package without using run-as.
     <argument name="package" />
   </command>
-  <?endif?>
   <command names="start-daemon">
     Start a daemon on a randomly-named abstract AF_UNIX socket and
     emit an FB_ADB_STUB_DAEMONIZED_LINE describing the daemon name on
@@ -570,7 +575,7 @@ code, and bash completion file.
     <optgroup-reference name="user"/>
     <?endif?>
   </command>
-  <command names="stub" internal="yes">
+  <command names="stub" internal="yes" env="stub">
     Internal command that the fb-adb host program invokes on device to
     implement remote commands.  Start speaking the <b>fb-adb</b> protocol
     on standard input and output.

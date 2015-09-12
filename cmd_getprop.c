@@ -17,9 +17,20 @@
 #include "fs.h"
 #include "json.h"
 
+#if FBADB_MAIN
+
 FORWARD(getprop);
 
-#if !FBADB_MAIN
+#elif !defined(__ANDROID__)
+
+int
+getprop_main(const struct cmd_getprop_info* info)
+{
+    die(ENOSYS, "Android properties not supported on this system");
+}
+
+#else
+
 #include <sys/system_properties.h>
 #include <dlfcn.h>
 

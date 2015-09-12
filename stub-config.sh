@@ -15,22 +15,29 @@ for opt in "$@"; do
     if [[ $opt = --srcdir=* ]]; then
         srcdir=${opt:9}/..
         cfgopts+=(--srcdir="$srcdir")
-    elif [[ $opt = 'CC='* ]]; then
+    elif [[ $opt = 'CC='* ]] && ! [[ $arch = "local" ]]; then
         # Stub will choose CC for cross-compile
         unset CC
-    elif [[ $opt = '--host='* ]]; then
+    elif [[ $opt = '--host='* ]] && ! [[ $arch = "local" ]]; then
         true
-    elif [[ $opt = '--build='* ]]; then
+    elif [[ $opt = '--build='* ]] && ! [[ $arch = "local" ]]; then
         true
-    elif [[ $opt = '--target='* ]]; then
+    elif [[ $opt = '--target='* ]] && ! [[ $arch = "local" ]]; then
         true
-    elif [[ $opt = 'host_alias='* ]]; then
+    elif [[ $opt = 'host_alias='* ]] && ! [[ $arch = "local" ]]; then
         true
     else
         cfgopts+=("$opt")
     fi
 done
+
+if [[ $arch = "local" ]]; then
+    hostarg=STUB_LOCAL=1
+else
+    hostarg=--host=$arch
+fi
+
 exec $srcdir/configure \
-     --build="$($srcdir/config.guess)" --host=$arch \
+     --build="$($srcdir/config.guess)" $hostarg \
      BUILD_STUB=1 \
      "${cfgopts[@]}"

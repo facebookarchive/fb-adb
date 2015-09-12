@@ -180,3 +180,5 @@ char* slurp_fd(int fd, size_t* nr_bytes_read_out);
 // The line terminator, if one was present, is included in the
 // returned string.  On EOF, return NULL.
 char* slurp_line(FILE* file, size_t* nr_bytes_read_out);
+
+struct stat xfstat(int fd);

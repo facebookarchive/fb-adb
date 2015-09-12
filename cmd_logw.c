@@ -16,9 +16,19 @@
 #include "autocmd.h"
 #include "argv.h"
 
+#if FBADB_MAIN
+
 FORWARD(logw);
 
-#if !FBADB_MAIN
+#elif !defined(__ANDROID__)
+
+int
+logw_main(const struct cmd_logw_info* info)
+{
+    die(ENOSYS, "Android logcat not supported on this system");
+}
+
+#else
 
 static const char* log_levels[] = {
     // We use a prefix match, so make these long

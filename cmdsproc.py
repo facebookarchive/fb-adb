@@ -161,7 +161,8 @@ for tag in MARKUP_TAGS:
   setattr(IgnoreMarkup, on_stop_function(tag), IgnoreMarkup._ignore)
 
 class Command(object):
-  def __init__(self, names, export_parse_args=False,internal=False):
+  def __init__(self, names, export_parse_args=False,
+               internal=False,env=None):
     names = list(map(check_id_dash, names.split(",")))
     if not names: die("no names given")
     self.name = names[0]
@@ -172,6 +173,8 @@ class Command(object):
     self.export_parse_args = check_bool(export_parse_args)
     self.arguments = []
     self.internal=check_bool(internal)
+    self.env = env
+    self.want_main = True
 
   def allnames(self):
     return [self.name] + self.altnames
@@ -728,7 +731,8 @@ def op_h(commands_file, defs, optgroups, commands):
         else:
           hf.writeln("const char* %s;", argument.symbol)
     hf.prototype(command.make_args_function())
-    hf.prototype(command.main_function())
+    if command.want_main:
+      hf.prototype(command.main_function())
     if command.export_parse_args:
       hf.prototype(command.parse_args_function())
     hf.writeln("")
@@ -788,8 +792,9 @@ def op_c(commands_file, defs, optgroups, commands):
     hf.prototype(og.emit_args_function(),
                  static=not og.export_emit_args)
   for command in commands:
-    hf.prototype(command.parse_args_function(),
-                 static=not command.export_parse_args)
+    if command.want_main or command.export_parse_args:
+      hf.prototype(command.parse_args_function(),
+                   static=not command.export_parse_args)
   for og in optgroups:
     if not og.used_p(): continue
     emit_emit_args_og_function(hf, og)
@@ -806,11 +811,15 @@ def op_c(commands_file, defs, optgroups, commands):
                    pod2text(pod_documentation)))
 
     emit_make_args_cmd_function(hf, command)
-    emit_parse_args_cmd_function(hf, command)
-    emit_dispatch_function(hf, command)
+    if command.want_main or command.export_parse_args:
+      emit_parse_args_cmd_function(hf, command)
+    if command.want_main:
+      emit_dispatch_function(hf, command)
   hf.writeln("const struct cmd autocmds[] = {")
   with hf.indented("};"):
     for command in commands:
+      if not command.want_main:
+        continue
       for name in command.allnames():
         hf.writeln("{")
         with hf.indented("},"):
@@ -1271,6 +1280,7 @@ def main(argv):
                  dest="defs",
                  action="append")
   p.add_argument("--includes", metavar="INCLUDEFILES")
+  p.add_argument("env", metavar="ENV", choices=["main", "stub"])
   p.add_argument("op", metavar="OP", choices=sorted(OPS))
   p.add_argument("commands", metavar="COMMANDS")
   args = p.parse_args(argv[1:])
@@ -1285,6 +1295,11 @@ def main(argv):
     defs = frozenset(args.defs)
     r = CommandSlurpingReader(defs=defs)
     r.parse(commands_file)
+    for command in r.commands:
+      if command.env is not None and command.env != args.env:
+        command.internal = True
+        command.want_main = False
+
     log.debug("commands: %r", sorted(c.name for c in r.commands))
     log.debug("optgroups: %r", sorted(og.name for og in r.optgroups))
     OPS[args.op](commands_file, defs, r.optgroups, r.commands)
