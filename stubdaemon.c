@@ -169,15 +169,25 @@ make_daemon_socket_name_file_name(void)
     return xaprintf("%s/daemon-socket-name", my_fb_adb_directory());
 }
 
+static char*
+read_daemon_socket_name(void)
+{
+    SCOPED_RESLIST(rl);
+    int socket_name_file =
+        xopen(make_daemon_socket_name_file_name(), O_RDONLY, 0);
+    xflock(socket_name_file, LOCK_SH);
+    WITH_CURRENT_RESLIST(rl->parent);
+    return slurp_fd(socket_name_file, NULL);
+}
+
 static int
 connect_to_daemon_control(void)
 {
     SCOPED_RESLIST(rl);
-    char* socket_name = slurp_fd(
-        xopen(make_daemon_socket_name_file_name(), O_RDONLY, 0),
-        NULL);
     char* control_socket_name =
-        xaprintf("%s%s", socket_name, DAEMON_CONTROL_SUFFIX);
+        xaprintf("%s%s",
+                 read_daemon_socket_name(),
+                 DAEMON_CONTROL_SUFFIX);
     struct addr* control_addr =
         make_addr_unix_abstract(
             control_socket_name,
@@ -236,7 +246,9 @@ stub_daemon_setup(void* data)
     const char* socket_name = data;
     int socket_name_file =
         xopen(make_daemon_socket_name_file_name(), O_WRONLY | O_CREAT, 0600);
+    xflock(socket_name_file, LOCK_EX);
     xftruncate(socket_name_file, 0);
+    xflock(socket_name_file, LOCK_UN);
     write_all(socket_name_file, socket_name, strlen(socket_name));
 
     if (printf(FB_ADB_STUB_DAEMON_LINE "\n",

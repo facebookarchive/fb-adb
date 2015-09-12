@@ -326,13 +326,9 @@ do_xfer_recv(const struct xfer_opts xfer_opts,
     }
 
     if (!atomic) {
-        dest_fd = xopen(filename, O_WRONLY | O_CREAT, creat_mode);
-        if (fstat(dest_fd, &st) == -1)
-            die_errno("fstat");
-        if (!S_ISREG(st.st_mode))
+        dest_fd = xopen(filename, O_WRONLY | O_CREAT | O_TRUNC, creat_mode);
+        if (!S_ISREG(xfstat(dest_fd).st_mode))
             regular_file = false;
-        if (regular_file)
-            xftruncate(dest_fd, 0);
     }
 
     if (regular_file)

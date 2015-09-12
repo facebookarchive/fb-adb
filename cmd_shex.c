@@ -1703,8 +1703,7 @@ start_fb_adb_service_hack(const struct adb_opts* adb_opts,
     const char* cache_file_name = daemon_cache_file_name(want_user);
     int cache_file_fd = xopen(cache_file_name, O_RDWR | O_CREAT, 0600);
     xflock(cache_file_fd, LOCK_EX);
-    if (ftruncate(cache_file_fd, 0) == -1)
-        die_errno("ftruncate");
+    xftruncate(cache_file_fd, 0);
     uint8_t vertag = '\1';
     write_all(cache_file_fd, &vertag, sizeof (vertag));
     write_all(cache_file_fd,
