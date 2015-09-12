@@ -227,3 +227,17 @@ strlist_empty_p(const struct strlist* sl)
 {
     return STAILQ_EMPTY(&sl->head);
 }
+
+struct strlist*
+strlist(const char* str, ...)
+{
+    struct strlist* sl = strlist_new();
+    va_list args;
+    va_start(args, str);
+    while (str != NULL) {
+        strlist_append(sl, str);
+        str = va_arg(args, const char*);
+    }
+    va_end(args);
+    return sl;
+}

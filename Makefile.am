@@ -31,6 +31,7 @@ CMD_SOURCES = \
 	cmd_bash_completion.c \
 	cmd_getprop.c \
 	cmd_start_daemon.c \
+	cmd_stop_daemon.c \
 	fb-adb.c \
 	cmd.h \
 	cmd.c \
@@ -85,6 +86,8 @@ libfb_adb_a_SOURCES = \
 	elfid.h \
 	elfid.c \
 	errcodes.h \
+	androidmsg.h \
+	androidmsg.c \
 	$(CMD_SOURCES) \
 	$(EMPTY)
 

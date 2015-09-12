@@ -8,8 +8,24 @@
  *  in the same directory.
  *
  */
-#pragma once
+#include <stdio.h>
+#include <stdlib.h>
+#include <ctype.h>
+#include <limits.h>
 #include "util.h"
+#include "autocmd.h"
+#include "fs.h"
+#include "core.h"
 
-#define ERR_FINGERPRINT_MISMATCH (ERR_APP_BASE-0)
-#define ERR_DAEMON_NOT_RUNNING (ERR_APP_BASE-1)
+FORWARD(stop_daemon);
+
+#if !FBADB_MAIN
+#include "stubdaemon.h"
+
+int
+stop_daemon_main(const struct cmd_stop_daemon_info* info)
+{
+    stop_daemon();
+    return 0;
+}
+#endif

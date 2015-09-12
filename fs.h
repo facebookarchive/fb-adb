@@ -116,6 +116,8 @@ int xppoll(struct pollfd *fds, nfds_t nfds,
            const struct timespec *timeout_ts,
            const sigset_t *sigmask);
 
+int xpoll(struct pollfd* fds, nfds_t nfds, int timeout);
+
 #ifndef HAVE_MKOSTEMP
 int mkostemp(char *template, int flags);
 #endif
@@ -168,4 +170,13 @@ const char* xrealpath(const char* path);
 const char* my_fb_adb_directory(void);
 void unlink_cleanup(void* filename);
 void xflock(int fd, int operation);
-char* xfgets(FILE* file);
+
+// Read FD to EOF, returning a pointer to the bytes we read, which we
+// NUL-terminate.  (Of course, the string will appear to terminate
+// early if we read a NUL byte from the FD.)
+char* slurp_fd(int fd, size_t* nr_bytes_read_out);
+
+// Read a line into a heap-allocated and NUL-terminated buffer.
+// The line terminator, if one was present, is included in the
+// returned string.  On EOF, return NULL.
+char* slurp_line(FILE* file, size_t* nr_bytes_read_out);

@@ -304,3 +304,8 @@ const char* maybe_my_exe(const char* exename);
 
 void become_daemon(void (*daemon_setup)(void* setup_data),
                    void* setup_data);
+
+bool clowny_output_line_p(const char* line);
+
+void rtrim(char* string, size_t* stringsz_inout, const char* set);
+

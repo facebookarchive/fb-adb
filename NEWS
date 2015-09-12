@@ -3,6 +3,11 @@ Version 1.6.0
 
 New features:
 
+ * fast daemon mode
+ * automatic workaround for "run-as" being broken on some
+   Android devices. To take advantage of this workaround,
+   you need to add a small service to your application.  See
+   FbAdbService.java.
  * logcat-json command makes it easy to consume logcat records
    pragmatically
  * getprop command for zero, more, or all properties; outputs JSON or
@@ -36,6 +41,10 @@ Bug fixes:
 Incompatible changes:
 
  * Removed -U option for rcmd and shell commands
+ * Drop support for Gingerbread. We're not gratuitously breaking
+   Gingerbread compatibility, and we'll take patches that fix Gingerbread,
+   but we don't use Gingerbread ourselves anymore and don't test fb-adb
+   with it.
 
 Version 1.5.1
 -------------

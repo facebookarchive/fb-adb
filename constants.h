@@ -44,3 +44,5 @@
 // Number of milliseconds we wait for a TCP connection callback when
 // we don't have an ADB stub process to monitor.
 #define TCP_CALLBACK_MS (1*1000)
+
+#define DAEMON_CONTROL_SUFFIX ".c"

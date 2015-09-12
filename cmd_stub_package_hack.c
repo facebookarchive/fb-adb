@@ -8,8 +8,18 @@
  *  in the same directory.
  *
  */
-#pragma once
+#include <stdio.h>
+#include <stdlib.h>
+#include <ctype.h>
+#include <limits.h>
 #include "util.h"
+#include "autocmd.h"
+#include "fs.h"
+#include "stubdaemon.h"
 
-#define ERR_FINGERPRINT_MISMATCH (ERR_APP_BASE-0)
-#define ERR_DAEMON_NOT_RUNNING (ERR_APP_BASE-1)
+int
+stub_package_hack_main(const struct cmd_stub_package_hack_info* info)
+{
+    start_daemon_via_service_hack(info->package);
+    return 0;
+}

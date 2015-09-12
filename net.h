@@ -29,6 +29,7 @@ struct addr {
 
 struct addr* make_addr_unix_filesystem(const char* pathname);
 struct addr* make_addr_unix_abstract(const void* bytes, size_t nr);
+struct addr* make_addr_unix_abstract_s(const char* name);
 
 // N.B. IO signals not unmasked during this call.
 // Use xgetaddrinfo_interruptible to make a getaddrinfo call that we
@@ -59,6 +60,8 @@ int xsocket(int domain, int type, int protocol);
 // Accept a connection.  The returned file descriptor is owned by the
 // current reslist.
 int xaccept(int server_socket);
+// Returns -1 on EAGAIN/EWOULDBLOCK
+int xaccept_nonblock(int server_socket);
 
 // Allocate a socket pair.  The returned file descriptors are owned by
 // the current reslist.

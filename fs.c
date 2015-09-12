@@ -338,14 +338,7 @@ xttyname(int fd)
 #ifndef __ANDROID__
     return ttyname(fd);
 #else
-    char buf[512];
-    ssize_t nr = readlink(xaprintf("/proc/self/fd/%d", fd),
-                          buf, sizeof (buf) - 1);
-    if (nr < 0)
-        die_errno("readlink");
-
-    buf[nr] = '\0';
-    return xstrdup(buf);
+    return xreadlink(xaprintf("/proc/self/fd/%d", fd));
 #endif
 }
 
@@ -675,6 +668,18 @@ xppoll(struct pollfd *fds, nfds_t nfds,
 #else
 # error Y U no decent signal handling
 #endif /* xppoll implementation */
+
+int
+xpoll(struct pollfd* fds, nfds_t nfds, int timeout)
+{
+    WITH_IO_SIGNALS_ALLOWED();
+    int pollret;
+    do {
+        pollret = poll(fds, nfds, timeout);
+    } while (pollret == -1 && errno == EINTR);
+
+    return pollret;
+}
 
 #ifndef HAVE_DUP3
 int
@@ -1058,9 +1063,16 @@ xrealpath(const char* path)
 }
 #endif
 
+static const char* cached_fb_adb_directory;
+
 const char*
 my_fb_adb_directory()
 {
+    SCOPED_RESLIST(rl);
+
+    if (cached_fb_adb_directory)
+        return cached_fb_adb_directory;
+
     const char* mydir;
     int mkdir_result;
 #ifdef __ANDROID__
@@ -1082,7 +1094,10 @@ my_fb_adb_directory()
 #endif
     if (mkdir_result == -1 && errno != EEXIST)
         die_errno("mkdir(\"%s\")", mydir);
-    return mydir;
+    cached_fb_adb_directory = strdup(mydir);
+    if (cached_fb_adb_directory == NULL)
+        die_oom();
+    return cached_fb_adb_directory;
 }
 
 void
@@ -1103,4 +1118,99 @@ xflock(int fd, int operation)
 
     if (ret < 0)
         die_errno("flock(%d,%d)", fd, operation);
+}
+
+struct growable_buffer {
+    struct cleanup* cl;
+    uint8_t* buf;
+    size_t bufsz;
+};
+
+static void
+resize_buffer(struct growable_buffer* gb, size_t new_size)
+{
+    struct cleanup* new_cl = cleanup_allocate();
+    uint8_t* new_buf = realloc(gb->buf, new_size);
+    if (new_buf == NULL)
+        die_oom();
+    cleanup_commit(new_cl, free, new_buf);
+    cleanup_forget(gb->cl);
+    gb->buf = new_buf;
+    gb->cl = new_cl;
+    gb->bufsz = new_size;
+}
+
+static void
+grow_buffer_dwim(struct growable_buffer* gb)
+{
+    size_t maximum_enlargement = 1024*1024;
+    size_t bufsz = gb->bufsz ?: 128;
+    size_t enlargement = bufsz;
+    if (enlargement > maximum_enlargement)
+        enlargement = maximum_enlargement;
+    if (SATADD(&bufsz, bufsz, enlargement))
+        die_oom();
+    resize_buffer(gb, bufsz);
+}
+
+char*
+slurp_fd(int fd, size_t* nr_bytes_read_out)
+{
+    size_t n;
+    size_t nr_bytes_read = 0;
+    struct growable_buffer gb = { 0 };
+
+    struct stat st;
+    if (fstat(fd, &st) == 0 &&
+        S_ISREG(st.st_mode) &&
+        st.st_size > 0)
+    {
+        resize_buffer(&gb, st.st_size + 1);
+    }
+
+    do {
+        size_t available_space = gb.bufsz - nr_bytes_read;
+        if (available_space == 0) {
+            grow_buffer_dwim(&gb);
+            available_space = gb.bufsz - nr_bytes_read;
+        }
+        n = read_all(fd, gb.buf + nr_bytes_read, available_space);
+        nr_bytes_read += n;
+    } while (n > 0);
+
+    resize_buffer(&gb, nr_bytes_read+1);
+    gb.buf[nr_bytes_read] = '\0';
+    if (nr_bytes_read_out != NULL)
+        *nr_bytes_read_out = nr_bytes_read;
+    return (char*) gb.buf;
+}
+
+char*
+slurp_line(FILE* file, size_t* nr_bytes_read_out)
+{
+    size_t nr_bytes_read = 0;
+    struct growable_buffer gb = { 0 };
+
+    for (;;) {
+        int c = getc(file);
+        if (c == EOF) {
+            if (feof(file)) return NULL;
+            else die_errno("getc");
+        }
+        if (nr_bytes_read == gb.bufsz) {
+            grow_buffer_dwim(&gb);
+            assert(nr_bytes_read < gb.bufsz);
+        }
+
+        gb.buf[nr_bytes_read++] = c;
+        if (c == '\n')
+            break;
+    }
+
+    resize_buffer(&gb, nr_bytes_read+1);
+    gb.buf[nr_bytes_read] = '\0';
+    if (nr_bytes_read_out != NULL)
+        *nr_bytes_read_out = nr_bytes_read;
+
+    return (char*) gb.buf;
 }

@@ -29,16 +29,16 @@
 #include "fs.h"
 #include "valgrind.h"
 
-#ifdef __ANDROID__
-# include <sys/system_properties.h>
-#endif
-
 #if !defined(HAVE_EXECVPE)
 # include <paths.h>
 #endif
 
 #ifdef HAVE_SIGNALFD_4
 # include <sys/signalfd.h>
+#endif
+
+#ifdef __ANDROID__
+# include <sys/system_properties.h>
 #endif
 
 #include "util.h"
@@ -1223,3 +1223,25 @@ become_daemon(void (*daemon_setup)(void* setup_data),
     status = 0;
     write_all(status_pipe[1], &status, sizeof (status));
 }
+
+bool
+clowny_output_line_p(const char* line)
+{
+    return
+        string_starts_with_p(line, "Function: selinux_compare_spd_ram ,") ||
+        string_starts_with_p(line, "WARNING: linker: ") ||
+        string_starts_with_p(line, "[DEBUG] ");
+
+}
+
+void
+rtrim(char* string, size_t* stringsz_inout, const char* set)
+{
+    size_t stringsz = stringsz_inout ? *stringsz_inout : strlen(string);
+    while (stringsz > 0 && strchr(set, string[stringsz - 1]))
+        stringsz--;
+    string[stringsz] = '\0';
+    if (stringsz_inout)
+        *stringsz_inout = stringsz;
+}
+

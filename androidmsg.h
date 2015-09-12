@@ -9,7 +9,17 @@
  *
  */
 #pragma once
-#include "util.h"
 
-#define ERR_FINGERPRINT_MISMATCH (ERR_APP_BASE-0)
-#define ERR_DAEMON_NOT_RUNNING (ERR_APP_BASE-1)
+#ifdef __ANDROID__
+# include <android/log.h>
+#endif
+
+#ifndef __ANDROID__
+# define ANDROID_LOG_DEBUG 0
+# define ANDROID_LOG_INFO 0
+# define ANDROID_LOG_WARN 0
+# define ANDROID_LOG_ERROR 0
+#endif
+
+__attribute__((format(printf, 2, 3)))
+void android_msg(int prio, const char* fmt, ...);

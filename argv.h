@@ -32,3 +32,6 @@ const char* strlist_next(const struct strlist* sl);
 const char** strlist_to_argv(const struct strlist* sl);
 void strlist_xfer(struct strlist* recipient, struct strlist* donor);
 bool strlist_empty_p(const struct strlist* sl);
+__attribute__((sentinel))
+struct strlist* strlist(const char* str, ...);
+#define STRLIST(...) strlist(__VA_ARGS__, NULL)

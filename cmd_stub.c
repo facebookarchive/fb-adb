@@ -24,7 +24,6 @@
 #include <sys/un.h>
 
 #ifdef __ANDROID__
-# include <android/log.h>
 # include <sys/system_properties.h>
 # define LOG_TAG PACKAGE
 #endif
@@ -45,35 +44,10 @@
 #include "xenviron.h"
 #include "autocmd.h"
 #include "fs.h"
+#include "stubdaemon.h"
+#include "androidmsg.h"
 
 static bool should_send_error_packet = false;
-
-#ifndef __ANDROID__
-# define ANDROID_LOG_DEBUG 0
-# define ANDROID_LOG_INFO 0
-# define ANDROID_LOG_WARN 0
-# define ANDROID_LOG_ERROR 0
-#endif
-
-__attribute__((format(printf, 2, 3)))
-static void
-android_msg(int prio, const char* fmt, ...)
-{
-    va_list args;
-    (void) args;
-#ifdef __ANDROID__
-    va_start(args, fmt);
-    (void) __android_log_vprint(prio, LOG_TAG, fmt, args);
-    va_end(args);
-#endif
-#ifndef NDEBUG
-    if (dbg_enabled_p()) {
-        va_start(args, fmt);
-        dbg_1v(fmt, args);
-        va_end(args);
-    }
-#endif
-}
 
 static void
 send_exit_message(int status, struct fb_adb_sh* sh)
@@ -700,97 +674,26 @@ make_abi_mask(unsigned api_level)
     return abi_mask;
 }
 
-struct xaccept_timed_ctx {
-    int listening_fd;
-    int timeout_ms;
-    int client_fd;
-};
-
-static void
-xaccept_timed_1(void* data) {
-    SCOPED_RESLIST(rl);
-    struct xaccept_timed_ctx* ctx = data;
-    set_timeout_ms(ctx->timeout_ms, ETIMEDOUT, "accept timed out");
-    WITH_CURRENT_RESLIST(rl->parent);
-    ctx->client_fd = xaccept(ctx->listening_fd);
-}
-
-static int
-xaccept_timed(int listening_fd, int timeout_ms)
+#ifdef FBADB_MAIN
+enum stub_daemon_action
+run_stub_daemon(struct stub_daemon_info info)
 {
-    struct xaccept_timed_ctx ctx = {
-        .listening_fd = listening_fd,
-        .timeout_ms = timeout_ms,
-    };
-
-    if (catch_one_error(xaccept_timed_1, &ctx, ETIMEDOUT))
-        return -1;
-    return ctx.client_fd;
+    die(EINVAL, "no daemon support in this configuration");
 }
-
-static void
-stub_daemon_setup(void* data)
-{
-    const char* socket_name = data;
-    if (printf(FB_ADB_STUB_DAEMON_LINE "\n",
-               build_fingerprint,
-               socket_name,
-               (unsigned) getpid()) < 0)
-        die_errno("printf");
-    if (fflush(stdout) == -1)
-        die_errno("flush");
-}
-
-static bool
-run_daemon(const struct cmd_stub_info* info)
-{
-    SCOPED_RESLIST(rl);
-    const char* socket_name =
-        xaprintf("fb-adb-stub-%s",
-                 gen_hex_random(ENOUGH_ENTROPY));
-    int listening_socket = xsocket(AF_UNIX, SOCK_STREAM, 0);
-    xbind(listening_socket,
-          make_addr_unix_abstract(
-              socket_name, strlen(socket_name)));
-    xlisten(listening_socket, 5);
-
-    if (info->stub.daemonize)
-        become_daemon(stub_daemon_setup, (void*) socket_name);
-    else
-        stub_daemon_setup((void*) socket_name);
-
-    dbg("accepting connections");
-
-    for (;;) {
-        SCOPED_RESLIST(accept_rl);
-        int client_fd = xaccept_timed(listening_socket, DAEMON_TIMEOUT_MS);
-        if (client_fd == -1) {
-            android_msg(ANDROID_LOG_INFO,
-                        "fb-adb daemon timed out; exiting");
-            return false;
-        }
-        dbg("accepted client: fd=%d", client_fd);
-        pid_t child = fork();
-        if (child == (pid_t) -1) {
-            android_msg(ANDROID_LOG_WARN,
-                        "fork failed: %s",
-                        strerror(errno));
-            continue;
-        }
-
-        if (child == 0) {
-            xdup3nc(client_fd, STDIN_FILENO, 0);
-            xdup3nc(client_fd, STDOUT_FILENO, 0);
-            return true;
-        }
-    }
-}
+#endif
 
 static int
 stub_main_1(const struct cmd_stub_info* info)
 {
-    if (info->stub.listen && !run_daemon(info))
+    if (info->stub.listen &&
+        run_stub_daemon(
+            (struct stub_daemon_info){
+                .daemonize = info->stub.daemonize,
+                .replace = info->stub.replace,
+            }) == STUB_DAEMON_EXIT_PROGRAM)
+    {
         return 0;
+    }
 
     /* Never unset raw mode.  We never change from raw back to cooked
      * mode on exit.  The connection dies on exit anyway, and

@@ -636,14 +636,6 @@ send_cmdline(const struct childcom* tc,
         send_cmdline_argument(tc, *argv++);
 }
 
-static bool
-clowny_samsung_debug_output_p(const char* line)
-{
-    return
-        string_starts_with_p(line, "Function: selinux_compare_spd_ram ,") ||
-        string_starts_with_p(line, "[DEBUG] ");
-}
-
 static void
 command_re_exec_as_root(const struct childcom* tc)
 {
@@ -664,7 +656,7 @@ command_re_exec_as_root(const struct childcom* tc)
 
     do {
         resp = chat_read_line(cc);
-    } while (clowny_samsung_debug_output_p(resp));
+    } while (clowny_output_line_p(resp));
 
     struct child_hello chello;
     if (!parse_child_hello(resp, &chello))
@@ -715,7 +707,7 @@ command_re_exec_as_user_1(void* arg)
 
     do {
         resp = chat_read_line(cc);
-    } while (clowny_samsung_debug_output_p(resp));
+    } while (clowny_output_line_p(resp));
 
     struct child_hello chello;
     if (!parse_child_hello(resp, &chello))
@@ -1463,6 +1455,7 @@ connect_fb_adb_daemon(const char* const* adb_args,
     buf[nr_read] = '\0';
     const char* socknam = &buf[1];
     SCOPED_RESLIST(rl_tc);
+    dbg("connecting to daemon on cached socket [%s]", socknam);
     struct childcom* tc = connect_to_device_socket(adb_args, socknam);
     WITH_CURRENT_RESLIST(rl_tc->parent);
     struct chat* cc = tc_chat_new(tc);
@@ -1589,8 +1582,8 @@ tc_upgrade(struct childcom* tc,
 }
 
 void
-start_fb_adb_service(const struct adb_opts* adb_opts,
-                     const char* want_user)
+start_fb_adb_service_hack(const struct adb_opts* adb_opts,
+                          const char* want_user)
 {
     SCOPED_RESLIST(rl);
 
@@ -1598,15 +1591,9 @@ start_fb_adb_service(const struct adb_opts* adb_opts,
         .adb = *adb_opts,
     };
 
-    struct cmd_start_daemon_info spdi = {
-        .package = want_user,
-    };
-
     struct child* peer = start_peer(
         &spi,
-        make_args_cmd_start_daemon(
-            CMD_ARG_NAME | CMD_ARG_FORWARDED,
-            &spdi));
+        STRLIST("stub-package-hack", want_user));
 
     fdh_destroy(peer->fd[0]);
     peer->fd[0] = NULL;
@@ -1725,7 +1712,7 @@ tc_connect_user_attempt(const struct adb_info* ai,
             dbg("run-as could not find package: did we hit the "
                 "package list size overflow bug?  Try using the "
                 "service mechanism instead.");
-            start_fb_adb_service(ai->adb_opts, want_user);
+            start_fb_adb_service_hack(ai->adb_opts, want_user);
             state->tried_starting_service = true;
         } else if (ei.err == ERR_FINGERPRINT_MISMATCH) {
             dbg("got wrong build hash from re-execed fb-adb stub; "

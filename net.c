@@ -55,6 +55,12 @@ make_addr_unix_abstract(const void* bytes, size_t nr)
 #endif
 }
 
+struct addr*
+make_addr_unix_abstract_s(const char* name)
+{
+    return make_addr_unix_abstract(name, strlen(name));
+}
+
 void
 xconnect(int fd, const struct addr* addr)
 {
@@ -157,7 +163,7 @@ xsocket(int domain, int type, int protocol)
 }
 
 int
-xaccept(int server_socket)
+xaccept_internal(int server_socket, bool allow_eagain)
 {
     struct cleanup* cl = cleanup_allocate();
     int s;
@@ -171,6 +177,12 @@ xaccept(int server_socket)
 #endif
     } while (s == -1 && errno == EINTR);
 
+    if (allow_eagain && s == -1 &&
+        (errno == EAGAIN || errno == EWOULDBLOCK))
+    {
+        return -1;
+    }
+
     if (s == -1)
         die_errno("accept");
 
@@ -182,6 +194,24 @@ xaccept(int server_socket)
 
     assert_cloexec(s);
     return s;
+}
+
+int
+xaccept(int server_socket)
+{
+    return xaccept_internal(server_socket, false);
+}
+
+int
+xaccept_nonblock(int server_socket)
+{
+    int socket = xaccept_internal(server_socket, true);
+    if (socket != -1) {
+#ifndef __linux__ // Linux guarantees O_NONBLOCK is not inherited
+        fd_set_blocking_mode(socket, blocking);
+#endif
+    }
+    return socket;
 }
 
 void

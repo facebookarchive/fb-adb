@@ -23,6 +23,9 @@ AM_CPPFLAGS += -DFBADB_STUB=1
 AM_CFLAGS += -flto -frandom-seed=0
 AM_LDFLAGS += -flto -frandom-seed=0
 
+libfb_adb_a_SOURCES += stubdaemon.c stubdaemon.h
+CMD_SOURCES += cmd_stub_package_hack.c
+
 fb_adb_LDADD += -llog
 
 CLEANFILES += stub

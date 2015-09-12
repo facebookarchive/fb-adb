@@ -159,17 +159,10 @@ chat_talk_at(struct chat* cc, const char* what)
 char*
 chat_read_line(struct chat* cc)
 {
-    char line[512];
-    line[0] = '\0';
-    if (fgets(line, sizeof (line), cc->from) == NULL &&
-        ferror(cc->from))
-    {
+    size_t linesz;
+    char* line = slurp_line(cc->from, &linesz);
+    if (line == NULL)
         die(ECOMM, "lost connection to child");
-    }
-
-    size_t linesz = strlen(line);
-    while (linesz > 0 && strchr("\r\n", line[linesz - 1]))
-        linesz--;
-    line[linesz] = '\0';
-    return xstrdup(line);
+    rtrim(line, &linesz, "\r\n");
+    return line;
 }
