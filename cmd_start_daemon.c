@@ -30,12 +30,15 @@ FORWARD(start_daemon);
 int
 start_daemon_main(const struct cmd_start_daemon_info* info)
 {
+    SCOPED_RESLIST(rl);
+
     struct cmd_stub_info sinfo = {
         .stub.listen = true,
         .stub.daemonize = true,
         .stub.replace = info->start_daemon.replace,
     };
 
+    set_prgname(xaprintf("%s stub", xbasename(orig_argv0)));
     return stub_main(&sinfo);
 }
 
