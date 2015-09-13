@@ -160,9 +160,6 @@ code, and bash completion file.
     </option>
   </optgroup>
   <optgroup name="shex" forward="no" human="Shell Control">
-    <option long="socket-for-child">
-      Give the child sockets, not pipes, for its standard streams.
-    </option>
     <option short="D" long="no-ctty">
       Do not give the remote child a controlling terminal.  Normally,
       <b>fb-adb</b> connects a remote child to a controlling terminal

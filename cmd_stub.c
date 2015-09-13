@@ -439,15 +439,10 @@ start_child(reader rdr, struct msg_shex_hello* shex_hello)
         .child_chdir = child_chdir,
     };
 
-    if (shex_hello->si[0].pty_p)
-        csi.flags |= CHILD_PTY_STDIN;
-    if (shex_hello->si[1].pty_p)
-        csi.flags |= CHILD_PTY_STDOUT;
-    if (shex_hello->si[2].pty_p)
-        csi.flags |= CHILD_PTY_STDERR;
-
-    if (shex_hello->stdio_socket_p)
-        csi.flags |= CHILD_SOCKETPAIR_STDIO;
+    for (unsigned i = 0; i < 3; ++i)
+        csi.io[i] = shex_hello->si[i].pty_p
+            ? CHILD_IO_PTY
+            : CHILD_IO_PIPE;
 
     if (shex_hello->ctty_p)
         csi.flags |= CHILD_CTTY;

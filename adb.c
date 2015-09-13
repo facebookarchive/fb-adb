@@ -33,7 +33,9 @@ run_adb(const char* const* adb_args,
         const char* args[])
 {
     struct child_start_info csi = {
-        .flags = CHILD_MERGE_STDERR,
+        .io[STDIN_FILENO] = CHILD_IO_DEV_NULL,
+        .io[STDOUT_FILENO] = CHILD_IO_PIPE,
+        .io[STDERR_FILENO] = CHILD_IO_DUP_TO_STDOUT,
         .exename = "adb",
         .argv = ARGV_CONCAT(ARGV("adb"),
                             adb_args ?: empty_argv,

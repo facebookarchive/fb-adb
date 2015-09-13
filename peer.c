@@ -34,9 +34,11 @@ start_peer(
                      &rcmdi));
 
     struct child_start_info csi = {
+        .io[STDIN_FILENO] = CHILD_IO_PIPE,
+        .io[STDOUT_FILENO] = CHILD_IO_PIPE,
+        .io[STDERR_FILENO] = CHILD_IO_INHERIT /* XXX */,
         .exename = my_exe(),
         .argv = strlist_to_argv(local_self_args),
-        .flags = CHILD_INHERIT_STDERR,
     };
 
     WITH_CURRENT_RESLIST(rl->parent);

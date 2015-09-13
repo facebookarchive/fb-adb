@@ -200,7 +200,9 @@ logcat_json_main(const struct cmd_logcat_json_info* info)
     strlist_xfer(args, make_args_cmd_shell(CMD_ARG_FORWARDED, &shcmdi));
 
     struct child_start_info csi = {
-        .flags = (CHILD_NULL_STDIN | CHILD_INHERIT_STDERR),
+        .io[STDIN_FILENO] = CHILD_IO_DEV_NULL,
+        .io[STDOUT_FILENO] = CHILD_IO_PIPE,
+        .io[STDERR_FILENO] = CHILD_IO_INHERIT /* XXX */,
         .exename = my_exe(),
         .argv = strlist_to_argv(args),
     };

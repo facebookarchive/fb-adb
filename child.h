@@ -12,23 +12,24 @@
 #include <stdint.h>
 #include "util.h"
 
-#define CHILD_PTY_STDIN  (1<<0)
-#define CHILD_PTY_STDOUT (1<<1)
-#define CHILD_PTY_STDERR (1<<2)
-#define CHILD_INHERIT_STDERR (1<<3)
-#define CHILD_MERGE_STDERR (1<<4)
-#define CHILD_CTTY (1<<5)
-#define CHILD_SETSID (1<<6)
-#define CHILD_SOCKETPAIR_STDIO (1<<7)
-#define CHILD_NULL_STDIN (1<<8)
-#define CHILD_NULL_STDOUT (1<<9)
-#define CHILD_NULL_STDERR (1<<10)
+#define CHILD_CTTY (1<<0)
+#define CHILD_SETSID (1<<1)
+
+enum child_io_mode {
+    CHILD_IO_DEV_NULL,
+    CHILD_IO_PTY,
+    CHILD_IO_PIPE,
+    CHILD_IO_INHERIT,
+    CHILD_IO_RECORD,
+    CHILD_IO_DUP_TO_STDOUT,
+};
 
 struct child_start_info {
     int flags;
     const char* exename;
     const char* const* argv;
     const char* const* environ;
+    enum child_io_mode io[3];
     void (*pre_exec)(void* data);
     void* pre_exec_data;
     void (*pty_setup)(int master, int slave, void* data);

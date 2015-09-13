@@ -161,7 +161,7 @@ xdup(int fd)
     struct cleanup* cl = cleanup_allocate();
     int newfd = fcntl(fd, F_DUPFD_CLOEXEC, fd);
     if (newfd == -1)
-        die_errno("F_DUPFD_CLOEXEC");
+        die_errno("F_DUPFD_CLOEXEC(%d)", fd);
 
     assert_cloexec(newfd);
     cleanup_commit_close_fd(cl, newfd);
@@ -178,7 +178,7 @@ xdup3nc(int oldfd, int newfd, int flags)
     } while (rc < 0 && errno == EINTR);
 
     if (rc < 0)
-        die_errno("dup3");
+        die_errno("dup3(%d,%d,0x%x)", oldfd, newfd, (unsigned) flags);
 
     return rc;
 }

@@ -116,6 +116,14 @@ child_cleanup(void* arg)
     }
 }
 
+static void
+swapfd(int* a, int* b)
+{
+    int tmp = *a;
+    *a = *b;
+    *b = tmp;
+}
+
 struct child*
 child_start(const struct child_start_info* csi)
 {
@@ -127,13 +135,12 @@ child_start(const struct child_start_info* csi)
     int pty_master = -1;
     int pty_slave = -1;
 
-    if (flags & (CHILD_PTY_STDIN |
-                 CHILD_PTY_STDOUT |
-                 CHILD_PTY_STDERR |
-                 CHILD_CTTY))
-    {
-        flags |= (CHILD_CTTY | CHILD_SETSID);
-    }
+    for (unsigned i = 0; i < 3; ++i)
+        if (csi->io[i] == CHILD_IO_PTY)
+            flags |= (CHILD_CTTY | CHILD_SETSID);
+
+    if (flags & CHILD_CTTY)
+        flags |= CHILD_SETSID;
 
     if (flags & CHILD_CTTY) {
         pty_master = xopen("/dev/ptmx", O_RDWR | O_NOCTTY | O_CLOEXEC, 0);
@@ -160,52 +167,44 @@ child_start(const struct child_start_info* csi)
     int childfd[3];
     int parentfd[3];
 
-    if (flags & CHILD_SOCKETPAIR_STDIO) {
-        flags &= ~(CHILD_PTY_STDIN | CHILD_PTY_STDOUT);
-        xsocketpair(AF_UNIX, SOCK_STREAM, 0, &childfd[0], &parentfd[0]);
-        childfd[1] = xdup(childfd[0]);
-        parentfd[1] = xdup(parentfd[0]);
-    } else {
-        if (flags & CHILD_PTY_STDIN) {
-            childfd[0] = xdup(pty_slave);
-            parentfd[0] = xdup(pty_master);
-        } else if (flags & CHILD_NULL_STDIN) {
-            childfd[0] = xopen("/dev/null", O_RDONLY, 0);
-            parentfd[0] = xopen("/dev/null", O_WRONLY, 0);
-        } else {
-            xpipe(&childfd[0], &parentfd[0]);
+#ifndef NDEBUG
+    for (unsigned i = 0; i < 3; ++i)
+        parentfd[i] = childfd[i] = -1;
+#endif
+
+    for (unsigned i = 0; i < 3; ++i) {
+        switch (csi->io[i]) {
+            case CHILD_IO_DEV_NULL:
+                childfd[i] = xopen("/dev/null", O_WRONLY, 0);
+                parentfd[i] = xopen("/dev/null", O_RDONLY, 0);
+                if (i == 0) swapfd(&childfd[i], &parentfd[i]);
+                break;
+            case CHILD_IO_PTY:
+                childfd[i] = xdup(pty_slave);
+                parentfd[i] = xdup(pty_master);
+                break;
+            case CHILD_IO_PIPE:
+                xpipe(&parentfd[i], &childfd[i]);
+                if (i == 0) swapfd(&childfd[i], &parentfd[i]);
+                break;
+            case CHILD_IO_INHERIT:
+                childfd[i] = xdup(i);
+                if (i == 0) {
+                    parentfd[i] = xopen("/dev/null", O_WRONLY, 0);
+                } else {
+                    parentfd[i] = xopen("/dev/null", O_RDONLY, 0);
+                }
+                break;
+            case CHILD_IO_RECORD:
+                if (i == 0) die(EINVAL, "cannot record stdin");
+                abort(); // XXX: implement me
+                break;
+            case CHILD_IO_DUP_TO_STDOUT:
+                if (i != 2) die(EINVAL, "can dup only stderr to stdout");
+                childfd[i] = xdup(childfd[1]);
+                parentfd[i] = xdup(parentfd[1]);
+                break;
         }
-
-        if (flags & CHILD_PTY_STDOUT) {
-            childfd[1] = xdup(pty_slave);
-            parentfd[1] = xdup(pty_master);
-        } else if (flags & CHILD_NULL_STDOUT) {
-            childfd[1] = xopen("/dev/null", O_WRONLY, 0);
-            parentfd[1] = xopen("/dev/null", O_RDONLY, 0);
-        } else {
-            xpipe(&parentfd[1], &childfd[1]);
-        }
-    }
-
-    // If child has a pty for both stdout and stderr, from our POV, it
-    // writes only to stdout.
-    if ((flags & CHILD_PTY_STDERR) && (flags & CHILD_PTY_STDOUT))
-        flags |= CHILD_MERGE_STDERR;
-
-    if (flags & CHILD_MERGE_STDERR) {
-        childfd[2] = xdup(childfd[1]);
-        parentfd[2] = xopen("/dev/null", O_RDONLY, 0);
-    } else if (flags & CHILD_PTY_STDERR) {
-        childfd[2] = xdup(pty_slave);
-        parentfd[2] = xdup(pty_master);
-    } else if (flags & CHILD_INHERIT_STDERR) {
-        childfd[2] = xdup(2);
-        parentfd[2] = xopen("/dev/null", O_RDONLY, 0);
-    } else if (flags & CHILD_NULL_STDERR) {
-        childfd[2] = xopen("/dev/null", O_WRONLY, 0);
-        parentfd[2] = xopen("/dev/null", O_RDONLY, 0);
-    } else {
-        xpipe(&parentfd[2], &childfd[2]);
     }
 
     WITH_CURRENT_RESLIST(rl->parent);

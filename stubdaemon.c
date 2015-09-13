@@ -38,6 +38,9 @@ fb_adb_service_connect(const char* package, int timeout_ms)
     xlisten(service_listen_fd, 1);
 
     struct child_start_info csi = {
+        .io[STDIN_FILENO] = CHILD_IO_DEV_NULL,
+        .io[STDOUT_FILENO] = CHILD_IO_PIPE,
+        .io[STDERR_FILENO] = CHILD_IO_DUP_TO_STDOUT,
         .exename = "am",
         .argv = ARGV(
             "am",
@@ -48,8 +51,6 @@ fb_adb_service_connect(const char* package, int timeout_ms)
                      "com.facebook.fbadb.FbAdbService"),
             "-a", "callMeCallMeAnyTime",
             "-e", "com.facebook.fbadb.SOCKET_NAME", service_sockname),
-        .flags = (CHILD_NULL_STDIN |
-                  CHILD_MERGE_STDERR),
     };
 
     struct child* am = child_start(&csi);

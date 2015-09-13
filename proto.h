@@ -131,7 +131,6 @@ struct msg_shex_hello {
     struct window_size ws;
     uint8_t have_ws;
     uint8_t posix_vdisable_value;
-    uint8_t stdio_socket_p;
     uint8_t ctty_p;
     struct stream_information si[3];
     struct term_control tctl[0]; // Must be last

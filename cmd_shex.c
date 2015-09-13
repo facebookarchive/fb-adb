@@ -175,7 +175,9 @@ start_stub_local(struct child_hello* chello)
     allow_inherit(exefd);
 
     const struct child_start_info csi = {
-        .flags = CHILD_INHERIT_STDERR,
+        .io[STDIN_FILENO] = CHILD_IO_PIPE,
+        .io[STDOUT_FILENO] = CHILD_IO_PIPE,
+        .io[STDERR_FILENO] = CHILD_IO_INHERIT /* XXX */,
         .exename = xaprintf("/proc/self/fd/%d", exefd),
         .argv = ARGV(stub_exe_name, "stub"),
     };
@@ -302,7 +304,9 @@ delete_device_tmpfile_cleanup_1(void* data)
 {
     struct delete_device_tmpfile* ddt = data;
     const struct child_start_info csi = {
-        .flags = CHILD_NULL_STDIN | CHILD_NULL_STDOUT | CHILD_NULL_STDERR,
+        .io[STDIN_FILENO] = CHILD_IO_DEV_NULL,
+        .io[STDOUT_FILENO] = CHILD_IO_DEV_NULL,
+        .io[STDERR_FILENO] = CHILD_IO_DEV_NULL,
         .exename = "adb",
         .argv = ARGV_CONCAT(ARGV("adb"),
                             ddt->adb_args,
@@ -341,7 +345,9 @@ start_stub_adb(const char* const* adb_args,
                struct child_hello* chello)
 {
     const struct child_start_info csi = {
-        .flags = CHILD_INHERIT_STDERR,
+        .io[STDIN_FILENO] = CHILD_IO_PIPE,
+        .io[STDOUT_FILENO] = CHILD_IO_PIPE,
+        .io[STDERR_FILENO] = CHILD_IO_INHERIT /* XXX */,
         .exename = "adb",
         .argv = ARGV_CONCAT(ARGV("adb"), adb_args, ARGV("shell")),
     };
@@ -1393,9 +1399,9 @@ send_file_to_device(
     strlist_xfer(args, make_args_cmd_fput(CMD_ARG_ALL, &fpi));
 
     struct child_start_info csi = {
-        .flags = (CHILD_NULL_STDIN |
-                  CHILD_NULL_STDOUT |
-                  CHILD_INHERIT_STDERR),
+        .io[STDIN_FILENO] = CHILD_IO_DEV_NULL,
+        .io[STDOUT_FILENO] = CHILD_IO_DEV_NULL,
+        .io[STDERR_FILENO] = CHILD_IO_INHERIT /* XXX */,
         .pre_exec = send_file_to_device_pre_exec,
         .pre_exec_data = (void*) (intptr_t) fd,
         .exename = my_exe(),
@@ -2057,7 +2063,6 @@ shex_main_common(const struct shex_common_info* info)
 
     size_t max_cmdsz = DEFAULT_MAX_CMDSZ;
     enum { TTY_AUTO,
-           TTY_SOCKPAIR,
            TTY_DISABLE,
            TTY_ENABLE,
            TTY_SUPER_ENABLE } tty_mode = TTY_AUTO;
@@ -2157,10 +2162,6 @@ shex_main_common(const struct shex_common_info* info)
                        command_ringbufsz,
                        2 + argv_count(argv),
                        tty_flags);
-
-    if (tty_mode == TTY_SOCKPAIR) {
-        hello_msg->stdio_socket_p = 1;
-    }
 
     if (info->shex.no_ctty == 0)
         hello_msg->ctty_p = 1;

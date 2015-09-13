@@ -359,7 +359,9 @@ xgetaddrinfo_interruptible(
     };
 
     struct child_start_info csi = {
-        .flags = ( CHILD_NULL_STDIN ),
+        .io[STDIN_FILENO] = CHILD_IO_DEV_NULL,
+        .io[STDOUT_FILENO] = CHILD_IO_PIPE,
+        .io[STDERR_FILENO] = CHILD_IO_PIPE,
         .pre_exec = xgai_preexec,
         .pre_exec_data = &xa,
     };
