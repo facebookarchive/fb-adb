@@ -1545,7 +1545,7 @@ connect_fb_adb_daemon(const char* const* adb_args,
     char* resp = chat_read_line(cc);
     if (!parse_child_hello(resp, chello))
         die(ECOMM, "trouble reading daemon socket for %s: [%s]",
-            user_description, resp);
+            cache_file_name, resp);
     if (strcmp(chello->ver, build_fingerprint) != 0)
         die(ERR_FINGERPRINT_MISMATCH, "stale daemon");
 
