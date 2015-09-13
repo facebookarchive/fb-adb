@@ -674,14 +674,6 @@ make_abi_mask(unsigned api_level)
     return abi_mask;
 }
 
-#ifdef FBADB_MAIN
-enum stub_daemon_action
-run_stub_daemon(struct stub_daemon_info info)
-{
-    die(EINVAL, "no daemon support in this configuration");
-}
-#endif
-
 static int
 stub_main_1(const struct cmd_stub_info* info)
 {

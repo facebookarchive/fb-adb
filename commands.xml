@@ -551,13 +551,19 @@ code, and bash completion file.
     <argument name="package" />
   </command>
   <command names="start-daemon">
-    Start a daemon on a randomly-named abstract AF_UNIX socket and
-    emit an FB_ADB_STUB_DAEMONIZED_LINE describing the daemon name on
-    standard output.  <b>fb-adb</b> will connect to this daemon the
-    next time it runs a command as user <i>package</i>.
+    Start an fb-adb daemon on the device.  <b>fb-adb</b> will connect
+    to this daemon the next time it needs to run a command.
     <?ifdef FBADB_MAIN?>
-    Each user has a daemon, so the <b>--user</b> option controls which daemon to kill.
+    Each user has a daemon, so the <b>--user</b> option controls which
+    daemon to start.
     <?endif?>
+    <optgroup name="start-daemon">
+      <option long="replace">
+        Kill any existing <b>fb-adb</b> daemon for this user before
+        starting a new daemon.  Without this option, we reuse an
+        already-started daemon as long as its version matches our own.
+      </option>
+    </optgroup>
     <?ifdef FBADB_MAIN?>
     <optgroup-reference name="adb"/>
     <optgroup-reference name="transport" />
@@ -567,7 +573,8 @@ code, and bash completion file.
   <command names="stop-daemon">
     Stop the most recently started <b>fb-adb</b> daemon.
     <?ifdef FBADB_MAIN?>
-    Each user has a daemon, so the <b>--user</b> option controls which daemon to kill.
+    Each user has a daemon, so the <b>--user</b> option controls which
+    daemon to kill.
     <?endif?>
     <?ifdef FBADB_MAIN?>
     <optgroup-reference name="adb"/>
@@ -593,7 +600,7 @@ code, and bash completion file.
       </option>
       <option short="r" long="replace">
         Kill any existing <b>fb-adb</b> daemon for this user before
-        starting this one.
+        starting a new one.
       </option>
     </optgroup>
   </command>

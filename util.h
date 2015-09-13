@@ -147,6 +147,12 @@ typedef struct errinfo {
     unsigned want_msg : 1;
 } errinfo;
 
+#ifdef NDEBUG
+# define ERRINFO_WANT_MSG_IF_DEBUG { 0 }
+#else
+# define ERRINFO_WANT_MSG_IF_DEBUG { .want_msg = true }
+#endif
+
 // Call FN with FNDATA with an internal resource list as current.
 // If FN returns normally, transfer resources added to that resource
 // list to the resource list that was current at the time of

@@ -54,7 +54,8 @@ fb_adb_service_connect(const char* package, int timeout_ms)
 
     struct child* am = child_start(&csi);
     // am doesn't use exit status to indicate that it worked, so look
-    // for the success string in its output.
+    // for the success string in its output.  (But if we _do_ see a
+    // non-zero exit status, we know it definitely failed.)
 
     FILE* am_out = xfdopen(am->fd[1]->fd, "r");
     for (;;) {
@@ -71,6 +72,9 @@ fb_adb_service_connect(const char* package, int timeout_ms)
                 line + strlen("Error: "));
         }
     }
+
+    if (!child_status_success_p(child_wait(am)))
+        die(ECOMM, "unclear error running am");
 
     set_timeout_ms(timeout_ms,
                    ETIMEDOUT,
@@ -96,7 +100,7 @@ start_daemon_via_service_hack(const char* package_name)
         "    exit 1;"                                                   \
         "  fi; "                                                        \
         "fi; "                                                          \
-        "exec ./.fb-adb stub -ldr"
+        "exec ./.fb-adb stub -ld"
 
     // Android 4.0 lacks support for the -f option, but redirecting
     // stdin from /dev/null suppresses any interactive prompts;
@@ -226,16 +230,22 @@ try_stop_daemon_1(void* data)
 static void
 try_stop_daemon(void)
 {
-    struct errinfo ei = {
-#ifndef NDEBUG
-        .want_msg = true,
-#endif
-    };
-
+    struct errinfo ei = ERRINFO_WANT_MSG_IF_DEBUG;
     if (catch_error(try_stop_daemon_1, NULL, &ei))
         dbg("failed to stop daemon: %s", ei.msg);
     else
         dbg("stopped running daemon");
+}
+
+static void
+write_daemon_hello(int fd, const char* socket_name, unsigned pid)
+{
+    SCOPED_RESLIST(rl);
+    char* hello = xaprintf(FB_ADB_STUB_DAEMON_LINE "\n",
+                           build_fingerprint,
+                           socket_name,
+                           pid);
+    write_all(fd, hello, strlen(hello));
 }
 
 static void
@@ -250,24 +260,118 @@ stub_daemon_setup(void* data)
     xftruncate(socket_name_file, 0);
     xflock(socket_name_file, LOCK_UN);
     write_all(socket_name_file, socket_name, strlen(socket_name));
-
-    if (printf(FB_ADB_STUB_DAEMON_LINE "\n",
-               build_fingerprint,
-               socket_name,
-               (unsigned) getpid()) < 0)
-        die_errno("printf");
-    if (fflush(stdout) == -1)
-        die_errno("flush");
+    write_daemon_hello(STDOUT_FILENO, socket_name, (unsigned) getpid());
 }
 
 static void
-write_command_reply(int fd, char c)
+handle_control_connection_2(int control_fd,
+                            const char* socket_name,
+                            bool* should_return,
+                            enum stub_daemon_action* action)
 {
-    ssize_t ret;
-    do {
-        WITH_IO_SIGNALS_ALLOWED();
-        ret = write(fd, &c, sizeof (c));
-    } while (ret == -1 && errno == EINTR);
+    dbg("got control socket connection %d", control_fd);
+    char command;
+    if (read_all(control_fd, &command, sizeof (command))
+        != sizeof (command))
+    {
+        android_msg(ANDROID_LOG_DEBUG,
+                    "could not read command on control connection");
+        return;
+    }
+
+    dbg("control socket command %c", command);
+
+    if (command == DAEMON_COMMAND_KILL_SELF) {
+        // Exit even if the write_all below fails
+        *action = STUB_DAEMON_EXIT_PROGRAM;
+        *should_return = true;
+        android_msg(ANDROID_LOG_INFO, "fb-adb daemon exiting as requested");
+        char reply = DAEMON_REPLY_OKAY;
+        write_all(control_fd, &reply, sizeof (reply));
+        return;
+    }
+
+    if (command == DAEMON_COMMAND_PING) {
+        write_daemon_hello(control_fd, socket_name, (unsigned) getpid());
+        return;
+    }
+
+    android_msg(ANDROID_LOG_WARN, "unknown control command %d", command);
+}
+
+struct handle_control_connection_ctx {
+    int control_fd;
+    const char* socket_name;
+    enum stub_daemon_action* action;
+    bool should_return;
+};
+
+static void
+handle_control_connection_1(void* data)
+{
+    struct handle_control_connection_ctx* ctx = data;
+    handle_control_connection_2(ctx->control_fd,
+                                ctx->socket_name,
+                                &ctx->should_return,
+                                ctx->action);
+}
+
+static bool
+handle_control_connection(int control_fd,
+                          const char* socket_name,
+                          enum stub_daemon_action* action)
+{
+    struct handle_control_connection_ctx ctx = {
+        .control_fd = control_fd,
+        .socket_name = socket_name,
+        .action = action,
+    };
+
+    struct errinfo ei = ERRINFO_WANT_MSG_IF_DEBUG;
+    if (catch_error(handle_control_connection_1, &ctx, &ei))
+        dbg("error handling control connection:%d: %s", ei.err, ei.msg);
+    return ctx.should_return;
+}
+
+static void
+read_current_daemon_hello(struct daemon_hello* dhello)
+{
+    SCOPED_RESLIST(rl);
+    int control_connection = connect_to_daemon_control();
+    char command = DAEMON_COMMAND_PING;
+    write_all(control_connection, &command, sizeof (command));
+    if (!parse_daemon_hello(slurp_fd(control_connection, NULL),
+                            dhello))
+        die(ECOMM, "invalid server hello");
+}
+
+static void
+try_read_current_daemon_hello_1(void* data)
+{
+    return read_current_daemon_hello((struct daemon_hello*) data);
+}
+
+static bool
+try_reuse_current_daemon(void)
+{
+    struct errinfo ei = ERRINFO_WANT_MSG_IF_DEBUG;
+    struct daemon_hello dhello;
+    if (catch_error(try_read_current_daemon_hello_1, &dhello, &ei)) {
+        dbg("could not read server hello: %d: %s", ei.err, ei.msg);
+        return false;
+    }
+
+    dbg("hello from current daemon: ver:[%s] socket_name:[%s]",
+        dhello.ver, dhello.socket_name);
+
+    if (strcmp(dhello.ver, build_fingerprint) != 0) {
+        dbg("daemon fingerprint mismatch: cannot reuse");
+        return false;
+    }
+
+    dbg("current daemon is compatible: forwarding its credentials");
+    write_daemon_hello(STDOUT_FILENO, dhello.socket_name, dhello.pid);
+    return true;
 }
 
 enum stub_daemon_action
@@ -275,8 +379,48 @@ run_stub_daemon(struct stub_daemon_info info)
 {
     SCOPED_RESLIST(rl);
 
-    if (info.replace)
+    // By default, we reuse running daemons when possible instead of
+    // replacing them.  To tell whether we can reuse a currently
+    // running daemon, we connect to its control socket and ask it to
+    // spit out its hello line.  If the fingerprint in this line
+    // matches our own, we can reuse this daemon.  Otherwise, we have
+    // to replace it.  (We try to make sure we only have one daemon
+    // around at a time.)
+    //
+    // Why not just connect to the fb-adb socket and read fb-adb
+    // stub's hello line? If we do that and immediately disconnect,
+    // fb-adb stub will log an error indicating that it saw an
+    // unexpected EOF.  We could work around that problem and try to
+    // suppress the error by writing some kind of MSG_PLEASE_DIE_NOW
+    // over the fb-adb protocol, but the fb-adb protocol isn't stable
+    // between versions, so we wouldn't know what bytes mean
+    // MSG_PLEASE_DIE_NOW for whatever version of fb-adb we're talking
+    // to.  The much simpler control socket protocol _is_ stable, so
+    // we do daemon status checks over that one.
+    //
+    // Besides, the daemon hello line gives us the daemon's pid and
+    // the stub one does not.
+    //
+
+    if (info.daemonize && !info.replace) {
+        dbg("trying to reuse current daemon");
+        if (try_reuse_current_daemon()) {
+            return STUB_DAEMON_EXIT_PROGRAM;
+        }
+
+        dbg("no current daemon or daemon incompatible; replacing");
+        info.replace = true;
+    }
+
+    if (!info.daemonize) {
+        dbg("being asked not to daemonize, so replacing daemon");
+        info.replace = true;
+    }
+
+    if (info.replace) {
+        dbg("replacing current daemon");
         try_stop_daemon();
+    }
 
     const char* socket_name =
         xaprintf("fb-adb-stub-%s",
@@ -324,24 +468,12 @@ run_stub_daemon(struct stub_daemon_info info)
         if (pollfds[1].revents &&
             (control_connection = xaccept_nonblock(control_socket)) != -1)
         {
-            char command;
-            if (read_all(control_connection, &command, sizeof (command))
-                != sizeof (command))
-            {
-                android_msg(ANDROID_LOG_DEBUG,
-                            "could not read command on control connection");
-                continue;
-            }
-
-            if (command == DAEMON_COMMAND_KILL_SELF) {
-                write_command_reply(control_connection, DAEMON_REPLY_OKAY);
-                android_msg(ANDROID_LOG_INFO,
-                            "fb-adb daemon exiting as requested");
-                return STUB_DAEMON_EXIT_PROGRAM;
-            }
-
-            if (command == DAEMON_COMMAND_PING)
-                write_command_reply(control_connection, DAEMON_REPLY_OKAY);
+            enum stub_daemon_action action;
+            if (handle_control_connection(control_connection,
+                                          socket_name,
+                                          &action))
+                return action;
+            continue;
         }
 
         int client_connection;

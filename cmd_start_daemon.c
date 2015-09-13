@@ -33,7 +33,7 @@ start_daemon_main(const struct cmd_start_daemon_info* info)
     struct cmd_stub_info sinfo = {
         .stub.listen = true,
         .stub.daemonize = true,
-        .stub.replace = true,
+        .stub.replace = info->start_daemon.replace,
     };
 
     return stub_main(&sinfo);
