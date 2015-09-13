@@ -128,6 +128,12 @@ code, and bash completion file.
       useful for debugging <b>fb-adb</b> itself.
       <?endif?>
     </option>
+    <option long="avoid-daemon">
+      <b>fb-adb</b> normally automatically starts a daemon on device
+      to improve connection setup performance.  This option prevents
+      <b>fb-adb</b> from starting a daemon or attempting to use one
+      already started.
+    </option>
   </optgroup>
   <optgroup name="user" forward="no" completion-relevant="yes">
     <option short="r" long="root">

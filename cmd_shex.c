@@ -1475,24 +1475,37 @@ handle_open_exec_response(const struct shex_common_info* info,
 }
 
 static char*
-daemon_cache_file_name(const char* want_user)
+daemon_cache_file_name(const struct user_opts* uopt)
 {
+    if (uopt->user)
+        return xaprintf("%s/socket-name-cache-u%s",
+                        my_fb_adb_directory(),
+                        uopt->user /* already sanity-checked */);
+
     return xaprintf("%s/socket-name-cache-%s",
                     my_fb_adb_directory(),
-                    want_user /* already sanity-checked */);
-
+                    uopt->root ? "root" : "default");
 }
 
 static struct childcom*
 connect_fb_adb_daemon(const char* const* adb_args,
-                      const char* want_user,
+                      const struct user_opts* uopt,
                       struct child_hello* chello)
 {
     SCOPED_RESLIST(rl);
-    const char* cache_file_name = daemon_cache_file_name(want_user);
+
+#ifndef NDEBUG
+    const char* user_description = uopt->user
+        ? xaprintf("user %s", uopt->user)
+        : ( uopt->root
+            ? "root"
+            : "the default user");
+#endif
+
+    const char* cache_file_name = daemon_cache_file_name(uopt);
     dbg("looking for cached socket name for fb-adb daemon "
-        "running as user %s in cache file [%s]",
-        want_user, cache_file_name);
+        "running as %s in cache file [%s]",
+        user_description, cache_file_name);
     struct stat st;
     if (stat(cache_file_name, &st) != 0)
         die(ECOMM, "fb-adb daemon cache stat failed: %s",
@@ -1500,8 +1513,10 @@ connect_fb_adb_daemon(const char* const* adb_args,
     time_t now = time(NULL);
     if (st.st_mtime > now)
         die(ECOMM, "fb-adb daemon cache file from future");
+
     struct cleanup* cache_unlink_cl = cleanup_allocate();
     cleanup_commit(cache_unlink_cl, unlink_cleanup, cache_file_name);
+
     uint64_t cache_file_age_s = now - st.st_mtime;
     uint64_t cache_max_age_s = (DAEMON_TIMEOUT_MS+999)/1000;
     dbg("cache file age is %llu seconds",
@@ -1510,6 +1525,7 @@ connect_fb_adb_daemon(const char* const* adb_args,
         (unsigned long long) cache_max_age_s);
     if (cache_file_age_s >= cache_max_age_s)
         die(ECOMM, "fb-adb daemon cache file stale");
+
     int cache_file_fd = xopen(cache_file_name, O_RDONLY, 0);
     char buf[256]; // Bounded by AF_UNIX name length
     xflock(cache_file_fd, LOCK_SH);
@@ -1519,17 +1535,20 @@ connect_fb_adb_daemon(const char* const* adb_args,
         die(ECOMM, "invalid cache file format");
     buf[nr_read] = '\0';
     const char* socknam = &buf[1];
+
     SCOPED_RESLIST(rl_tc);
     dbg("connecting to daemon on cached socket [%s]", socknam);
     struct childcom* tc = connect_to_device_socket(adb_args, socknam);
     WITH_CURRENT_RESLIST(rl_tc->parent);
+
     struct chat* cc = tc_chat_new(tc);
     char* resp = chat_read_line(cc);
     if (!parse_child_hello(resp, chello))
         die(ECOMM, "trouble reading daemon socket for %s: [%s]",
-            want_user, resp);
+            user_description, resp);
     if (strcmp(chello->ver, build_fingerprint) != 0)
         die(ERR_FINGERPRINT_MISMATCH, "stale daemon");
+
     struct timeval new_cache_filetimes[2];
     VERIFY(gettimeofday(&new_cache_filetimes[0], NULL) == 0);
     new_cache_filetimes[1] = new_cache_filetimes[0];
@@ -1545,7 +1564,7 @@ connect_fb_adb_daemon(const char* const* adb_args,
             cache_file_name, strerror(errno));
     else
         dbg("refreshed time on cache file [%s] for user [%s]",
-            cache_file_name, want_user);
+            cache_file_name, user_description);
 
     cleanup_forget(cache_unlink_cl);
     reslist_xfer(rl->parent, rl_tc);
@@ -1554,7 +1573,7 @@ connect_fb_adb_daemon(const char* const* adb_args,
 
 struct try_connect_fb_adb_daemon_ctx {
     const char* const* adb_args;
-    const char* want_user;
+    const struct user_opts* uopt;
     struct child_hello* chello;
     struct childcom* tc;
 };
@@ -1565,18 +1584,18 @@ try_connect_fb_adb_daemon_1(void* data)
     struct try_connect_fb_adb_daemon_ctx* ctx = data;
     ctx->tc = connect_fb_adb_daemon(
         ctx->adb_args,
-        ctx->want_user,
+        ctx->uopt,
         ctx->chello);
 }
 
 static struct childcom*
 try_connect_fb_adb_daemon(const char* const* adb_args,
-                          const char* want_user,
+                          const struct user_opts* uopt,
                           struct child_hello* chello)
 {
     struct try_connect_fb_adb_daemon_ctx ctx = {
         .adb_args = adb_args,
-        .want_user = want_user,
+        .uopt = uopt,
         .chello = chello,
     };
 
@@ -1630,7 +1649,6 @@ tc_for_child(struct child* child)
 
 struct tc_connect_user_state {
     bool shell_thunk;
-    bool tried_starting_service;
 };
 
 static struct childcom*
@@ -1646,34 +1664,36 @@ tc_upgrade(struct childcom* tc,
     return tc;
 }
 
-void
-start_fb_adb_service_hack(const struct adb_opts* adb_opts,
-                          const char* want_user)
+static struct childcom*
+tcp_upgrade_daemon_connection(struct childcom* tc,
+                              const char* const* adb_args,
+                              struct transport transport)
+{
+    if (transport.type == transport_tcp)
+        tc = reconnect_over_tcp_socket(tc, NULL, transport.tcp_addr);
+    return tc;
+}
+
+static char*
+slurp_massaged_output(int fd)
 {
     SCOPED_RESLIST(rl);
+    size_t sz;
+    char* output = slurp_fd(fd, &sz);
+    WITH_CURRENT_RESLIST(rl->parent);
+    return massage_output((uint8_t*) output, sz);
+}
 
-    struct start_peer_info spi = {
-        .adb = *adb_opts,
-    };
-
-    struct child* peer = start_peer(
-        &spi,
-        STRLIST("stub-package-hack", want_user));
-
+static void
+complete_start_daemon_attempt(struct child* peer,
+                              const struct user_opts* uopt)
+{
     fdh_destroy(peer->fd[0]);
     peer->fd[0] = NULL;
 
-    char* output;
-    {
-        SCOPED_RESLIST(slurp_rl);
-        size_t bufsz = 1024;
-        uint8_t* buf = xalloc(bufsz);
-        size_t sz = read_all(peer->fd[1]->fd, buf, bufsz);
-        fdh_destroy(peer->fd[1]);
-        peer->fd[1] = NULL;
-        WITH_CURRENT_RESLIST(slurp_rl->parent);
-        output = massage_output(buf, sz);
-    }
+    char* output = slurp_massaged_output(peer->fd[1]->fd);
+    fdh_destroy(peer->fd[1]);
+    peer->fd[1] = NULL;
 
     struct daemon_hello dhello;
     bool have_dhello = false;
@@ -1687,7 +1707,7 @@ start_fb_adb_service_hack(const struct adb_opts* adb_opts,
         {
             if (parse_daemon_hello(line, &dhello)) {
                 have_dhello = true;
-                    break;
+                break;
             }
         }
     }
@@ -1700,7 +1720,7 @@ start_fb_adb_service_hack(const struct adb_opts* adb_opts,
     dbg("started daemon on device; listening socket [%s]",
         dhello.socket_name);
 
-    const char* cache_file_name = daemon_cache_file_name(want_user);
+    const char* cache_file_name = daemon_cache_file_name(uopt);
     int cache_file_fd = xopen(cache_file_name, O_RDWR | O_CREAT, 0600);
     xflock(cache_file_fd, LOCK_EX);
     xftruncate(cache_file_fd, 0);
@@ -1712,6 +1732,141 @@ start_fb_adb_service_hack(const struct adb_opts* adb_opts,
     xflock(cache_file_fd, LOCK_UN);
 }
 
+static void
+start_daemon_via_shell(const struct adb_opts* adb_opts,
+                       const struct user_opts* user_opts,
+                       const struct transport_opts* transport_opts)
+{
+    SCOPED_RESLIST(rl);
+
+    struct start_peer_info spi = {
+        .adb = *adb_opts,
+        .user = *user_opts,
+        .transport = *transport_opts,
+        .transport.avoid_daemon = true,
+    };
+
+    struct cmd_start_daemon_info cdsi = { };
+
+    struct child* peer = start_peer(
+        &spi,
+        make_args_cmd_start_daemon(
+            CMD_ARG_FORWARDED | CMD_ARG_NAME,
+            &cdsi));
+
+    complete_start_daemon_attempt(peer, user_opts);
+}
+
+struct try_start_daemon_via_shell_ctx {
+    const struct adb_opts* adb_opts;
+    const struct user_opts* user_opts;
+    const struct transport_opts* transport_opts;
+};
+
+static void
+try_start_daemon_via_shell_1(void* data)
+{
+    struct try_start_daemon_via_shell_ctx* ctx = data;
+    start_daemon_via_shell(ctx->adb_opts, ctx->user_opts, ctx->transport_opts);
+}
+
+static bool
+try_start_daemon_via_shell(const struct adb_opts* adb_opts,
+                           const struct user_opts* user_opts,
+                           const struct transport_opts* transport_opts)
+{
+    struct try_start_daemon_via_shell_ctx ctx = {
+        .adb_opts = adb_opts,
+        .user_opts = user_opts,
+        .transport_opts = transport_opts,
+    };
+    struct errinfo ei = ERRINFO_WANT_MSG_IF_DEBUG;
+    if (catch_error(try_start_daemon_via_shell_1, &ctx, &ei)) {
+        dbg("failed to start daemon via shell: %s", ei.msg);
+        return false;
+    }
+
+    return true;
+}
+
+static void
+start_daemon_via_service_hack(const struct adb_opts* adb_opts,
+                              const char* want_user)
+{
+    SCOPED_RESLIST(rl);
+
+    struct start_peer_info spi = {
+        .adb = *adb_opts,
+    };
+
+    struct cmd_stub_package_hack_info sphi = {
+        .package = want_user,
+    };
+
+    struct child* peer = start_peer(
+        &spi,
+        make_args_cmd_stub_package_hack(
+            CMD_ARG_FORWARDED | CMD_ARG_NAME,
+            &sphi));
+
+    complete_start_daemon_attempt(
+        peer,
+        &(struct user_opts){.user = want_user});
+}
+
+static struct childcom*
+service_hack_connect(const struct adb_info* ai,
+                     const char* want_user,
+                     struct transport transport,
+                     struct child_hello* chello)
+{
+    start_daemon_via_service_hack(ai->adb_opts, want_user);
+    struct childcom* tc = connect_fb_adb_daemon(
+        ai->adb_args,
+        &(struct user_opts){.user = want_user},
+        chello);
+    dbg("connected to fb-adb daemon");
+    return tc;
+}
+
+struct try_service_hack_connect_ctx {
+    const struct adb_info* ai;
+    const char* want_user;
+    struct transport transport;
+    struct child_hello* chello;
+    struct childcom* result;
+};
+
+void
+try_service_hack_connect_1(void* data)
+{
+    struct try_service_hack_connect_ctx* ctx = data;
+    ctx->result = service_hack_connect(
+        ctx->ai,
+        ctx->want_user,
+        ctx->transport,
+        ctx->chello);
+}
+
+struct childcom*
+try_service_hack_connect(const struct adb_info* ai,
+                         const char* want_user,
+                         struct transport transport,
+                         struct child_hello* chello)
+{
+    struct try_service_hack_connect_ctx ctx = {
+        .ai = ai,
+        .want_user = want_user,
+        .transport = transport,
+        .chello = chello,
+    };
+
+    struct errinfo ei = ERRINFO_WANT_MSG_IF_DEBUG;
+    if (catch_error(try_service_hack_connect_1, &ctx, &ei))
+        dbg("failed to connect to service via hack: %s", ei.msg);
+    return ctx.result;
+}
+
 static struct childcom*
 tc_connect_user_attempt(const struct adb_info* ai,
                         const char* want_user,
@@ -1721,16 +1876,6 @@ tc_connect_user_attempt(const struct adb_info* ai,
 {
     SCOPED_RESLIST(rl);
     const char* const* adb_args = ai->adb_args;
-    struct childcom* tc = try_connect_fb_adb_daemon(
-        ai->adb_args, want_user, chello);
-    if (tc != NULL) {
-        dbg("connected to fb-adb daemon");
-        if (transport.type == transport_tcp)
-            tc = reconnect_over_tcp_socket(tc, NULL, transport.tcp_addr);
-        reslist_xfer(rl->parent, rl);
-        return tc;
-    }
-
     struct child* adb = start_stub_adb(adb_args, chello);
 
     if (state->shell_thunk == false && chello->api_level >= 21) {
@@ -1744,7 +1889,7 @@ tc_connect_user_attempt(const struct adb_info* ai,
         state->shell_thunk = true;
     }
 
-    tc = tc_for_child(adb);
+    struct childcom* tc = tc_for_child(adb);
 
     // Prefer to upgrade connection before user switch so that
     // accounts without NETWORK access can use network fb-adb
@@ -1770,14 +1915,16 @@ tc_connect_user_attempt(const struct adb_info* ai,
         {
             dbg("run-as permission denied: trying shell thunk");
             state->shell_thunk = true;
-        } else if (re_exec_error_package_unknown_p(&ei) &&
-                   state->tried_starting_service == false)
-        {
+        } else if (re_exec_error_package_unknown_p(&ei)) {
             dbg("run-as could not find package: did we hit the "
-                "package list size overflow bug?  Try using the "
+                "package list size overflow bug?  Trying the"
                 "service mechanism instead.");
-            start_fb_adb_service_hack(ai->adb_opts, want_user);
-            state->tried_starting_service = true;
+            tc = try_service_hack_connect(
+                ai, want_user, transport, chello);
+            if (tc == NULL)
+                die_rethrow(&ei);
+            tc = tcp_upgrade_daemon_connection(tc, adb_args, transport);
+            goto success;
         } else if (ei.err == ERR_FINGERPRINT_MISMATCH) {
             dbg("got wrong build hash from re-execed fb-adb stub; "
                 "trying again from the start");
@@ -1790,6 +1937,8 @@ tc_connect_user_attempt(const struct adb_info* ai,
 
     if (chello->api_level >= 19)
         tc = tc_upgrade(tc, adb_args, transport, adb);
+
+    success:
 
     reslist_xfer(rl->parent, rl);
     return tc;
@@ -1882,6 +2031,19 @@ tc_connect(const struct shex_common_info* info,
         .adb_opts = &info->adb,
         .adb_args = adb_args,
     };
+
+    struct childcom* tc = NULL;
+    if (!info->transport.avoid_daemon) {
+        tc = try_connect_fb_adb_daemon(adb_args, &info->user, chello);
+        if (tc == NULL && try_start_daemon_via_shell(
+                &info->adb, &info->user, &info->transport))
+        {
+            tc = try_connect_fb_adb_daemon(adb_args, &info->user, chello);
+        }
+    }
+
+    if (tc != NULL)
+        return tcp_upgrade_daemon_connection(tc, adb_args, transport);
 
     if (want_user)
         return tc_connect_user(&ai, want_user, transport, chello);
