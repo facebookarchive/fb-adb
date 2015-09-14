@@ -1133,9 +1133,8 @@ xflock(int fd, int operation)
         die_errno("flock(%d,%d)", fd, operation);
 }
 
-
-char*
-slurp_fd(int fd, size_t* nr_bytes_read_out)
+static struct growable_buffer
+slurp_fd_buf_1(int fd, bool nul_terminate)
 {
     size_t n;
     size_t nr_bytes_read = 0;
@@ -1159,10 +1158,29 @@ slurp_fd(int fd, size_t* nr_bytes_read_out)
         nr_bytes_read += n;
     } while (n > 0);
 
-    resize_buffer(&gb, nr_bytes_read+1);
-    gb.buf[nr_bytes_read] = '\0';
-    if (nr_bytes_read_out != NULL)
-        *nr_bytes_read_out = nr_bytes_read;
+    if (nul_terminate) {
+        resize_buffer(&gb, nr_bytes_read+1);
+        gb.buf[nr_bytes_read] = '\0';
+    } else {
+        resize_buffer(&gb, nr_bytes_read);
+    }
+
+    return gb;
+}
+
+struct growable_buffer
+slurp_fd_buf(int fd)
+{
+    return slurp_fd_buf_1(fd, false /* nul terminate */);
+}
+
+char*
+slurp_fd(int fd, size_t* nr_bytes_read_out)
+{
+    struct growable_buffer gb =
+        slurp_fd_buf_1(fd, true /* nul terminate */);
+    if (nr_bytes_read_out)
+        *nr_bytes_read_out = gb.bufsz - 1;
     return (char*) gb.buf;
 }
 

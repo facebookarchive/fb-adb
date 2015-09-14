@@ -176,6 +176,8 @@ void xflock(int fd, int operation);
 // early if we read a NUL byte from the FD.)
 char* slurp_fd(int fd, size_t* nr_bytes_read_out);
 
+struct growable_buffer slurp_fd_buf(int fd);
+
 // Read a line into a heap-allocated and NUL-terminated buffer.
 // The line terminator, if one was present, is included in the
 // returned string.  On EOF, return NULL.

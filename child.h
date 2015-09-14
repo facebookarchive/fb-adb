@@ -55,24 +55,8 @@ struct child* child_start(const struct child_start_info* csi);
 int child_wait(struct child* c);
 bool child_poll_death(struct child* c);
 void child_kill(struct child* c, int signo);
-
-struct child_communication {
-    int status;
-    size_t bytes_consumed; // Of data_for_child
-
-    struct {
-        uint8_t* bytes;
-        size_t nr;
-    } out[ARRAYSIZE(((struct child*)0)->fd) - 1];
-};
-
-struct child_communication* child_communicate(
-    struct child* child,
-    const void* data_for_child,
-    size_t data_for_child_size);
-
 bool child_status_success_p(int status);
 int child_status_to_exit_code(int status);
 char* massage_output(const void* buf, size_t nr_bytes);
-
+char* massage_output_buf(struct growable_buffer errbuf);
 void install_child_error_converter(struct child* child);

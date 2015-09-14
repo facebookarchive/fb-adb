@@ -343,4 +343,3 @@ struct growable_buffer {
 
 void resize_buffer(struct growable_buffer* gb, size_t new_size);
 void grow_buffer_dwim(struct growable_buffer* gb);
-

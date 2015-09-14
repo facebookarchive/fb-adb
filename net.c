@@ -10,6 +10,7 @@
 #include "net.h"
 #include "child.h"
 #include "fs.h"
+#include "fdrecorder.h"
 
 #if defined(__linux__) && !defined(SOCK_CLOEXEC)
 # define SOCK_CLOEXEC O_CLOEXEC
@@ -380,25 +381,26 @@ xgetaddrinfo_interruptible(
     struct child_start_info csi = {
         .io[STDIN_FILENO] = CHILD_IO_DEV_NULL,
         .io[STDOUT_FILENO] = CHILD_IO_PIPE,
-        .io[STDERR_FILENO] = CHILD_IO_PIPE,
+        .io[STDERR_FILENO] = CHILD_IO_RECORD,
         .pre_exec = xgai_preexec,
         .pre_exec_data = &xa,
     };
 
-    struct child_communication* com =
-        child_communicate(child_start(&csi), NULL, 0);
-
-    bool success = WIFEXITED(com->status) && WEXITSTATUS(com->status) == 0;
+    struct child* child = child_start(&csi);
+    struct growable_buffer out =
+        slurp_fd_buf(child->fd[STDOUT_FILENO]->fd);
+    int status = child_wait(child);
+    bool success = child_status_success_p(status);
     if (!success) {
-        if (WIFEXITED(com->status)) {
-            die(ENOENT,
-                "%.*s",
-                (int) XMIN(com->out[1].nr, INT_MAX),
-                com->out[1].bytes);
-        } else if (WIFSIGNALED(com->status)) {
+        if (WIFEXITED(status)) {
+            char* err = massage_output_buf(
+                fdrecorder_get_clean(
+                    child->recorder[STDERR_FILENO]));
+            die(ENOENT, "%s", err);
+        } else if (WIFSIGNALED(status)) {
             die(ENOENT,
                 "getaddrinfo failed with signal %d",
-                WTERMSIG(com->status));
+                WTERMSIG(status));
         } else {
             die(ENOENT, "unknown status from resolver process");
         }
@@ -407,8 +409,8 @@ xgetaddrinfo_interruptible(
     // Subprocesses supposedly succeeded.  Read from the serialized
     // GAI information.
 
-    uint8_t* data = com->out[0].bytes;
-    uint8_t* data_end = data + com->out[0].nr;
+    uint8_t* data = (uint8_t*) out.buf;
+    uint8_t* data_end = data + out.bufsz;
     struct addrinfo* ai_list = NULL;
     struct addrinfo** next = &ai_list;
 

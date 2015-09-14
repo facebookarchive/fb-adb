@@ -21,14 +21,14 @@
 #include "util.h"
 #include "argv.h"
 #include "strutil.h"
+#include "fs.h"
 
-static char*
-output2str(struct child_communication* com)
-{
-    return massage_output(com->out[0].bytes, com->out[0].nr);
-}
+struct adb_communication {
+    char* output;
+    int status;
+};
 
-static struct child_communication*
+static struct adb_communication
 run_adb(const char* const* adb_args,
         const char* args[])
 {
@@ -42,7 +42,11 @@ run_adb(const char* const* adb_args,
                             args ?: empty_argv)
     };
 
-    return child_communicate(child_start(&csi), NULL, 0);
+    struct child* adb = child_start(&csi);
+    return (struct adb_communication) {
+        .output = massage_output_buf(slurp_fd_buf(adb->fd[1]->fd)),
+        .status = child_wait(adb),
+    };
 }
 
 void
@@ -52,11 +56,11 @@ adb_send_file(const char* local,
 {
     SCOPED_RESLIST(rl);
 
-    struct child_communication* com =
+    struct adb_communication com =
         run_adb(adb_args, ARGV("push", local, remote));
 
-    if (!child_status_success_p(com->status))
-        die(ECOMM, "adb error: %s", output2str(com));
+    if (!child_status_success_p(com.status))
+        die(ECOMM, "adb error: %s", com.output);
 }
 
 void
@@ -82,7 +86,7 @@ adb_rename_file(const char* old_name,
     // 19, because that version does support mv -f and we want to
     // catch all possible breakage.
 
-    struct child_communication* com =
+    struct adb_communication com =
         run_adb(adb_args,
                 api_level > 19
                 ? ARGV("shell",
@@ -102,8 +106,8 @@ adb_rename_file(const char* old_name,
                        "echo",
                        "yes"));
 
-    const char* output = output2str(com);
-    if (!child_status_success_p(com->status) || strcmp(output, "yes") != 0)
+    const char* output = com.output;
+    if (!child_status_success_p(com.status) || strcmp(output, "yes") != 0)
         die(ECOMM, "moving fb-adb to final location failed: %s", output);
 }
 
@@ -112,22 +116,22 @@ adb_add_forward(const char* local,
                 const char* remote,
                 const char* const* adb_args)
 {
-    struct child_communication* com =
+    struct adb_communication com =
         run_adb(adb_args, ARGV("forward", local, remote));
 
-    if (!child_status_success_p(com->status))
-        die(ECOMM, "adb_add_forward failed: %s", output2str(com));
+    if (!child_status_success_p(com.status))
+        die(ECOMM, "adb_add_forward failed: %s", com.output);
 }
 
 void
 adb_remove_forward(const char* local,
                    const char* const* adb_args)
 {
-    struct child_communication* com =
+    struct adb_communication com =
         run_adb(adb_args, ARGV("forward", "--remove", local));
 
-    if (!child_status_success_p(com->status))
-        die(ECOMM, "adb_remove_forward failed: %s", output2str(com));
+    if (!child_status_success_p(com.status))
+        die(ECOMM, "adb_remove_forward failed: %s", com.output);
 }
 
 struct remove_forward_cleanup {
@@ -173,12 +177,12 @@ adb_getprop(const char* property, const char* const* adb_args)
 {
     SCOPED_RESLIST(rl);
 
-    struct child_communication* com = run_adb(
+    struct adb_communication com = run_adb(
         adb_args,
         ARGV("shell", "getprop", property));
-    char* output = output2str(com);
-    if (!child_status_success_p(com->status))
-        die(ECOMM, "adb error: %s", output2str(com));
+    char* output = com.output;
+    if (!child_status_success_p(com.status))
+        die(ECOMM, "adb error: %s", com.output);
 
     const char* ws = " \t\r\n";
 
