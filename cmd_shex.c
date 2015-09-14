@@ -189,7 +189,9 @@ start_stub_local(struct child_hello* chello)
     WITH_CURRENT_RESLIST(rl);
 
     char* resp;
-    struct chat* cc = chat_new(child->fd[0]->fd, child->fd[1]->fd);
+    struct chat* cc = chat_new(
+        child->fd[STDIN_FILENO]->fd,
+        child->fd[STDOUT_FILENO]->fd);
 
     do {
         resp = chat_read_line(cc);
@@ -240,7 +242,9 @@ try_adb_stub(const struct child_start_info* csi,
     struct child* child = child_start(csi);
     install_child_error_converter(child);
 
-    struct chat* cc = chat_new(child->fd[0]->fd, child->fd[1]->fd);
+    struct chat* cc = chat_new(
+        child->fd[STDIN_FILENO]->fd,
+        child->fd[STDOUT_FILENO]->fd);
     chat_swallow_prompt(cc);
 
     *err = NULL;
@@ -469,17 +473,17 @@ make_hello_msg(size_t max_cmdsz,
     struct termios out_attr;
 
     int in_tty = -1;
-    if (m->si[0].pty_p && tty_flags[0].tty_p) {
-        in_tty = 0;
+    if (m->si[STDIN_FILENO].pty_p && tty_flags[STDIN_FILENO].tty_p) {
+        in_tty = STDIN_FILENO;
         xtcgetattr(in_tty, &in_attr);
         m->ispeed = cfgetispeed(&in_attr);
     }
 
     int out_tty = -1;
-    if (m->si[1].pty_p && tty_flags[1].tty_p)
-        out_tty = 1;
-    else if (m->si[2].pty_p && tty_flags[2].tty_p)
-        out_tty = 2;
+    if (m->si[STDOUT_FILENO].pty_p && tty_flags[STDOUT_FILENO].tty_p)
+        out_tty = STDOUT_FILENO;
+    else if (m->si[STDERR_FILENO].pty_p && tty_flags[STDERR_FILENO].tty_p)
+        out_tty = STDERR_FILENO;
 
     if (out_tty != -1) {
         xtcgetattr(out_tty, &out_attr);
@@ -1653,8 +1657,8 @@ static struct childcom*
 tc_for_child(struct child* child)
 {
     struct childcom* tc = xcalloc(sizeof (*tc));
-    tc->to_child = child->fd[0];
-    tc->from_child = child->fd[1];
+    tc->to_child = child->fd[STDIN_FILENO];
+    tc->from_child = child->fd[STDOUT_FILENO];
     tc->writer = write_all_adb_encoded;
     return tc;
 }
@@ -1700,12 +1704,12 @@ static void
 complete_start_daemon_attempt(struct child* peer,
                               const struct user_opts* uopt)
 {
-    fdh_destroy(peer->fd[0]);
-    peer->fd[0] = NULL;
+    fdh_destroy(peer->fd[STDIN_FILENO]);
+    peer->fd[STDIN_FILENO] = NULL;
 
-    char* output = slurp_massaged_output(peer->fd[1]->fd);
-    fdh_destroy(peer->fd[1]);
-    peer->fd[1] = NULL;
+    char* output = slurp_massaged_output(peer->fd[STDOUT_FILENO]->fd);
+    fdh_destroy(peer->fd[STDOUT_FILENO]);
+    peer->fd[STDOUT_FILENO] = NULL;
 
     struct daemon_hello dhello;
     bool have_dhello = false;
@@ -2241,13 +2245,13 @@ shex_main_common(const struct shex_common_info* info)
 
     ch[TO_PEER]->always_buffer = true;
 
-    ch[CHILD_STDIN] = channel_new(fdh_dup(0),
+    ch[CHILD_STDIN] = channel_new(fdh_dup(STDIN_FILENO),
                                   stdio_ringbufsz,
                                   CHANNEL_FROM_FD);
     ch[CHILD_STDIN]->track_window = true;
     ch[CHILD_STDIN]->compress = compress;
 
-    ch[CHILD_STDOUT] = channel_new(fdh_dup(1),
+    ch[CHILD_STDOUT] = channel_new(fdh_dup(STDOUT_FILENO),
                                    stdio_ringbufsz,
                                    CHANNEL_TO_FD);
     ch[CHILD_STDOUT]->track_bytes_written = true;
@@ -2255,7 +2259,7 @@ shex_main_common(const struct shex_common_info* info)
     ch[CHILD_STDOUT]->bytes_written =
         ringbuf_room(ch[CHILD_STDOUT]->rb);
 
-    ch[CHILD_STDERR] = channel_new(fdh_dup(2),
+    ch[CHILD_STDERR] = channel_new(fdh_dup(STDERR_FILENO),
                                    stdio_ringbufsz,
                                    CHANNEL_TO_FD);
     ch[CHILD_STDERR]->track_bytes_written = true;

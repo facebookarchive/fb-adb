@@ -217,7 +217,7 @@ handle_open_exec_file(struct msg_open_exec_file* oef)
                 .size = sizeof (m),
             };
 
-            write_all(1, &m, sizeof (m));
+            write_all(STDOUT_FILENO, &m, sizeof (m));
             reslist_xfer(rl->parent, rl_exec_file);
             return exec_file;
         }
@@ -228,8 +228,8 @@ handle_open_exec_file(struct msg_open_exec_file* oef)
         .msg.type = MSG_EXEC_FILE_MISMATCH,
         .msg.size = sizeof (errm) + exec_filename_length,
     };
-    write_all(1, &errm, sizeof (errm));
-    write_all(1, exec_filename, exec_filename_length);
+    write_all(STDOUT_FILENO, &errm, sizeof (errm));
+    write_all(STDOUT_FILENO, exec_filename, exec_filename_length);
     return -1;
 }
 
@@ -252,7 +252,7 @@ read_child_arglist(reader rdr,
     size_t argno = 0;
     while (argno < expected) {
         SCOPED_RESLIST(rl_read_arg);
-        struct msg* mhdr = read_msg(0, rdr);
+        struct msg* mhdr = read_msg(STDIN_FILENO, rdr);
         const char* argval = NULL;
         size_t arglen;
 
@@ -286,7 +286,7 @@ read_child_arglist(reader rdr,
 
             arglen = mj->actual_size;
             void* buf = xalloc(arglen);
-            size_t nr_read = rdr(0, buf, arglen);
+            size_t nr_read = rdr(STDIN_FILENO, buf, arglen);
             if (nr_read != arglen)
                 die_setup_eof();
             argval = buf;
@@ -331,8 +331,8 @@ read_child_arglist(reader rdr,
             char* name = xalloc((size_t) ej->name_length + 1);
             char* value = xalloc((size_t) ej->value_length + 1);
 
-            if (rdr(0, name, ej->name_length) < ej->name_length ||
-                rdr(0, value, ej->value_length) < ej->value_length)
+            if (rdr(STDIN_FILENO, name, ej->name_length) < ej->name_length ||
+                rdr(STDIN_FILENO, value, ej->value_length) < ej->value_length)
                 die_setup_eof();
 
             name[ej->name_length] = '\0';
@@ -364,7 +364,7 @@ read_child_arglist(reader rdr,
                 die_setup_overflow();
 
             char* name = xalloc((size_t) uej->name_length + 1);
-            if (rdr(0, name, uej->name_length) < uej->name_length)
+            if (rdr(STDIN_FILENO, name, uej->name_length) < uej->name_length)
                 die_setup_eof();
 
             name[uej->name_length] = '\0';
@@ -505,7 +505,7 @@ send_socket_available_now_message()
     memset(&m, 0, sizeof (m));
     m.type = MSG_LISTENING_ON_SOCKET;
     m.size = sizeof (m);
-    write_all(1, &m, sizeof (m));
+    write_all(STDOUT_FILENO, &m, sizeof (m));
 }
 
 static int
@@ -599,13 +599,13 @@ rebind_to_socket(struct msg* mhdr)
     // Leak the old console file descriptor so our parent doesn't
     // think we're died.  Deliberately allow the file descriptor to
     // leak across exec.
-    int leaked = dup(2);
+    int leaked = dup(STDERR_FILENO);
     if (leaked == -1)
         die_errno("dup");
 
-    xdup3nc(client, 0, 0);
-    xdup3nc(client, 1, 0);
-    xdup3nc(client, 2, 0);
+    xdup3nc(client, STDIN_FILENO, 0);
+    xdup3nc(client, STDOUT_FILENO, 0);
+    xdup3nc(client, STDERR_FILENO, 0);
 }
 
 static void
@@ -708,7 +708,7 @@ stub_main_1(const struct cmd_stub_info* info)
 
     struct msg_shex_hello* shex_hello;
     reader rdr = isatty(0) ? read_all_adb_encoded : read_all;
-    struct msg* mhdr = read_msg(0, rdr);
+    struct msg* mhdr = read_msg(STDIN_FILENO, rdr);
 
     if (mhdr->type == MSG_REBIND_TO_UNIX_SOCKET ||
         mhdr->type == MSG_REBIND_TO_TCP4_SOCKET ||
@@ -716,7 +716,7 @@ stub_main_1(const struct cmd_stub_info* info)
     {
         rebind_to_socket(mhdr);
         rdr = read_all; // Yay! No more tty deobfuscation!
-        mhdr = read_msg(0, rdr);
+        mhdr = read_msg(STDIN_FILENO, rdr);
     }
 
     if (mhdr->type == MSG_EXEC_AS_ROOT)
@@ -757,14 +757,14 @@ stub_main_1(const struct cmd_stub_info* info)
 
     should_send_error_packet = false;
 
-    ch[FROM_PEER] = channel_new(fdh_dup(0),
+    ch[FROM_PEER] = channel_new(fdh_dup(STDIN_FILENO),
                                 shex_hello->stub_recv_bufsz,
                                 CHANNEL_FROM_FD);
 
     ch[FROM_PEER]->window = UINT32_MAX;
     ch[FROM_PEER]->adb_encoding_hack = !!(rdr == read_all_adb_encoded);
 
-    ch[TO_PEER] = channel_new(fdh_dup(1),
+    ch[TO_PEER] = channel_new(fdh_dup(STDOUT_FILENO),
                               shex_hello->stub_send_bufsz,
                               CHANNEL_TO_FD);
 
@@ -773,31 +773,31 @@ stub_main_1(const struct cmd_stub_info* info)
     // See comment in cmd_shex.c
     ch[TO_PEER]->always_buffer = true;
 
-    ch[CHILD_STDIN] = channel_new(child->fd[0],
-                                  shex_hello->si[0].bufsz,
+    ch[CHILD_STDIN] = channel_new(child->fd[STDIN_FILENO],
+                                  shex_hello->si[STDIN_FILENO].bufsz,
                                   CHANNEL_TO_FD);
 
-    if (shex_hello->si[0].compress)
+    if (shex_hello->si[STDIN_FILENO].compress)
         ch[CHILD_STDIN]->compress = true;
 
     ch[CHILD_STDIN]->track_bytes_written = true;
     ch[CHILD_STDIN]->bytes_written =
         ringbuf_room(ch[CHILD_STDIN]->rb);
 
-    ch[CHILD_STDOUT] = channel_new(child->fd[1],
-                                   shex_hello->si[1].bufsz,
+    ch[CHILD_STDOUT] = channel_new(child->fd[STDOUT_FILENO],
+                                   shex_hello->si[STDOUT_FILENO].bufsz,
                                    CHANNEL_FROM_FD);
     ch[CHILD_STDOUT]->track_window = true;
 
-    if (shex_hello->si[1].compress)
+    if (shex_hello->si[STDOUT_FILENO].compress)
         ch[CHILD_STDOUT]->compress = true;
 
-    ch[CHILD_STDERR] = channel_new(child->fd[2],
-                                   shex_hello->si[2].bufsz,
+    ch[CHILD_STDERR] = channel_new(child->fd[STDERR_FILENO],
+                                   shex_hello->si[STDERR_FILENO].bufsz,
                                    CHANNEL_FROM_FD);
     ch[CHILD_STDERR]->track_window = true;
 
-    if (shex_hello->si[2].compress)
+    if (shex_hello->si[STDERR_FILENO].compress)
         ch[CHILD_STDERR]->compress = true;
 
     sh->ch = ch;
@@ -891,7 +891,7 @@ send_error_packet(void* data)
     me->msg.type = MSG_ERROR;
     me->msg.size = packet_length;
     memcpy(&me->text[0], ei->msg, msg_length);
-    write_all(1, me, packet_length);
+    write_all(STDOUT_FILENO, me, packet_length);
 }
 
 int
