@@ -74,3 +74,5 @@ struct child_communication* child_communicate(
 bool child_status_success_p(int status);
 int child_status_to_exit_code(int status);
 char* massage_output(const void* buf, size_t nr_bytes);
+
+void install_child_error_converter(struct child* child);

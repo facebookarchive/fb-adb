@@ -512,3 +512,23 @@ massage_output(const void* buf, size_t nr_bytes)
 
     return xstrndup(s, endpos);
 }
+
+static void
+child_error_converter(int err, void* data)
+{
+    if (err == ECOMM || err == EPIPE) {
+        struct child* child = data;
+        assert(child->recorder[STDERR_FILENO]);
+        struct growable_buffer buffer =
+            fdrecorder_get_clean(child->recorder[STDERR_FILENO]);
+        if (buffer.bufsz > 0)
+            die(ECOMM, "%s", massage_output(buffer.buf, buffer.bufsz));
+    }
+}
+
+void
+install_child_error_converter(struct child* child)
+{
+    assert(child->recorder[STDERR_FILENO] != NULL);
+    install_error_converter(child_error_converter, child);
+}

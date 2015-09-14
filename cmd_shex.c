@@ -178,13 +178,14 @@ start_stub_local(struct child_hello* chello)
     const struct child_start_info csi = {
         .io[STDIN_FILENO] = CHILD_IO_PIPE,
         .io[STDOUT_FILENO] = CHILD_IO_PIPE,
-        .io[STDERR_FILENO] = CHILD_IO_INHERIT /* XXX */,
+        .io[STDERR_FILENO] = CHILD_IO_RECORD,
         .exename = xaprintf("/proc/self/fd/%d", exefd),
         .argv = ARGV(stub_exe_name, "stub"),
     };
 
     SCOPED_RESLIST(rl_child);
     struct child* child = child_start(&csi);
+    install_child_error_converter(child);
     WITH_CURRENT_RESLIST(rl);
 
     char* resp;
@@ -228,18 +229,6 @@ send_stub(const void* data,
     adb_send_file(tmpfilename, adb_name, adb_args);
 }
 
-static void
-stub_error_converter(int err, void* data)
-{
-    if (err != ECOMM && err != EPIPE)
-        return;
-    struct child* child = data;
-    assert(child->recorder[STDERR_FILENO]);
-    struct growable_buffer buffer =
-        fdrecorder_get_clean(child->recorder[STDERR_FILENO]);
-    if (buffer.bufsz > 0)
-        die(ECOMM, "%s", massage_output(buffer.buf, buffer.bufsz));
-}
 
 static struct child*
 try_adb_stub(const struct child_start_info* csi,
@@ -249,7 +238,7 @@ try_adb_stub(const struct child_start_info* csi,
 {
     SCOPED_RESLIST(rl);
     struct child* child = child_start(csi);
-    install_error_converter(stub_error_converter, child);
+    install_child_error_converter(child);
 
     struct chat* cc = chat_new(child->fd[0]->fd, child->fd[1]->fd);
     chat_swallow_prompt(cc);
@@ -1418,18 +1407,18 @@ send_file_to_device(
     struct child_start_info csi = {
         .io[STDIN_FILENO] = CHILD_IO_DEV_NULL,
         .io[STDOUT_FILENO] = CHILD_IO_DEV_NULL,
-        .io[STDERR_FILENO] = CHILD_IO_INHERIT /* XXX */,
+        .io[STDERR_FILENO] = CHILD_IO_RECORD,
         .pre_exec = send_file_to_device_pre_exec,
         .pre_exec_data = (void*) (intptr_t) fd,
         .exename = my_exe(),
         .argv = strlist_to_argv(args),
     };
 
-    int exit_code = child_status_to_exit_code(
-        child_wait(child_start(&csi)));
-
+    struct child* child = child_start(&csi);
+    install_child_error_converter(child);
+    int exit_code = child_status_to_exit_code(child_wait(child));
     if (exit_code != 0)
-        die(EIO, "failed sending file to device");
+        die(ECOMM, "failed sending file to device");
 }
 
 static int

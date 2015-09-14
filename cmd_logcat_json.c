@@ -202,12 +202,13 @@ logcat_json_main(const struct cmd_logcat_json_info* info)
     struct child_start_info csi = {
         .io[STDIN_FILENO] = CHILD_IO_DEV_NULL,
         .io[STDOUT_FILENO] = CHILD_IO_PIPE,
-        .io[STDERR_FILENO] = CHILD_IO_INHERIT /* XXX */,
+        .io[STDERR_FILENO] = CHILD_IO_RECORD,
         .exename = my_exe(),
         .argv = strlist_to_argv(args),
     };
 
     struct child* captive_logcat = child_start(&csi);
+    install_child_error_converter(captive_logcat);
     int logcat_fd = captive_logcat->fd[1]->fd;
     unsigned api_level = 0;
 

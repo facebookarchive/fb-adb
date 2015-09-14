@@ -36,11 +36,13 @@ start_peer(
     struct child_start_info csi = {
         .io[STDIN_FILENO] = CHILD_IO_PIPE,
         .io[STDOUT_FILENO] = CHILD_IO_PIPE,
-        .io[STDERR_FILENO] = CHILD_IO_INHERIT /* XXX */,
+        .io[STDERR_FILENO] = CHILD_IO_RECORD,
         .exename = my_exe(),
         .argv = strlist_to_argv(local_self_args),
     };
 
     WITH_CURRENT_RESLIST(rl->parent);
-    return child_start(&csi);
+    struct child* c = child_start(&csi);
+    install_child_error_converter(c);
+    return c;
 }
