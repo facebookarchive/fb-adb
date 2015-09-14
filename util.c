@@ -617,8 +617,10 @@ main(int argc, char** argv)
     struct errinfo ei = { .want_msg = true };
     if (catch_error(main1, &mi, &ei)) {
         mi.ret = 1;
-        dbg("ERROR: %s: %s", ei.prgname ?: orig_prgname, ei.msg);
-        fprintf(stderr, "%s: %s\n", ei.prgname ?: orig_prgname, ei.msg);
+        const char* pnam = ei.prgname ?: orig_prgname;
+        const char* sep = pnam[0] ? ": " : "";
+        dbg("ERROR: %s%s%s", pnam, sep, ei.msg);
+        fprintf(stderr, "%s%s%s\n", pnam, sep, ei.msg);
     }
 
     empty_reslist(&reslist_top);

@@ -2393,6 +2393,7 @@ rcmd_self_main(const struct cmd_rcmd_self_info* info)
         .command = ARG_CMDLINE_SELF_ARGV0,
         .args = info->args,
     };
+    set_prgname("");
     return shex_main_common(&cinfo);
 }
 
