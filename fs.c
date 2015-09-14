@@ -311,14 +311,29 @@ fdh_destroy(struct fdh* fdh)
     reslist_destroy(fdh->rl);
 }
 
+int
+xF_GETFL(int fd)
+{
+    int flags = fcntl(fd, F_GETFL);
+    if (flags == -1)
+        die_errno("fcntl(%d, F_GETFL)", fd);
+    return flags;
+}
+
+void
+xF_SETFL(int fd, int flags)
+{
+    if (fcntl(fd, F_SETFL, flags) == -1)
+        die_errno("fcntl(%d, F_SETFL, %x)", fd, flags);
+}
+
 enum blocking_mode
 fd_set_blocking_mode(int fd, enum blocking_mode mode)
 {
     int flags = fcntl(fd, F_GETFL);
     enum blocking_mode old_mode;
-    if (flags < 0)
-        die_errno("fcntl(%d, F_GETFL)", fd);
 
+    flags = xF_GETFL(fd);
     old_mode = (flags & O_NONBLOCK) ? non_blocking : blocking;
     if (mode == non_blocking) {
         flags |= O_NONBLOCK;
@@ -326,9 +341,7 @@ fd_set_blocking_mode(int fd, enum blocking_mode mode)
         flags &= ~O_NONBLOCK;
     }
 
-    if (fcntl(fd, F_SETFL, flags) < 0)
-        die_errno("fcntl(%d, F_SETFL, %x)", fd, flags);
-
+    xF_SETFL(fd, flags);
     return old_mode;
 }
 
@@ -1120,38 +1133,6 @@ xflock(int fd, int operation)
         die_errno("flock(%d,%d)", fd, operation);
 }
 
-struct growable_buffer {
-    struct cleanup* cl;
-    uint8_t* buf;
-    size_t bufsz;
-};
-
-static void
-resize_buffer(struct growable_buffer* gb, size_t new_size)
-{
-    struct cleanup* new_cl = cleanup_allocate();
-    uint8_t* new_buf = realloc(gb->buf, new_size);
-    if (new_buf == NULL)
-        die_oom();
-    cleanup_commit(new_cl, free, new_buf);
-    cleanup_forget(gb->cl);
-    gb->buf = new_buf;
-    gb->cl = new_cl;
-    gb->bufsz = new_size;
-}
-
-static void
-grow_buffer_dwim(struct growable_buffer* gb)
-{
-    size_t maximum_enlargement = 1024*1024;
-    size_t bufsz = gb->bufsz ?: 128;
-    size_t enlargement = bufsz;
-    if (enlargement > maximum_enlargement)
-        enlargement = maximum_enlargement;
-    if (SATADD(&bufsz, bufsz, enlargement))
-        die_oom();
-    resize_buffer(gb, bufsz);
-}
 
 char*
 slurp_fd(int fd, size_t* nr_bytes_read_out)
@@ -1223,3 +1204,4 @@ xfstat(int fd)
         die_errno("fstat");
     return st;
 }
+

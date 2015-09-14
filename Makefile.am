@@ -87,6 +87,8 @@ libfb_adb_a_SOURCES = \
 	errcodes.h \
 	androidmsg.h \
 	androidmsg.c \
+	fdrecorder.h \
+	fdrecorder.c \
 	$(CMD_SOURCES) \
 	$(EMPTY)
 

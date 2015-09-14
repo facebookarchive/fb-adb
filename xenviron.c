@@ -136,7 +136,7 @@ xenviron_set(struct xenviron* xe,
         *slot = new_entry;
     } else {
         size_t nr_slots = (slot - xe->env) + 1;
-        char** new_env = realloc(xe->env, xenviron_allocsz(nr_slots));
+        char** new_env = resize_alloc(xe->env, xenviron_allocsz(nr_slots));
         if (new_env == NULL) {
             free(new_entry);
             die_oom();
@@ -168,7 +168,7 @@ xenviron_unset(struct xenviron* xe, const char* name)
 
         free(slot[0]);
         memmove(&slot[0], &slot[1], xenviron_allocsz(nr_to_move));
-        char** new_env = realloc(env, xenviron_allocsz(nr_slots - 1));
+        char** new_env = resize_alloc(env, xenviron_allocsz(nr_slots - 1));
         if (new_env != NULL)
             xe->env = new_env;
     }
@@ -182,7 +182,7 @@ xenviron_clear(struct xenviron* xe)
         *slot = NULL;
     }
 
-    char** new_env = realloc(xe->env, xenviron_allocsz(0));
+    char** new_env = resize_alloc(xe->env, xenviron_allocsz(0));
     if (new_env != NULL)
         xe->env = new_env;
 }

@@ -137,6 +137,10 @@ void* xalloc(size_t sz);
 __attribute__((malloc))
 void* xcalloc(size_t sz);
 
+// Like realloc(3), except that ptr!=NULL && size==0 means to reduce
+// to size 1, not free the memory.
+void* resize_alloc(void* ptr, size_t size);
+
 // Code that fails calls die() or one of its variants below.
 // Control then flows to the nearest enclosing catch_error.
 
@@ -171,6 +175,17 @@ bool catch_one_error(
     void (*fn)(void* fndata),
     void* fndata,
     int errnum);
+
+typedef void (*error_converter)(int err, void* data);
+
+// Install a function that we call before we dying.  If one of the
+// error converter callbacks dies, we die with that error instead of
+// the original.  An error converter is associated with the reslist in
+// place at the time of its installation.  Error converters for
+// reslists above the lowest catch_level are not called when dying,
+// although they will be called if that catch_error returns and we die
+// again (up to the next catch_error).
+void install_error_converter(error_converter ec, void* ecdata);
 
 __attribute__((noreturn))
 void die_rethrow(struct errinfo* ei);
@@ -289,6 +304,11 @@ typedef void (*sigtstp_callback)(
 struct sigtstp_cookie* sigtstp_register(sigtstp_callback cb, void* cbdata);
 void sigtstp_unregister(struct sigtstp_cookie* cookie);
 
+typedef void (*sigio_callback)(void* data);
+struct sigio_cookie;
+struct sigio_cookie* sigio_register(sigio_callback cb, void* cbdata);
+void sigio_unregister(struct sigio_cookie* cookie);
+
 // Set an itimer timeout.  Blocks SIGALRM except inside IO.  If we get
 // a SIGALRM, raise a die-exception from IO context.  Restore signals
 // and timer on unwind.
@@ -312,4 +332,15 @@ void become_daemon(void (*daemon_setup)(void* setup_data),
 bool clowny_output_line_p(const char* line);
 
 void rtrim(char* string, size_t* stringsz_inout, const char* set);
+
+// struct growable_buffer users should zero-initialize instances.
+
+struct growable_buffer {
+    struct cleanup* cl;
+    uint8_t* buf;
+    size_t bufsz;
+};
+
+void resize_buffer(struct growable_buffer* gb, size_t new_size);
+void grow_buffer_dwim(struct growable_buffer* gb);
 

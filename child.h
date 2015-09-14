@@ -38,6 +38,7 @@ struct child_start_info {
     const char* child_chdir;
 };
 
+struct fdrecorder;
 struct child {
     int flags;
     int deathsig;
@@ -45,6 +46,7 @@ struct child {
     int status;
     struct fdh* pty_master;
     struct fdh* fd[3];
+    struct fdrecorder* recorder[3];
     unsigned dead : 1;
     unsigned skip_cleanup_wait : 1;
 };

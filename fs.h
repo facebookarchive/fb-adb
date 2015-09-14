@@ -182,3 +182,6 @@ char* slurp_fd(int fd, size_t* nr_bytes_read_out);
 char* slurp_line(FILE* file, size_t* nr_bytes_read_out);
 
 struct stat xfstat(int fd);
+
+int xF_GETFL(int fd);
+void xF_SETFL(int fd, int flags);

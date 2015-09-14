@@ -29,6 +29,13 @@
 #include "fs.h"
 #include "valgrind.h"
 
+#ifndef LIST_FOREACH_SAFE
+#define LIST_FOREACH_SAFE(var, head, field, next_var)           \
+    for ((var) = ((head)->lh_first);                            \
+         (var) && (((next_var) = ((var)->field.le_next)), 1);   \
+         (var) = (next_var))
+#endif
+
 #if !defined(HAVE_EXECVPE)
 # include <paths.h>
 #endif
@@ -44,10 +51,18 @@
 #include "util.h"
 #include "constants.h"
 
+struct error_converter_record {
+    LIST_ENTRY(error_converter_record) link;
+    error_converter ec;
+    void* ecdata;
+    bool onlist;
+};
+
 struct errhandler {
     sigjmp_buf where;
     struct reslist* rl;
     struct errinfo* ei;
+    LIST_HEAD(,error_converter_record) error_converters;
 };
 
 static struct reslist reslist_top;
@@ -60,6 +75,8 @@ sigset_t signals_unblock_for_io;
 sigset_t orig_sigmask;
 int signal_quit_in_progress;
 bool hack_defer_quit_signals;
+
+static void sigio_sigaction(int, siginfo_t*, void*);
 
 static bool
 reslist_empty_p(struct reslist* rl)
@@ -248,6 +265,12 @@ cleanup_allocate(void)
     return cl;
 }
 
+void*
+resize_alloc(void* ptr, size_t size)
+{
+    return realloc(ptr, size ?: 1);
+}
+
 void
 cleanup_commit(struct cleanup* cl,
                cleanupfn fn,
@@ -282,6 +305,7 @@ catch_error(void (*fn)(void* fndata),
     struct errhandler errh;
     errh.rl = rl;
     errh.ei = ei;
+    LIST_INIT(&errh.error_converters);
     current_errh = &errh;
     if (sigsetjmp(errh.where, 1) == 0) {
         fn(fndata);
@@ -382,6 +406,29 @@ die_oom(void)
     siglongjmp(current_errh->where, 1);
 }
 
+static void
+error_converter_cleanup(void* data)
+{
+    struct error_converter_record* ecr = data;
+    if (ecr->onlist)
+        LIST_REMOVE(ecr, link);
+    free(ecr);
+}
+
+void
+install_error_converter(error_converter ec, void* ecdata)
+{
+    struct cleanup* cl = cleanup_allocate();
+    struct error_converter_record* ecr = calloc(1, sizeof (*ecr));
+    if (ecr == NULL)
+        die_oom();
+    ecr->ec = ec;
+    ecr->ecdata = ecdata;
+    ecr->onlist = true;
+    LIST_INSERT_HEAD(&current_errh->error_converters, ecr, link);
+    cleanup_commit(cl, error_converter_cleanup, ecr);
+}
+
 void
 diev(int err, const char* fmt, va_list args)
 {
@@ -395,9 +442,21 @@ diev(int err, const char* fmt, va_list args)
         WITH_IO_SIGNALS_ALLOWED();
     }
 
+    if (err == 0)
+        err = ERR_ERRNO_WAS_ZERO;
+
     if (current_errh->ei) {
         struct errinfo* ei = current_errh->ei;
-        ei->err = err ?: ERR_ERRNO_WAS_ZERO;
+        ei->err = err;
+
+        while (!LIST_EMPTY(&current_errh->error_converters)) {
+            struct error_converter_record* ecr =
+                LIST_FIRST(&current_errh->error_converters);
+            LIST_REMOVE(ecr, link);
+            ecr->onlist = false;
+            ecr->ec(err, ecr->ecdata);
+        }
+
         if (ei->want_msg) {
             WITH_CURRENT_RESLIST(current_errh->rl->parent);
             // die_oom will DTRT on alloc failure.
@@ -491,6 +550,7 @@ main1(void* arg)
         sigaddset(&to_block_mask, quit_signals[i]);
     for (int i = 0; i < ARRAYSIZE(job_control_signals); ++i)
         sigaddset(&to_block_mask, job_control_signals[i]);
+    sigaddset(&to_block_mask, SIGIO);
 
     // See comment in child.c.
     VERIFY(signal(SIGCHLD, handle_sigchld) != SIG_ERR);
@@ -521,6 +581,15 @@ main1(void* arg)
         sigaddset(&signals_unblock_for_io, job_control_signals[i]);
     }
 
+    {
+        struct sigaction sa;
+        memset(&sa, 0, sizeof (sa));
+        sa.sa_sigaction = sigio_sigaction;
+        sa.sa_flags = SA_SIGINFO;
+        VERIFY(sigaction(SIGIO, &sa, NULL) == 0);
+        sigaddset(&signals_unblock_for_io, SIGIO);
+    }
+
     _fs_on_init();
     mi->ret = real_main(mi->argc, mi->argv);
 }
@@ -544,11 +613,12 @@ main(int argc, char** argv)
     dbglock_init();
     orig_argv0 = argv[0];
     prgname = xbasename(argv[0]);
+    const char* orig_prgname = prgname;
     struct errinfo ei = { .want_msg = true };
     if (catch_error(main1, &mi, &ei)) {
         mi.ret = 1;
-        dbg("ERROR: %s: %s", ei.prgname, ei.msg);
-        fprintf(stderr, "%s: %s\n", ei.prgname, ei.msg);
+        dbg("ERROR: %s: %s", ei.prgname ?: orig_prgname, ei.msg);
+        fprintf(stderr, "%s: %s\n", ei.prgname ?: orig_prgname, ei.msg);
     }
 
     empty_reslist(&reslist_top);
@@ -929,9 +999,10 @@ job_control_signal_sigaction(int signum,
     current_errh = NULL;
 
     struct sigtstp_cookie* cookie;
+    struct sigtstp_cookie* cookie_next;
 
     if (signum == SIGTSTP) {
-        LIST_FOREACH(cookie, &sigtstp_handlers, link)
+        LIST_FOREACH_SAFE(cookie, &sigtstp_handlers, link, cookie_next)
             cookie->cb(SIGTSTP_BEFORE_SUSPEND, cookie->cbdata);
 
         raise(SIGSTOP);
@@ -952,17 +1023,55 @@ job_control_signal_sigaction(int signum,
         sigprocmask(SIG_SETMASK, &old_mask, NULL);
         VERIFY(sigaction(SIGCONT, &old_sigcont, NULL) == 0);
 
-        LIST_FOREACH(cookie, &sigtstp_handlers, link)
+        LIST_FOREACH_SAFE(cookie, &sigtstp_handlers, link, cookie_next)
             cookie->cb(SIGTSTP_AFTER_RESUME, cookie->cbdata);
 
     } else {
         assert(signum == SIGCONT);
-        LIST_FOREACH(cookie, &sigtstp_handlers, link)
+        LIST_FOREACH_SAFE(cookie, &sigtstp_handlers, link, cookie_next)
             cookie->cb(SIGTSTP_AFTER_UNEXPECTED_SIGCONT, cookie->cbdata);
 
     }
 
     current_errh = saved_errh;
+}
+
+struct sigio_cookie {
+    LIST_ENTRY(sigio_cookie) link;
+    sigio_callback cb;
+    void* cbdata;
+};
+
+static LIST_HEAD(,sigio_cookie) sigio_handlers =
+    LIST_HEAD_INITIALIZER(sigio_handlers);
+
+struct sigio_cookie*
+sigio_register(sigio_callback cb, void* cbdata)
+{
+    struct sigio_cookie* cookie = calloc(1, sizeof (*cookie));
+    if (cookie == NULL)
+        die_oom();
+
+    cookie->cb = cb;
+    cookie->cbdata = cbdata;
+    LIST_INSERT_HEAD(&sigio_handlers, cookie, link);
+    return cookie;
+}
+
+void
+sigio_unregister(struct sigio_cookie* cookie)
+{
+    LIST_REMOVE(cookie, link);
+    free(cookie);
+}
+
+static void
+sigio_sigaction(int signum, siginfo_t* siginfo, void* context)
+{
+    struct sigio_cookie* cookie;
+    struct sigio_cookie* cookie_next;
+    LIST_FOREACH_SAFE(cookie, &sigio_handlers, link, cookie_next)
+        cookie->cb(cookie->cbdata);
 }
 
 static int timeout_err;
@@ -1247,3 +1356,29 @@ rtrim(char* string, size_t* stringsz_inout, const char* set)
         *stringsz_inout = stringsz;
 }
 
+void
+resize_buffer(struct growable_buffer* gb, size_t new_size)
+{
+    struct cleanup* new_cl = cleanup_allocate();
+    uint8_t* new_buf = resize_alloc(gb->buf, new_size);
+    if (new_buf == NULL)
+        die_oom();
+    cleanup_commit(new_cl, free, new_buf);
+    cleanup_forget(gb->cl);
+    gb->buf = new_buf;
+    gb->cl = new_cl;
+    gb->bufsz = new_size;
+}
+
+void
+grow_buffer_dwim(struct growable_buffer* gb)
+{
+    size_t maximum_enlargement = 1024*1024;
+    size_t bufsz = gb->bufsz ?: 128;
+    size_t enlargement = bufsz;
+    if (enlargement > maximum_enlargement)
+        enlargement = maximum_enlargement;
+    if (SATADD(&bufsz, bufsz, enlargement))
+        die_oom();
+    resize_buffer(gb, bufsz);
+}

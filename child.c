@@ -25,6 +25,7 @@
 #include "child.h"
 #include "net.h"
 #include "fs.h"
+#include "fdrecorder.h"
 
 extern char** environ;
 
@@ -124,6 +125,14 @@ swapfd(int* a, int* b)
     *b = tmp;
 }
 
+static int
+dummy_parent_fd(int for_fdno)
+{
+    return for_fdno == 0
+        ? xopen("/dev/null", O_WRONLY, 0)
+        : xopen("/dev/null", O_RDONLY, 0);
+}
+
 struct child*
 child_start(const struct child_start_info* csi)
 {
@@ -189,16 +198,16 @@ child_start(const struct child_start_info* csi)
                 break;
             case CHILD_IO_INHERIT:
                 childfd[i] = xdup(i);
-                if (i == 0) {
-                    parentfd[i] = xopen("/dev/null", O_WRONLY, 0);
-                } else {
-                    parentfd[i] = xopen("/dev/null", O_RDONLY, 0);
-                }
+                parentfd[i] = dummy_parent_fd(i);
                 break;
-            case CHILD_IO_RECORD:
+            case CHILD_IO_RECORD: {
                 if (i == 0) die(EINVAL, "cannot record stdin");
-                abort(); // XXX: implement me
+                WITH_CURRENT_RESLIST(rl->parent);
+                child->recorder[i] = fdrecorder_new();
+                childfd[i] = fdrecorder_write_fd(child->recorder[i]);
+                parentfd[i] = dummy_parent_fd(i);
                 break;
+            }
             case CHILD_IO_DUP_TO_STDOUT:
                 if (i != 2) die(EINVAL, "can dup only stderr to stdout");
                 childfd[i] = xdup(childfd[1]);
@@ -245,6 +254,11 @@ child_start(const struct child_start_info* csi)
 
     child->pid = child_pid;
     cleanup_commit(cl_waiter, child_cleanup, child);
+
+    for (unsigned i = 0; i < 3; ++i)
+        if (child->recorder[i] != NULL)
+            fdrecorder_close_write_fd(child->recorder[i]);
+
     return child;
 }
 
@@ -409,7 +423,7 @@ child_communicate(
                 if (SATADD(&newsz, ob[i].sz, chunk_size))
                     die(ERANGE, "too many bytes from child");
 
-                void* newbuf = realloc(ob[i].buf, newsz);
+                void* newbuf = resize_alloc(ob[i].buf, newsz);
                 if (newbuf == NULL)
                     die(ENOMEM, "could not allocate iobuf");
 

@@ -246,6 +246,25 @@ xsocketpair(int domain, int type, int protocol,
 }
 
 void
+xsocketpairnc(int domain, int type, int protocol, int sv[2])
+{
+#ifdef SOCK_CLOEXEC
+    type |= SOCK_CLOEXEC;
+#endif
+
+    if (socketpair(domain, type, protocol, sv) < 0)
+        die_errno("socketpair");
+
+#ifndef SOCK_CLOEXEC
+    merge_O_CLOEXEC_into_fd_flags(sv[0], O_CLOEXEC);
+    merge_O_CLOEXEC_into_fd_flags(sv[1], O_CLOEXEC);
+#endif
+
+    assert_cloexec(sv[0]);
+    assert_cloexec(sv[1]);
+}
+
+void
 disable_tcp_nagle(int fd)
 {
     int on = 1;
@@ -413,4 +432,11 @@ xgetaddrinfo_interruptible(
     }
 
     return ai_list;
+}
+
+void
+xshutdown(int socketfd, int how)
+{
+    if (shutdown(socketfd, how) == -1)
+        die_errno("shutdown(%d, %d)", socketfd, how);
 }

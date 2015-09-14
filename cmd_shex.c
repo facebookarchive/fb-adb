@@ -44,6 +44,7 @@
 #include "elfid.h"
 #include "errcodes.h"
 #include "peer.h"
+#include "fdrecorder.h"
 
 #define ARG_DEFAULT_SH ((const char*)MSG_CMDLINE_DEFAULT_SH)
 #define ARG_DEFAULT_SH_LOGIN ((const char*)MSG_CMDLINE_DEFAULT_SH_LOGIN)
@@ -227,6 +228,19 @@ send_stub(const void* data,
     adb_send_file(tmpfilename, adb_name, adb_args);
 }
 
+static void
+stub_error_converter(int err, void* data)
+{
+    if (err != ECOMM && err != EPIPE)
+        return;
+    struct child* child = data;
+    assert(child->recorder[STDERR_FILENO]);
+    struct growable_buffer buffer =
+        fdrecorder_get_clean(child->recorder[STDERR_FILENO]);
+    if (buffer.bufsz > 0)
+        die(ECOMM, "%s", massage_output(buffer.buf, buffer.bufsz));
+}
+
 static struct child*
 try_adb_stub(const struct child_start_info* csi,
              const char* adb_name,
@@ -235,6 +249,8 @@ try_adb_stub(const struct child_start_info* csi,
 {
     SCOPED_RESLIST(rl);
     struct child* child = child_start(csi);
+    install_error_converter(stub_error_converter, child);
+
     struct chat* cc = chat_new(child->fd[0]->fd, child->fd[1]->fd);
     chat_swallow_prompt(cc);
 
@@ -347,7 +363,7 @@ start_stub_adb(const char* const* adb_args,
     const struct child_start_info csi = {
         .io[STDIN_FILENO] = CHILD_IO_PIPE,
         .io[STDOUT_FILENO] = CHILD_IO_PIPE,
-        .io[STDERR_FILENO] = CHILD_IO_INHERIT /* XXX */,
+        .io[STDERR_FILENO] = CHILD_IO_RECORD,
         .exename = "adb",
         .argv = ARGV_CONCAT(ARGV("adb"), adb_args, ARGV("shell")),
     };
@@ -1304,10 +1320,11 @@ describe_abi_mask(unsigned abi_mask)
 
     while (abi_mask != 0) {
         const char* abi_name = NULL;
-        for (size_t i = 0; abi_name == NULL
-                 && i < ARRAYSIZE(abi_names); ++i)
+        for (size_t i = 0;
+             abi_name == NULL && i < ARRAYSIZE(abi_names);
+             ++i)
         {
-            if (abi_mask && abi_names[i].bit) {
+            if (abi_mask & abi_names[i].bit) {
                 abi_name = abi_names[i].name;
                 abi_mask &= ~abi_names[i].bit;
                 break;

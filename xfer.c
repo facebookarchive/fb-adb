@@ -166,44 +166,23 @@ send_data_header(int to_peer, uint32_t size)
     send_xfer_msg(to_peer, &m);
 }
 
-static void
-resize_buffer(uint8_t** bufp,
-              size_t* bufszp,
-              struct cleanup** clp,
-              size_t desired_size)
-{
-    if (desired_size > *bufszp) {
-        struct cleanup* cl = cleanup_allocate();
-        uint8_t* new_buf = realloc(*bufp, desired_size);
-        if (new_buf == NULL)
-            die_oom();
-        cleanup_commit(cl, free, new_buf);
-        cleanup_forget(*clp);
-        *bufp = new_buf;
-        *bufszp = desired_size;
-        *clp = cl;
-    }
-}
-
 static uint64_t
 copy_loop_posix_recv(
     int from_peer,
     int dest_fd)
 {
     SCOPED_RESLIST(rl);
-    size_t bufsz = 0;
-    uint8_t* buf = NULL;
-    struct cleanup* cl = NULL;
+    struct growable_buffer buf = { 0 };
     uint64_t total_written = 0;
-    uint32_t chunksz;
+    size_t chunksz;
 
     do {
         chunksz = recv_data_header(from_peer);
         dbg("data chunk header chunksz=%u", (unsigned) chunksz);
-        resize_buffer(&buf, &bufsz, &cl, chunksz);
-        if (read_all(from_peer, buf, chunksz) != chunksz)
+        resize_buffer(&buf, chunksz);
+        if (read_all(from_peer, buf.buf, chunksz) != chunksz)
             die(ECOMM, "unexpected EOF");
-        write_all(dest_fd, buf, chunksz);
+        write_all(dest_fd, buf.buf, chunksz);
         if (SATADD(&total_written, total_written, chunksz))
             die(ECOMM, "file size too large");
     } while (chunksz > 0);

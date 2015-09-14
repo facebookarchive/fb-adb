@@ -67,5 +67,9 @@ int xaccept_nonblock(int server_socket);
 // the current reslist.
 void xsocketpair(int domain, int type, int protocol,
                  int* s1, int* s2);
+// Like xsocketpair, but give FD ownership to the caller, not the
+// current reslist.
+void xsocketpairnc(int domain, int type, int protocol, int sv[2]);
 
 void disable_tcp_nagle(int fd);
+void xshutdown(int socketfd, int how);

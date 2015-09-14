@@ -89,7 +89,7 @@ property_vector_append(struct property_vector* pv, const prop_info* pi)
 
         size_t allocsz = new_capacity * sizeof (const prop_info*);
 
-        const prop_info** new_props = realloc(pv->props, allocsz);
+        const prop_info** new_props = resize_alloc(pv->props, allocsz);
         if (new_props == NULL)
             return false;
 
