@@ -199,6 +199,24 @@ else
   AC_MSG_ERROR([invalid value for --enable-input-output-termios: need yes or no])
 fi
 
+dnl GCC can't prove to itself that stack reslist allocations are
+dnl always tagged with RES_RESLIST_ONSTACK, not RES_RESLIST_ONHEAP,
+dnl and so warns that the call to free(3) below might be trying to
+dnl free stack memory.
+
+warning_sup=
+old_CFLAGS="$CFLAGS"
+CFLAGS="$CFLAGS -Wno-free-nonheap-object"
+AC_MSG_CHECKING([compiler accepts -Wno-free-nonheap-object])
+AC_COMPILE_IFELSE(
+  [AC_LANG_PROGRAM([],[])],
+  [AC_MSG_RESULT([yes])
+   warning_sup="$warning_sup -Wno-free-nonheap-object"],
+  [AC_MSG_RESULT([no])])
+CFLAGS=$old_CFLAGS
+
+AC_SUBST([WARNING_SUPPRESSION], [$warning_sup])
+
 AC_MSG_CHECKING([ncurses])
 old_LIBS=$LIBS
 LIBS="$LIBS -lncurses"

@@ -103,7 +103,7 @@ nodist_fb_adb_SOURCES = timestamp.c
 fb_adb_LDADD = libfb-adb.a
 
 AM_CPPFLAGS = -I. -DSHA2_USE_INTTYPES_H=1
-AM_CFLAGS = -fvisibility=hidden -std=gnu99
+AM_CFLAGS = -fvisibility=hidden -std=gnu99 $(WARNING_SUPPRESSION)
 AM_LDFLAGS =
 
 if BUILD_PIC
