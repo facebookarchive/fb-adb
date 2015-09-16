@@ -192,6 +192,13 @@ empty_reslist(struct reslist* rl)
     current_errh = saved_errh;
 }
 
+// GCC can't prove to itself that stack allocations are always tagged
+// with RES_RESLIST_ONSTACK, not RES_RESLIST_ONHEAP, and so warns that
+// the call to free(3) below might be trying to free stack memory.
+
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wfree-nonheap-object"
+
 void
 reslist_destroy(struct reslist* rl)
 {
@@ -200,6 +207,8 @@ reslist_destroy(struct reslist* rl)
     if (rl->r.type == RES_RESLIST_ONHEAP)
         free(rl);
 }
+
+#pragma GCC diagnostic pop
 
 
 struct reslist*
