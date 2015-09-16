@@ -45,4 +45,10 @@
 // we don't have an ADB stub process to monitor.
 #define TCP_CALLBACK_MS (1*1000)
 
+// String to append to daemon socket name to form the
+// corresponding daemon control socket name.
 #define DAEMON_CONTROL_SUFFIX ".c"
+
+// Number of milliseconds to wait for the service to connect to our
+// listening socket on "am start".
+#define SERVICE_HACK_CALLBACK_TIMEOUT_MS 1000

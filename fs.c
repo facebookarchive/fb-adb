@@ -1263,3 +1263,11 @@ xfstat(int fd)
     return st;
 }
 
+struct stat
+xstat(const char* path)
+{
+    struct stat st;
+    if (stat(path, &st) == -1)
+        die_errno("stat(\"%s\")", path);
+    return st;
+}

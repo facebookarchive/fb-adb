@@ -188,6 +188,7 @@ struct growable_buffer slurp_fd_buf(int fd);
 char* slurp_line(FILE* file, size_t* nr_bytes_read_out);
 
 struct stat xfstat(int fd);
+struct stat xstat(const char* path);
 
 int xF_GETFL(int fd);
 void xF_SETFL(int fd, int flags);

@@ -442,3 +442,24 @@ xshutdown(int socketfd, int how)
     if (shutdown(socketfd, how) == -1)
         die_errno("shutdown(%d, %d)", socketfd, how);
 }
+
+#ifdef SO_PEERCRED
+struct ucred
+get_peer_credentials(int socketfd)
+{
+    struct ucred peer_credentials;
+    socklen_t optlen = sizeof (peer_credentials);
+    memset(&peer_credentials, 0, sizeof (peer_credentials));
+    if (getsockopt(socketfd, SOL_SOCKET, SO_PEERCRED,
+                   &peer_credentials, &optlen)
+        == -1)
+    {
+        die_errno("getsockopt");
+    }
+
+    if (optlen != sizeof (peer_credentials))
+        die(ECOMM, "bad length frm SO_PEERCRED");
+
+    return peer_credentials;
+}
+#endif

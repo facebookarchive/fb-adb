@@ -14,6 +14,7 @@
 #include <sys/un.h>
 #include <netdb.h>
 #include <netinet/ip.h>
+#include <sys/socket.h>
 
 struct sockaddr_un;
 
@@ -73,3 +74,7 @@ void xsocketpairnc(int domain, int type, int protocol, int sv[2]);
 
 void disable_tcp_nagle(int fd);
 void xshutdown(int socketfd, int how);
+
+#ifdef SO_PEERCRED
+struct ucred get_peer_credentials(int socketfd);
+#endif

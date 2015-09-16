@@ -30,6 +30,9 @@ static int
 fb_adb_service_connect(const char* package, int timeout_ms)
 {
     SCOPED_RESLIST(rl);
+
+    uid_t expected_uid = xstat(xaprintf("/data/data/%s", package)).st_uid;
+
     const char* service_sockname =
         xaprintf("fb-adb-service-%s",
                  gen_hex_random(ENOUGH_ENTROPY));
@@ -83,7 +86,15 @@ fb_adb_service_connect(const char* package, int timeout_ms)
                    ETIMEDOUT,
                    "timeout waiting for service callback");
     WITH_CURRENT_RESLIST(rl->parent);
-    return xaccept(service_listen_fd);
+    int connection = xaccept(service_listen_fd);
+    uid_t connection_uid = get_peer_credentials(connection).uid;
+    if (connection_uid != expected_uid)
+        die(ECOMM, "expected uid %d for package [%s] "
+            "but peer has uid %d",
+            (int) expected_uid,
+            package,
+            (int) connection_uid);
+    return connection;
 }
 
 void
@@ -91,7 +102,9 @@ start_daemon_via_service_hack(const char* package_name)
 {
     SCOPED_RESLIST(rl);
 
-    int peer_fd = fb_adb_service_connect(package_name, 1000);
+    int peer_fd = fb_adb_service_connect(
+        package_name,
+        SERVICE_HACK_CALLBACK_TIMEOUT_MS);
 
 #define SCRIPT_TEMPLATE                                                 \
     "set -e -- %s \".fb-adb.tmp.$$\"; "                                 \
