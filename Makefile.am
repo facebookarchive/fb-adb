@@ -22,20 +22,20 @@ check_LIBRARIES = libfb-adb.a
 # the sources that depend on autocmd.h so that we always build
 # autocmd.h first when bootstrapping.
 CMD_SOURCES = \
+	cmd.c \
+	cmd.h \
+	cmd_bash_completion.c \
+	cmd_fcat.c \
+	cmd_finfo.c \
+	cmd_getprop.c \
+	cmd_help.c \
 	cmd_logw.c \
 	cmd_readlink.c \
-	cmd_finfo.c \
-	cmd_fcat.c \
-	cmd_help.c \
-	cmd_bash_completion.c \
-	cmd_getprop.c \
 	cmd_start_daemon.c \
 	cmd_stop_daemon.c \
 	fb-adb.c \
-	cmd.h \
-	cmd.c \
-	xfer.h \
 	xfer.c \
+	xfer.h \
 	$(EMPTY)
 
 libfb_adb_a_SOURCES = \
@@ -43,59 +43,59 @@ libfb_adb_a_SOURCES = \
 	adb.h \
 	adbenc.c \
 	adbenc.h \
+	androidmsg.c \
+	androidmsg.h \
 	argv.c \
 	argv.h \
-	channel.h \
 	channel.c \
+	channel.h \
 	chat.c \
 	chat.h \
 	child.c \
 	child.h \
-	json.h \
-	json.c \
-	sha2.h \
-	sha2.c \
 	constants.h \
 	core.c \
 	core.h \
 	dbg.c \
 	dbg.h \
+	elfid.c \
+	elfid.h \
+	errcodes.h \
+	fdrecorder.c \
+	fdrecorder.h \
+	fs.c \
+	fs.h \
+	json.c \
+	json.h \
+	lz4.c \
+	lz4.h \
+	net.c \
+	net.h \
 	proto.h \
 	ringbuf.c \
 	ringbuf.h \
-	strutil.h \
+	sha2.c \
+	sha2.h \
 	strutil.c \
+	strutil.h \
 	termbits.c \
 	termbits.h \
 	timestamp.h \
+	utf8.c \
+	utf8.h \
 	util.c \
 	util.h \
-	fs.c \
-	fs.h \
-	xmkraw.c \
-	xmkraw.h \
-	net.c \
-	net.h \
-	lz4.c \
-	lz4.h \
+	valgrind.h \
 	xenviron.c \
 	xenviron.h \
-	valgrind.h \
-	utf8.h \
-	utf8.c \
-	elfid.h \
-	elfid.c \
-	errcodes.h \
-	androidmsg.h \
-	androidmsg.c \
-	fdrecorder.h \
-	fdrecorder.c \
+	xmkraw.c \
+	xmkraw.h \
 	$(CMD_SOURCES) \
 	$(EMPTY)
 
 nodist_libfb_adb_a_SOURCES = \
-	autocmd.h \
 	autocmd.c \
+	autocmd.h \
 	$(EMPTY)
 
 fb_adb_SOURCES =
