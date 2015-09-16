@@ -8,6 +8,8 @@
  *  in the same directory.
  *
  */
+#include <sys/types.h>
+#include <sys/wait.h>
 #include "stubdaemon.h"
 #include "util.h"
 #include "fs.h"
@@ -373,10 +375,25 @@ try_reuse_current_daemon(void)
     return true;
 }
 
+
+static void
+daemon_sigchild_sigaction(int signum, siginfo_t* info, void* context)
+{
+    (void) waitpid(-1, NULL, WNOHANG);
+}
+
 enum stub_daemon_action
 run_stub_daemon(struct stub_daemon_info info)
 {
     SCOPED_RESLIST(rl);
+
+    struct sigaction sa = {
+        .sa_sigaction = daemon_sigchild_sigaction,
+        .sa_flags = SA_SIGINFO,
+    };
+    sigaction_restore_as_cleanup(SIGCHLD, &sa);
+    save_signals_unblock_for_io();
+    sigaddset(&signals_unblock_for_io, SIGCHLD);
 
     // By default, we reuse running daemons when possible instead of
     // replacing them.  To tell whether we can reuse a currently
