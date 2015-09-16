@@ -588,6 +588,8 @@ read_msg(int fd, reader rdr)
     if (mhdr.size < sizeof (mhdr))
         die_proto_error("impossible message");
 
+    assert(valid_message_type_p(mhdr.type));
+
     struct msg* m = xalloc(mhdr.size);
     memcpy(m, &mhdr, sizeof (mhdr));
     char* rest = (char*) m + sizeof (mhdr);
@@ -631,3 +633,14 @@ parse_daemon_hello(const char* line, struct daemon_hello* dhello)
            &n);
     return n != -1;
 }
+
+#ifndef NDEBUG
+bool
+valid_message_type_p(uint16_t type)
+{
+#define E(m) if (type == (m)) return true;
+    ENUM_MSG_TYPES(E);
+#undef E
+    return false;
+}
+#endif

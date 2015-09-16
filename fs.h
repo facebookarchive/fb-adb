@@ -48,8 +48,9 @@ int xdup(int fd);
 int xdup3nc(int oldfd, int newfd, int flags);
 
 // Open a file descriptor as a stream.  The returned FILE object is
-// owned by the current reslist.  It does _not_ own FD.  Instead, FILE
-// owns a new, duped file descriptor.
+// owned by the current reslist.  It does _not_ own FD.  The caller
+// must guarante that FD remains alive for however long the resulting
+// FILE* is in use.
 FILE* xfdopen(int fd, const char* mode);
 
 // All file descriptors we allocate are configured to be
@@ -122,7 +123,7 @@ int xpoll(struct pollfd* fds, nfds_t nfds, int timeout);
 int mkostemp(char *template, int flags);
 #endif
 
-FILE* xnamed_tempfile(const char** name);
+int xnamed_tempfile(const char** name);
 void replace_stdin_stdout_with_dev_null(void);
 
 #ifndef NDEBUG
@@ -154,6 +155,9 @@ void _fs_on_init(void);
 void xputc(char c, FILE* out);
 void xputs(const char* s, FILE* out);
 void xflush(FILE* out);
+void xfwrite(const void* ptr, size_t size, size_t nmemb, FILE* stream);
+__attribute__((format(printf,2,3)))
+void xprintf(FILE* out, const char* fmt, ...);
 
 const char* system_tempdir(void);
 
@@ -187,3 +191,4 @@ struct stat xfstat(int fd);
 
 int xF_GETFL(int fd);
 void xF_SETFL(int fd, int flags);
+

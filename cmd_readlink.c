@@ -24,8 +24,7 @@ readlink_main(const struct cmd_readlink_info* info)
 {
     char* linkname = xreadlink(info->link);
     size_t len = strlen(linkname);
-    if (fwrite(linkname, 1, len, stdout) != len)
-        die_errno("fwrite");
+    write_all(STDOUT_FILENO, linkname, len);
     return 0;
 }
 #endif

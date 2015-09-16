@@ -132,7 +132,7 @@ read_and_dump_log_entry(int logcat_fd,
     char* payload = (char*) le + hdrsz;
     char* payload_end = payload + payloadsz;
 
-    struct json_writer* writer = json_writer_create(stdout);
+    struct json_writer* writer = json_writer_create(xstdout);
     json_begin_object(writer);
     json_begin_field(writer, "pid");
     json_emit_i64(writer, le->v1.pid);
@@ -180,8 +180,8 @@ read_and_dump_log_entry(int logcat_fd,
     json_begin_field(writer, "message");
     json_emit_string_n(writer, payload, message_length);
     json_end_object(writer);
-    xputc('\n', stdout);
-    xflush(stdout);
+    xputc('\n', xstdout);
+    xflush(xstdout);
 }
 
 int

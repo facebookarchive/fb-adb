@@ -27,6 +27,9 @@
 #endif
 
 #define ERR_ERRNO_WAS_ZERO -1
+#define ERR_DEFERRED -2
+#define ERR_QUIT_SIGNAL_FIRST -10
+#define ERR_QUIT_SIGNAL_LAST -100
 #define ERR_APP_BASE -1000
 
 #define ARRAYSIZE(ar) (sizeof (ar) / sizeof (*(ar)))
@@ -190,6 +193,11 @@ void install_error_converter(error_converter ec, void* ecdata);
 __attribute__((noreturn))
 void die_rethrow(struct errinfo* ei);
 
+void check_deferred_errors(void);
+
+__attribute__((format(printf,2,3)))
+void deferred_die(int err, const char* fmt, ...);
+
 __attribute__((noreturn))
 void diev(int err, const char* fmt, va_list args);
 __attribute__((noreturn,format(printf, 2, 3)))
@@ -317,9 +325,9 @@ void set_timeout(const struct itimerval* timer, int err, const char* msg);
 // a timeout.
 void set_timeout_ms(int ms, int err, const char* msg);
 
-// When set, caller promises to re-raise pending quit signals, so
-// don't longjmp out of them immediately.
-extern bool hack_defer_quit_signals;
+// When set, die when receiving a quit signal instead of trying to
+// unwind reslists immediately; used inside fs.c stdio integration.
+extern bool hack_die_on_quit;
 
 unsigned api_level(void);
 
@@ -343,3 +351,39 @@ struct growable_buffer {
 
 void resize_buffer(struct growable_buffer* gb, size_t new_size);
 void grow_buffer_dwim(struct growable_buffer* gb);
+
+// Plain stdio operations on standard stream FILE* don't unblock
+// signals around IO.  We can't portably replace the stdio streams,
+// but we can ban their use.
+
+#ifndef EVADE_STDIO_BAN
+# ifdef puts
+#  undef puts
+# endif
+# define puts(...) ERROR_see_util_h
+# ifdef putchar
+#  undef putchar
+# endif
+# define putchar(...) ERROR_see_util_h
+# ifdef printf
+#  undef printf
+# endif
+# define printf(...) ERROR_see_util_h
+# ifdef stdin
+#  undef stdin
+# endif
+# define stdin ERROR_see_util_h
+# ifdef stdout
+#  undef stdout
+# endif
+# define stdout ERROR_see_util_h
+# ifdef stderr
+#  undef stderr
+# endif
+# define stderr ERROR_see_util_h
+#endif
+
+extern FILE* xstdin;
+extern FILE* xstdout;
+extern FILE* xstderr;
+

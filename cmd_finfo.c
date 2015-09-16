@@ -434,7 +434,7 @@ finfo_main(const struct cmd_finfo_info* info)
             NULL);
     }
 
-    struct json_writer* writer = json_writer_create(stdout);
+    struct json_writer* writer = json_writer_create(xstdout);
     json_begin_array(writer);
     for (const char* const* paths = info->paths; *paths; ++paths) {
         const char* path = *paths;
@@ -450,7 +450,7 @@ finfo_main(const struct cmd_finfo_info* info)
         json_end_object(writer);
     }
     json_end_array(writer);
-    xflush(stdout);
+    xflush(xstdout);
     return 0;
 }
 

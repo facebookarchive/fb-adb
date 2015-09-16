@@ -35,12 +35,7 @@ chat_new(int to, int from)
 char
 chat_getc(struct chat* cc)
 {
-    int c;
-
-    {
-        c = getc(cc->from);
-    }
-
+    int c = getc(cc->from);
     if (c == EOF)
         chat_die();
 

@@ -261,6 +261,8 @@ read_child_arglist(reader rdr,
                 CHECK_MSG_CAST(mhdr, struct msg_cmdline_argument);
             argval = m->value;
             arglen = m->msg.size - sizeof (*m);
+            dbg("got regular command line argument [%.*s]",
+                (int) arglen, argval);
         } else if (mhdr->type == MSG_CMDLINE_DEFAULT_SH ||
                    mhdr->type == MSG_CMDLINE_DEFAULT_SH_LOGIN)
         {
@@ -282,14 +284,16 @@ read_child_arglist(reader rdr,
             arglen = strlen(argval);
         } else if (mhdr->type == MSG_CMDLINE_ARGUMENT_JUMBO) {
             struct msg_cmdline_argument_jumbo* mj =
-                CHECK_MSG_CAST(mhdr, struct msg_cmdline_argument_jumbo);
-
+                CHECK_MSG_CAST(mhdr,
+                               struct msg_cmdline_argument_jumbo);
             arglen = mj->actual_size;
             void* buf = xalloc(arglen);
             size_t nr_read = rdr(STDIN_FILENO, buf, arglen);
             if (nr_read != arglen)
                 die_setup_eof();
             argval = buf;
+            dbg("Got jumbo command line option: [%.*s]",
+                (int) arglen, argval);
         } else if (mhdr->type == MSG_CLEARENV) {
             if (xe) {
                 xenviron_clear(xe);
@@ -698,11 +702,12 @@ stub_main_1(const struct cmd_stub_info* info)
     my_api_level = 15; // Fake
 #endif
 
-    printf(FB_ADB_PROTO_START_LINE "\n", build_fingerprint,
-           make_abi_mask(my_api_level),
-           (unsigned) getuid(),
-           my_api_level);
-    xflush(stdout);
+    xprintf(xstdout,
+            FB_ADB_PROTO_START_LINE "\n", build_fingerprint,
+            make_abi_mask(my_api_level),
+             (unsigned) getuid(),
+            my_api_level);
+    xflush(xstdout);
 
     should_send_error_packet = true;
 

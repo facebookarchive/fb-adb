@@ -8,6 +8,9 @@
  *  in the same directory.
  *
  */
+
+#define EVADE_STDIO_BAN 1
+
 #include <assert.h>
 #include <stdio.h>
 #include <stdint.h>

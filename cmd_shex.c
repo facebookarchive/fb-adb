@@ -65,10 +65,12 @@ struct transport {
     const char* tcp_addr;
 };
 
+typedef void (*writer_function)(int, const void*, size_t);
+
 struct childcom {
     struct fdh* to_child;
     struct fdh* from_child;
-    void (*writer)(int, const void*, size_t);
+    writer_function writer;
 };
 
 struct adb_info {
@@ -216,17 +218,14 @@ send_stub(const void* data,
 {
     SCOPED_RESLIST(rl);
     const char* tmpfilename;
-    FILE* tmpfile = xnamed_tempfile(&tmpfilename);
-
-    if (fwrite(data, datasz, 1, tmpfile) != 1)
-        die_errno("fwrite");
-    xflush(tmpfile);
+    int tmpfile = xnamed_tempfile(&tmpfilename);
+    write_all(tmpfile, data, datasz);
 
     // N.B. The device-side adb server helpfully copies the user
     // permission bits to group and world, so if we were to make this
     // file writable for us locally, we'd actually be making it
     // world-writable on device!
-    if (fchmod(fileno(tmpfile), 0555 /* -r-xr-xr-x */) == -1)
+    if (fchmod(tmpfile, 0555 /* -r-xr-xr-x */) == -1)
         die_errno("fchmod");
     adb_send_file(tmpfilename, adb_name, adb_args);
 }
@@ -662,6 +661,12 @@ send_cmdline_argument(const struct childcom* tc, const void* val)
         type = MSG_CMDLINE_ARGUMENT;
     }
 
+    if (type == MSG_CMDLINE_ARGUMENT) {
+        dbg("sending command line option [%s]", (char*) val);
+    } else {
+        dbg("sending special command line option type %d", (int) type);
+    }
+
     if (SATADD(&totalsz, sizeof (m), valsz) || totalsz > UINT32_MAX)
         die(EINVAL, "command line argument too long");
 
@@ -706,10 +711,12 @@ send_cmdline(const struct childcom* tc,
              const char* command,
              const char* const* argv)
 {
+    dbg("sending command line");
     send_cmdline_argument(tc, exename ?: command);
     send_cmdline_argument(tc, command);
     while (*argv)
         send_cmdline_argument(tc, *argv++);
+    dbg("done sending command line");
 }
 
 static void
@@ -1654,12 +1661,12 @@ check_sane_user_name(const char* want_user)
 }
 
 static struct childcom*
-tc_for_child(struct child* child)
+tc_for_child(struct child* child, writer_function writer)
 {
     struct childcom* tc = xcalloc(sizeof (*tc));
     tc->to_child = child->fd[STDIN_FILENO];
     tc->from_child = child->fd[STDOUT_FILENO];
-    tc->writer = write_all_adb_encoded;
+    tc->writer = writer;
     return tc;
 }
 
@@ -1905,7 +1912,7 @@ tc_connect_user_attempt(const struct adb_info* ai,
         state->shell_thunk = true;
     }
 
-    struct childcom* tc = tc_for_child(adb);
+    struct childcom* tc = tc_for_child(adb, write_all_adb_encoded);
 
     // Prefer to upgrade connection before user switch so that
     // accounts without NETWORK access can use network fb-adb
@@ -1988,7 +1995,7 @@ tc_connect_normal(const char* const* adb_args,
                   struct child_hello* chello)
 {
     struct child* adb = start_stub_adb(adb_args, chello);
-    struct childcom* tc = tc_for_child(adb);
+    struct childcom* tc = tc_for_child(adb, write_all_adb_encoded);
 
     if (want_root && chello->uid != 0)
         command_re_exec_as_root(tc);
@@ -2026,7 +2033,7 @@ tc_connect(const struct shex_common_info* info,
             die(EINVAL,
                 "%s not supported with local transport",
                 unsupported_thing);
-        return tc_for_child(start_stub_local(chello));
+        return tc_for_child(start_stub_local(chello), write_all);
     }
 #endif
 

@@ -70,3 +70,7 @@ struct daemon_hello {
 };
 
 bool parse_daemon_hello(const char* line, struct daemon_hello* dhello);
+
+#ifndef NDEBUG
+bool valid_message_type_p(uint16_t type);
+#endif

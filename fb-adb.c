@@ -21,6 +21,7 @@
 #include "cmd.h"
 #include "autocmd.h"
 #include "timestamp.h"
+#include "fs.h"
 
 static bool
 word_follows_adb_arg_p(const char* p)
@@ -85,9 +86,11 @@ real_main(int argc, char** argv)
 
     if (!strcmp(prgarg, "--version")) {
 #ifdef HAVE_GIT_STAMP
-        printf("fb-adb %s git:%s\n", PACKAGE_VERSION, git_stamp);
+        xfprintf(xstdout, "fb-adb %s git:%s\n",
+                 PACKAGE_VERSION,
+                 git_stamp);
 #else
-        printf("fb-adb %s\n", PACKAGE_VERSION);
+        xprintf(xstdout, "fb-adb %s\n", PACKAGE_VERSION);
 #endif
         return 0;
     }

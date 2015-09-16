@@ -153,10 +153,8 @@ start_daemon_via_service_hack(const char* package_name)
         if (!found_daemon_hello &&
             parse_daemon_hello(line, &dhello))
         {
-            if (printf("%s\n", line) == -1)
-                die_errno("printf");
-            if (fflush(stdout) == -1)
-                die_errno("fflush");
+            xprintf(xstdout, "%s\n", line);
+            xflush(xstdout);
             found_daemon_hello = true;
         } else if (error == NULL) {
             rtrim(line, NULL, "\r\n");

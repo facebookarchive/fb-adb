@@ -8,6 +8,9 @@
  *  in the same directory.
  *
  */
+
+#define EVADE_STDIO_BAN 1
+
 #include <assert.h>
 #include <stdio.h>
 #include <stdint.h>
@@ -62,6 +65,7 @@ struct errhandler {
     sigjmp_buf where;
     struct reslist* rl;
     struct errinfo* ei;
+    int deferred_error;
     LIST_HEAD(,error_converter_record) error_converters;
 };
 
@@ -71,10 +75,14 @@ static struct errhandler* current_errh;
 const char* prgname;
 const char* orig_argv0;
 
+FILE* xstdin;
+FILE* xstdout;
+FILE* xstderr;
+
 sigset_t signals_unblock_for_io;
 sigset_t orig_sigmask;
 int signal_quit_in_progress;
-bool hack_defer_quit_signals;
+bool hack_die_on_quit;
 
 static void sigio_sigaction(int, siginfo_t*, void*);
 
@@ -294,6 +302,18 @@ cleanup_forget(struct cleanup* cl)
     }
 }
 
+void
+check_deferred_errors(void)
+{
+    if (current_errh->deferred_error) {
+        int err = current_errh->deferred_error;
+        current_errh->deferred_error = 0;
+        struct errinfo* ei = current_errh->ei;
+        const char* errmsg = (ei && ei->msg) ? ei->msg : "deferred error";
+        die(err, "%s", errmsg);
+    }
+}
+
 bool
 catch_error(void (*fn)(void* fndata),
             void* fndata,
@@ -303,12 +323,14 @@ catch_error(void (*fn)(void* fndata),
     bool error = true;
     struct errhandler* old_errh = current_errh;
     struct errhandler errh;
+    memset(&errh, 0, sizeof (errh));
     errh.rl = rl;
     errh.ei = ei;
     LIST_INIT(&errh.error_converters);
     current_errh = &errh;
     if (sigsetjmp(errh.where, 1) == 0) {
         fn(fndata);
+        check_deferred_errors();
         reslist_xfer(rl->parent, rl);
         error = false;
     } else {
@@ -429,17 +451,64 @@ install_error_converter(error_converter ec, void* ecdata)
     cleanup_commit(cl, error_converter_cleanup, ecr);
 }
 
+struct try_xavprintf_ctx {
+    const char* fmt;
+    va_list args;
+    char* result;
+};
+
+static void
+try_xavprintf_1(void* data)
+{
+    struct try_xavprintf_ctx* ctx = data;
+    ctx->result = xavprintf(ctx->fmt, ctx->args);
+}
+
+void
+deferred_die(int err, const char* fmt, ...)
+{
+    if (current_errh == NULL)
+        abort();
+
+    err = err ?: ERR_ERRNO_WAS_ZERO;
+
+    struct errinfo* ei = current_errh->ei;
+    if (ei) {
+        ei->err = err;
+        if (ei->want_msg) {
+            WITH_CURRENT_RESLIST(current_errh->rl->parent);
+
+            struct try_xavprintf_ctx ctx;
+            memset(&ctx, 0, sizeof (ctx));
+            ctx.fmt = fmt;
+            va_start(ctx.args, fmt);
+            if (!catch_error(try_xavprintf_1, &ctx, ei))
+                ei->msg = ctx.result;
+            va_end(ctx.args);
+        }
+    }
+    current_errh->deferred_error = err;
+}
+
 void
 diev(int err, const char* fmt, va_list args)
 {
     if (current_errh == NULL)
         abort();
 
+    check_deferred_errors();
+
     {
         // Give pending signals a chance to propagate in case we're
         // dying due to a failure ultimately caused by a
         // pending signal.
+        // N.B. Keep in mind constants are negative in range check
         WITH_IO_SIGNALS_ALLOWED();
+        if (!hack_die_on_quit &&
+            ERR_QUIT_SIGNAL_LAST <= err && err <= ERR_QUIT_SIGNAL_FIRST)
+        {
+            raise(ERR_QUIT_SIGNAL_FIRST - err);
+        }
     }
 
     if (err == 0)
@@ -501,11 +570,11 @@ struct main_info {
 };
 
 static void
-quit_signal_sigaction(int signum, siginfo_t* info, void* context)
+handle_quit_signal(int signum)
 {
     signal_quit_in_progress = signum;
-    if (hack_defer_quit_signals)
-        return; // Caller promises to enqueue signal
+    if (hack_die_on_quit)
+        die(ERR_QUIT_SIGNAL_FIRST - signum, "quit");
 
     empty_reslist(&reslist_top);
     sigset_t our_signal;
@@ -517,6 +586,12 @@ quit_signal_sigaction(int signum, siginfo_t* info, void* context)
     abort();
 }
 
+static void
+quit_signal_sigaction(int signum, siginfo_t* info, void* context)
+{
+    handle_quit_signal(signum);
+}
+
 static void job_control_signal_sigaction(int, siginfo_t*,void*);
 
 static void
@@ -525,10 +600,31 @@ handle_sigchld(int signo)
     // Noop: we just need any handler
 }
 
+static void
+make_line_buffered(FILE* stream)
+{
+    if (setvbuf(stream, NULL, _IOLBF, 0) != 0)
+        die_errno("setvbuf");
+}
+
 void
 main1(void* arg)
 {
     struct main_info* mi = arg;
+
+#ifdef DISABLE_SAFE_STDIO
+    (void) make_line_buffered
+#else
+    {
+        WITH_CURRENT_RESLIST(&reslist_top);
+        xstdin = xfdopen(STDIN_FILENO, "r");
+        xstdout = xfdopen(STDOUT_FILENO, "w");
+        xstderr = xfdopen(STDERR_FILENO, "w");
+        if (isatty(STDOUT_FILENO))
+            make_line_buffered(xstdout);
+        make_line_buffered(xstderr);
+    }
+#endif
 
     // Give us a chance to do any critical cleanups before terminating
     // due to a fatal signal.  The handlers run only in
@@ -592,14 +688,37 @@ main1(void* arg)
 
     _fs_on_init();
     mi->ret = real_main(mi->argc, mi->argv);
+
+    xflush(xstdout);
+    xflush(xstderr);
+}
+
+static void
+print_toplevel_error(void* data)
+{
+    struct errinfo* ei = data;
+    const char* pnam = ei->prgname;
+    const char* sep = pnam[0] ? ": " : "";
+    dbg("ERROR: %s%s%s", pnam, sep, ei->msg);
+    xprintf(xstderr, "%s%s%s\n", pnam, sep, ei->msg);
+    xflush(xstderr);
+}
+
+static void
+try_flush_xstream(void* data)
+{
+    xflush((FILE*) data);
 }
 
 int
 main(int argc, char** argv)
 {
     VERIFY(signal(SIGPIPE, SIG_IGN) != SIG_ERR);
-
     sigemptyset(&signals_unblock_for_io);
+
+    xstdin = stdin;
+    xstdout = stdout;
+    xstderr = stderr;
 
     struct main_info mi;
     mi.argc = argc;
@@ -616,11 +735,19 @@ main(int argc, char** argv)
     const char* orig_prgname = prgname;
     struct errinfo ei = { .want_msg = true };
     if (catch_error(main1, &mi, &ei)) {
+        if (ei.prgname == NULL)
+            ei.prgname = orig_prgname;
         mi.ret = 1;
-        const char* pnam = ei.prgname ?: orig_prgname;
-        const char* sep = pnam[0] ? ": " : "";
-        dbg("ERROR: %s%s%s", pnam, sep, ei.msg);
-        fprintf(stderr, "%s%s%s\n", pnam, sep, ei.msg);
+        (void) catch_error(try_flush_xstream, xstdout, NULL);
+        (void) catch_error(try_flush_xstream, xstderr, NULL);
+        // We shouldn't complain about perfectly reasonable failures
+        // writing to broken output streams.
+        if (!(ei.err == EPIPE &&
+              (string_starts_with_p(ei.msg, "write(1): ") ||
+               string_starts_with_p(ei.msg, "write(2): "))))
+        {
+            (void) catch_error(print_toplevel_error, &ei, NULL);
+        }
     }
 
     empty_reslist(&reslist_top);

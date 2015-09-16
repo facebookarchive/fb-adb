@@ -203,65 +203,99 @@ xfdopen_fd(void* cookie)
     return (int) (intptr_t) cookie;
 }
 
+struct xfd_op_ctx {
+    enum { XFD_OP_READ, XFD_OP_WRITE} op;
+    int fd;
+    void* buf;
+    size_t size;
+    ssize_t result;
+};
+
+static void
+xfd_op_1(void* data)
+{
+    struct xfd_op_ctx* ctx = data;
+    ssize_t ret;
+
+    dbg("xfd_op_1 fd=%d", ctx->fd);
+
+    if (ctx->op == XFD_OP_READ) {
+        do {
+            WITH_IO_SIGNALS_ALLOWED();
+            ret = read(ctx->fd, ctx->buf, ctx->size);
+        } while (ret == -1 && errno == EINTR);
+        if (ret == -1)
+            die_errno("read(%d)", ctx->fd);
+    } else {
+        assert(ctx->op == XFD_OP_WRITE);
+        do {
+            WITH_IO_SIGNALS_ALLOWED();
+            ret = write(ctx->fd, ctx->buf, ctx->size);
+        } while (ret == -1 && errno == EINTR);
+        if (ret == -1)
+            die_errno("write(%d)", ctx->fd);
+    }
+
+    dbg("xfd_op_1 result: %d", (int) ret);
+    ctx->result = ret;
+}
+
+static void
+xfd_op(struct xfd_op_ctx* ctx)
+{
+    bool old_die_on_quit = hack_die_on_quit;
+    hack_die_on_quit = true;
+
+    struct errinfo ei = {
+        .want_msg = true,
+    };
+
+    if (catch_error(xfd_op_1, ctx, &ei)) {
+        deferred_die(ei.err, "%s", ei.msg);
+        errno = ei.err < 0 ? EIO : ei.err;
+        ctx->result = -1;
+    }
+
+    hack_die_on_quit = old_die_on_quit;
+}
+
+// xfdopen_read and xfdopen_write are called from inside stdio
+// machinery and must always return locally --- never longjmp!  If we
+// die inside one of these functions, we "defer" the die and actually
+// longjmp at the next safe opportunity.
+
 static custom_stream_ssize_t
 xfdopen_read(void* cookie, char* buf, custom_stream_size_t size)
 {
-    assert(!hack_defer_quit_signals);
-    ssize_t ret;
+    struct xfd_op_ctx ctx = {
+        .op = XFD_OP_READ,
+        .fd = xfdopen_fd(cookie),
+        .buf = buf,
+        .size = size
+    };
 
-    hack_defer_quit_signals = true;
-    do {
-        WITH_IO_SIGNALS_ALLOWED();
-        ret = read(xfdopen_fd(cookie), buf, size);
-    } while (ret == -1 && errno == EINTR && !signal_quit_in_progress);
-    hack_defer_quit_signals = false;
-
-    if (ret == -1 && errno == EINTR && signal_quit_in_progress) {
-        raise(signal_quit_in_progress); // Queue signal
-        signal_quit_in_progress = 0;
-        errno = EIO; // Prevent retry
-    }
-
-    return ret;
+    xfd_op(&ctx);
+    return ctx.result;
 }
 
 static custom_stream_ssize_t
 xfdopen_write(void* cookie, const char* buf, custom_stream_size_t size)
 {
-    assert(!hack_defer_quit_signals);
-    ssize_t ret;
+    struct xfd_op_ctx ctx = {
+        .op = XFD_OP_WRITE,
+        .fd = xfdopen_fd(cookie),
+        .buf = (void*) buf,
+        .size = size
+    };
 
-    hack_defer_quit_signals = true;
-    do {
-        WITH_IO_SIGNALS_ALLOWED();
-        ret = write(xfdopen_fd(cookie), buf, size);
-    } while (ret == -1 && errno == EINTR && !signal_quit_in_progress);
-    hack_defer_quit_signals = false;
-
-    if (ret == -1 && errno == EINTR && signal_quit_in_progress) {
-        raise(signal_quit_in_progress); // Queue signal
-        signal_quit_in_progress = 0;
-        errno = EIO; // Prevent retry
-    }
-
-    return ret;
-}
-
-static int
-xfdopen_close(void* cookie)
-{
-    xclose(xfdopen_fd(cookie));
-    return 0;
+    xfd_op(&ctx);
+    return ctx.result;
 }
 
 FILE*
 xfdopen(int fd, const char* mode)
 {
     struct cleanup* cl = cleanup_allocate();
-    int newfd = fcntl(fd, F_DUPFD_CLOEXEC, fd);
-    if (newfd == -1)
-        die_errno("F_DUPFD_CLOEXEC");
-
     FILE* f = NULL;
 
 #if defined(HAVE_FOPENCOOKIE)
@@ -269,24 +303,21 @@ xfdopen(int fd, const char* mode)
         .read = xfdopen_read,
         .write = xfdopen_write,
         .seek = NULL,
-        .close = xfdopen_close,
+        .close = NULL,
     };
 
-    f = fopencookie((void*) (intptr_t) newfd, mode, funcs);
+    f = fopencookie((void*) (intptr_t) fd, mode, funcs);
 #elif defined(HAVE_FUNOPEN)
-    f = funopen((void*) (intptr_t) newfd,
+    f = funopen((void*) (intptr_t) fd,
                 xfdopen_read,
                 xfdopen_write,
                 NULL,
-                xfdopen_close);
+                NULL);
 #else
 # error This platform has no custom stdio stream support
 #endif
-
-    if (f == NULL) {
-        close_saving_errno(newfd);
+    if (f == NULL)
         die_errno("fdopen");
-    }
     cleanup_commit(cl, xfopen_cleanup, f);
     return f;
 }
@@ -749,7 +780,6 @@ replace_stdin_stdout_with_dev_null(void)
 struct xnamed_tempfile_save {
     char* name;
     int fd;
-    FILE* stream;
 };
 
 static void
@@ -760,14 +790,11 @@ xnamed_tempfile_cleanup(void* arg)
     if (save->fd != -1)
         xclose(save->fd);
 
-    if (save->stream)
-        (void) fclose(save->stream);
-
     if (save->name)
         (void) unlink(save->name);
 }
 
-FILE*
+int
 xnamed_tempfile(const char** out_name)
 {
     struct xnamed_tempfile_save* save = xcalloc(sizeof (*save));
@@ -779,13 +806,8 @@ xnamed_tempfile(const char** out_name)
         die_errno("mkostemp");
 
     save->name = name;
-    save->stream = fdopen(save->fd, "r+");
-    if (save->stream == NULL)
-        die_errno("fdopen");
-
-    save->fd = -1; // stream owns it now
     *out_name = name;
-    return save->stream;
+    return save->fd;
 }
 
 void
@@ -1006,6 +1028,24 @@ xflush(FILE* out)
 {
     if (fflush(out) == -1)
         die_errno("fflush");
+}
+
+void
+xfwrite(const void* ptr, size_t size, size_t nmemb, FILE* stream)
+{
+    if (fwrite(ptr, size, nmemb, stream) != nmemb)
+        die_errno("fwrite");
+}
+
+void
+xprintf(FILE* out, const char* fmt, ...)
+{
+    va_list args;
+    va_start(args, fmt);
+    int result = vfprintf(out, fmt, args);
+    va_end(args);
+    if (result < 0)
+        die_errno("vfprintf");
 }
 
 void

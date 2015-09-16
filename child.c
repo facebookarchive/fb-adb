@@ -60,13 +60,6 @@ child_child_1(void* arg)
             die_errno("tcsetpgrp");
     }
 
-    for (int i = 0; i < NSIG; ++i)
-        signal(i, SIG_DFL);
-
-    sigset_t no_signals;
-    VERIFY(sigemptyset(&no_signals) == 0);
-    VERIFY(sigprocmask(SIG_SETMASK, &no_signals, NULL) == 0);
-
     if (ci->csi->pre_exec)
         ci->csi->pre_exec(ci->csi->pre_exec_data);
 
@@ -75,10 +68,25 @@ child_child_1(void* arg)
              ci->csi->environ ?: (const char* const*) environ);
 }
 
+static void
+child_child_print_error(void* data)
+{
+    struct errinfo* ei = data;
+    xprintf(xstderr, "%s: %s\n", ei->prgname, ei->msg);
+    xflush(xstderr);
+}
+
 __attribute__((noreturn))
 static void
 child_child(struct internal_child_info* ci)
 {
+    for (int i = 0; i < NSIG; ++i)
+        signal(i, SIG_DFL);
+
+    sigset_t no_signals;
+    VERIFY(sigemptyset(&no_signals) == 0);
+    VERIFY(sigprocmask(SIG_SETMASK, &no_signals, NULL) == 0);
+
     struct errinfo ei = { 0 };
     ei.want_msg = true;
     if (!catch_error(child_child_1, ci, &ei)) {
@@ -86,8 +94,7 @@ child_child(struct internal_child_info* ci)
         abort();
     }
 
-    fprintf(stderr, "%s: %s\n", ei.prgname, ei.msg);
-    fflush(stderr);
+    (void) catch_error(child_child_print_error, &ei, NULL);
     _exit(127); // Do not allow errors to propagate further
 }
 

@@ -218,18 +218,18 @@ output_property(bool* first,
     if (*first)
         *first = false;
     else
-        xputc(sep, stdout);
+        xputc(sep, xstdout);
 
     char c;
     bool escaped = false;
     while ((c = *format++)) {
         if (escaped) {
             if (c == '%') {
-                xputc('%', stdout);
+                xputc('%', xstdout);
             } else if (c == 'n') {
-                xputs(name, stdout);
+                xputs(name, xstdout);
             } else if (c == 'v' && value) {
-                xputs(value, stdout);
+                xputs(value, xstdout);
             } else {
                 usage_error("incorrect format string \"%s\"", format-2);
             }
@@ -238,7 +238,7 @@ output_property(bool* first,
             if (c == '%') {
                 escaped = true;
             } else {
-                xputc(c, stdout);
+                xputc(c, xstdout);
             }
         }
     }
@@ -272,7 +272,7 @@ getprop_main(const struct cmd_getprop_info* info)
 
     struct json_writer* writer = NULL;
     if (format == NULL && format_not_found == NULL) {
-        writer = json_writer_create(stdout);
+        writer = json_writer_create(xstdout);
         json_begin_object(writer);
     }
 
@@ -331,12 +331,12 @@ getprop_main(const struct cmd_getprop_info* info)
     }
 
     if (writer == NULL && !first && !null)
-        xputc(sep, stdout);
+        xputc(sep, xstdout);
 
     if (writer != NULL)
         json_end_object(writer);
 
-    xflush(stdout);
+    xflush(xstdout);
     return exit_status;
 }
 

@@ -169,7 +169,7 @@ static void
 show_help_1(const char* help, bool allow_pager)
 {
     SCOPED_RESLIST(rl);
-    FILE* out = stdout;
+    FILE* out = xstdout;
     int color_override = -1;
     if (getenv("FB_ADB_COLOR")) {
         color_override = atoi(getenv("FB_ADB_COLOR"));
@@ -192,9 +192,8 @@ show_help_1(const char* help, bool allow_pager)
         pager = NULL;
 
     const char* tmpf_name = NULL;
-    if (pager != NULL) {
-        out = xnamed_tempfile(&tmpf_name);
-    }
+    if (pager != NULL)
+        out = xfdopen(xnamed_tempfile(&tmpf_name), "w");
 
     if (color_override == -1)
         color_override = pager_supports_color || isatty(fileno(out));
