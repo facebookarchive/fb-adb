@@ -15,6 +15,7 @@ libfb_adb_a_SOURCES += \
 CMD_SOURCES += \
 	cmd_fget.c \
 	cmd_fput.c \
+	peer.h \
 	peer.c \
 	cmd_logcat_json.c \
 	cmd_shex.c \

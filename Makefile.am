@@ -34,6 +34,7 @@ CMD_SOURCES = \
 	fb-adb.c \
 	cmd.h \
 	cmd.c \
+	xfer.h \
 	xfer.c \
 	$(EMPTY)
 
