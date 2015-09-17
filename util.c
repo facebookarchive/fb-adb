@@ -745,10 +745,12 @@ main(int argc, char** argv)
         (void) catch_error(try_flush_xstream, xstderr, NULL);
         // We shouldn't complain about perfectly reasonable failures
         // writing to broken output streams.
-        if (!(ei.err == EPIPE &&
-              (string_starts_with_p(ei.msg, "write(1): ") ||
-               string_starts_with_p(ei.msg, "write(2): "))))
+        if (ei.err == EPIPE &&
+            (string_starts_with_p(ei.msg, "write(1): ") ||
+             string_starts_with_p(ei.msg, "write(2): ")))
         {
+            dbg("ignoring EPIPE on standard stream");
+        } else {
             (void) catch_error(print_toplevel_error, &ei, NULL);
         }
     }
