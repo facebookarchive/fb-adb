@@ -30,8 +30,11 @@ check_PROGRAMS = fb-adb
 CLEANFILES += timestamp.c
 
 AM_CPPFLAGS += -DFBADB_STUB=1
+
+if !STRIP_STUBS
 AM_CFLAGS += -flto -frandom-seed=0
 AM_LDFLAGS += -flto -frandom-seed=0
+endif
 
 if !STUB_LOCAL
 fb_adb_LDADD += -llog

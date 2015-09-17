@@ -296,6 +296,13 @@ code, and bash completion file.
     <optgroup-reference name="user"/>
     <?endif?>
   </command>
+  <command names="ps-json">
+    Output the machine's process list in JSON.
+    <?ifdef FBADB_MAIN?>
+    <optgroup-reference name="adb"/>
+    <optgroup-reference name="transport" />
+    <?endif?>
+  </command>
   <command names="getprop">
     Read zero, more, or all system properties from a device and
     describe them in JSON.  Standard output is a JSON object with one

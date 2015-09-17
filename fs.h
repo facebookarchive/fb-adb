@@ -16,6 +16,7 @@
 #include <sys/stat.h>
 #include <fcntl.h>
 #include <sys/time.h>
+#include <dirent.h>
 #include <sys/file.h>
 #include <sys/types.h>
 #include <unistd.h>
@@ -193,3 +194,4 @@ struct stat xstat(const char* path);
 int xF_GETFL(int fd);
 void xF_SETFL(int fd, int flags);
 
+DIR* xopendir(const char* path);

@@ -188,12 +188,6 @@ finfo_execp(struct json_writer* writer, const char* filename, void* data)
     json_emit_bool(writer, true);
 }
 
-static void
-cleanup_closedir(void* data)
-{
-    closedir((DIR*) data);
-}
-
 #ifdef HAVE_STRUCT_DIRENT_D_TYPE
 static const char*
 dirent_type_to_name(unsigned char type)
@@ -227,11 +221,7 @@ static const struct finfo_op available_ops[] = {
 static void
 finfo_ls(struct json_writer* writer, const char* filename, void* data)
 {
-    struct cleanup* cl = cleanup_allocate();
-    DIR* dir = opendir(filename);
-    if (dir == NULL)
-        die_errno("opendir");
-    cleanup_commit(cl, cleanup_closedir, dir);
+    DIR* dir = xopendir(filename);
 
     json_begin_array(writer);
 

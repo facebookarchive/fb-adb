@@ -1271,3 +1271,20 @@ xstat(const char* path)
         die_errno("stat(\"%s\")", path);
     return st;
 }
+
+static void
+cleanup_closedir(void* data)
+{
+    closedir((DIR*) data);
+}
+
+DIR*
+xopendir(const char* path)
+{
+    struct cleanup* cl = cleanup_allocate();
+    DIR* dir = opendir(path);
+    if (dir == NULL)
+        die_errno("opendir(\"%s\")", path);
+    cleanup_commit(cl, cleanup_closedir, dir);
+    return dir;
+}
