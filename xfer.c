@@ -29,7 +29,6 @@
 
 enum xfer_msg_type {
     XFER_MSG_STAT = 10,
-    XFER_MSG_ERROR,
     XFER_MSG_DATA,
 };
 
@@ -52,11 +51,6 @@ struct xfer_msg {
         struct {
             uint32_t payload_size;
         } data;
-
-        struct {
-            int32_t err;
-            uint16_t msg_size;
-        } error;
     } u;
 };
 #pragma pack(pop)
@@ -71,8 +65,6 @@ xfer_msg_size(uint8_t type)
     switch (type) {
         case XFER_MSG_STAT:
             return XFER_MSG_SIZE(stat);
-        case XFER_MSG_ERROR:
-            return XFER_MSG_SIZE(error);
         case XFER_MSG_DATA:
             return XFER_MSG_SIZE(data);
         default:
@@ -96,15 +88,6 @@ recv_xfer_msg(int from_peer)
         (unsigned) msize,
         (unsigned) hsz);
     read_all(from_peer, &m.u, remaining_bytes);
-
-    if (m.type == XFER_MSG_ERROR) {
-        char* msg = xalloc(m.u.error.msg_size);
-        size_t msg_recv = read_all(from_peer, msg, m.u.error.msg_size);
-        if (m.u.error.err > -1)
-            m.u.error.err = EINVAL;
-        die(m.u.error.err, "%.*s", (int) msg_recv, msg);
-    }
-
     return m;
 }
 
@@ -370,9 +353,8 @@ do_xfer_send(int to_peer, const char* filename)
 }
 
 static void
-do_xfer(void* data)
+do_xfer(struct xfer_ctx* ctx)
 {
-    struct xfer_ctx* ctx = data;
     const struct cmd_xfer_stub_info* info = ctx->info;
 
     dbg("do_xfer in %s mode filename=[%s] desired_basename=[%s]",
@@ -390,21 +372,6 @@ do_xfer(void* data)
     }
 }
 
-static void
-send_error_packet(int to_peer, int err, const char* msg)
-{
-    size_t msg_size = strlen(msg);
-    if (msg_size > UINT16_MAX)
-        msg_size = UINT16_MAX;
-    struct xfer_msg m = {
-        .type = XFER_MSG_ERROR,
-        .u.error.err = err,
-        .u.error.msg_size = msg_size,
-    };
-    send_xfer_msg(to_peer, &m);
-    write_all(to_peer, msg, msg_size);
-}
-
 int
 xfer_stub_main(const struct cmd_xfer_stub_info* info)
 {
@@ -414,15 +381,8 @@ xfer_stub_main(const struct cmd_xfer_stub_info* info)
         .info = info,
     };
 
-    struct errinfo ei = {
-        .want_msg = true
-    };
-
-    if (catch_error(do_xfer, &ctx, &ei)) {
-        send_error_packet(ctx.to_peer, ei.err, ei.msg);
-        return 1;
-    }
-
+    set_prgname("");
+    do_xfer(&ctx);
     return 0;
 }
 
@@ -446,6 +406,19 @@ xfer_handle_command(
     };
 
     do_xfer(&ctx);
-    return child_status_to_exit_code(child_wait(peer));
+    int status = child_wait(peer);
+    if (!child_status_success_p(status)) {
+        if (WIFEXITED(status))
+            die(ECOMM,
+                "child died with status %d",
+                (int) WEXITSTATUS(status));
+        if (WIFSIGNALED(status))
+            die(ECOMM,
+                "child died with signal %d",
+                (int) WTERMSIG(status));
+        abort();
+    }
+
+    return 0;
 }
 #endif
