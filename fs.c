@@ -217,8 +217,6 @@ xfd_op_1(void* data)
     struct xfd_op_ctx* ctx = data;
     ssize_t ret;
 
-    dbg("xfd_op_1 fd=%d", ctx->fd);
-
     if (ctx->op == XFD_OP_READ) {
         do {
             WITH_IO_SIGNALS_ALLOWED();
@@ -236,7 +234,6 @@ xfd_op_1(void* data)
             die_errno("write(%d)", ctx->fd);
     }
 
-    dbg("xfd_op_1 result: %d", (int) ret);
     ctx->result = ret;
 }
 
@@ -886,10 +883,10 @@ xfallocate(int fd, int mode, uint64_t offset, uint64_t length)
 {
 # ifdef __ARM_EABI__
     return syscall(__NR_fallocate, fd, mode,
-                   (uint32_t)(offset >> 32),
                    (uint32_t)(offset >> 0),
-                   (uint32_t)(length >> 32),
-                   (uint32_t)(length >> 0));
+                   (uint32_t)(offset >> 32),
+                   (uint32_t)(length >> 0),
+                   (uint32_t)(length >> 32));
 # else
     return syscall(__NR_fallocate, fd, mode, offset, length);
 # endif
@@ -945,7 +942,7 @@ fallocate_if_supported(int fd, uint64_t size)
 
     if (ret == -1) {
         if (errno != ENOSYS && errno != EOPNOTSUPP)
-            die_errno("fallocate");
+            die_errno("fallocate(%llu)", (unsigned long long) size);
         return false;
     }
 
@@ -982,7 +979,7 @@ xftruncate(int fd, uint64_t size)
 #endif
 
     if (ret == -1)
-        die_errno("ftruncate");
+        die_errno("ftruncate(%llu)", (unsigned long long) size);
 }
 
 void
