@@ -1,9 +1,12 @@
-Version 1.6.0
+Version 2.0.0
 -------------
 
 New features:
 
- * fast daemon mode
+ * rdex command for running dex files, automatically performing
+   usual arcane runtime invocations needed
+ * ps-json command
+ * Fast daemon mode - reduces average invocation time from ~130ms to ~7ms 
  * automatic workaround for "run-as" being broken on some
    Android devices. To take advantage of this workaround,
    you need to add a small service to your application.  See
@@ -37,6 +40,8 @@ Bug fixes:
  * The "timestamp" embedded in the fb-adb stub is now a function of the
    built binary, not the actual build time.  As a result, the build is
    now deterministic.
+ * Standard error output from adb subprocesses is now correctly
+   filtered and processed, eliminating duplicate error messages.
 
 Incompatible changes:
 
