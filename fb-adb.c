@@ -86,9 +86,9 @@ real_main(int argc, char** argv)
 
     if (!strcmp(prgarg, "--version")) {
 #ifdef HAVE_GIT_STAMP
-        xfprintf(xstdout, "fb-adb %s git:%s\n",
-                 PACKAGE_VERSION,
-                 git_stamp);
+        xprintf(xstdout, "fb-adb %s git:%s\n",
+                PACKAGE_VERSION,
+                git_stamp);
 #else
         xprintf(xstdout, "fb-adb %s\n", PACKAGE_VERSION);
 #endif
