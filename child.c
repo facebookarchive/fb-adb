@@ -375,18 +375,13 @@ child_status_to_exit_code(int status)
     abort();
 }
 
-static bool
-errend_p(char c)
-{
-    return c == '\0' || c == '\n' || c == '\r';
-}
-
 char*
 massage_output(const void* buf, size_t nr_bytes)
 {
     SCOPED_RESLIST(rl);
-    const char* s = (const char*) buf;
-    size_t endpos = 0;
+    char* output = xstrndup(buf, nr_bytes);
+    char* saveptr = NULL;
+    char* line;
 
     const char* prefixes[] = {
         xaprintf("%s: ", prgname),
@@ -394,22 +389,34 @@ massage_output(const void* buf, size_t nr_bytes)
         NULL
     };
 
-    const char** pp = prefixes;
-    const char* prefix;
-    while ((prefix = *pp++)) {
-        if (strlen(prefix) <= nr_bytes &&
-            strncmp(s, prefix, strlen(prefix)) == 0)
-        {
-            s += strlen(prefix);
-            nr_bytes -= strlen(prefix);
-        }
+    for (line = strtok_r(output, "\r\n", &saveptr);
+         line != NULL;
+         line = strtok_r(NULL, "\r\n", &saveptr))
+    {
+        if (string_starts_with_p(line, "WARNING: linker: "))
+            continue;
+        bool changed;
+        do {
+            changed = false;
+            const char** pp = prefixes;
+            const char* prefix;
+            while (!changed && (prefix = *pp++)) {
+                if (strncmp(line, prefix, strlen(prefix)) == 0) {
+                    line += strlen(prefix);
+                    changed = true;
+                }
+            }
+        } while (changed);
+        if (line[0] != '\0')
+            break;
     }
 
-    while (endpos < nr_bytes && !errend_p(s[endpos]))
-        ++endpos;
-
+    if (line == NULL)
+        line = "";
+    else
+        rtrim(line, NULL, "\r\n");
     WITH_CURRENT_RESLIST(rl->parent);
-    return xstrndup(s, endpos);
+    return xstrdup(line);
 }
 
 char*

@@ -296,6 +296,24 @@ code, and bash completion file.
     <optgroup-reference name="user"/>
     <?endif?>
   </command>
+  <command names="rdex">
+    Run a dex file using the remote machine's VM.
+    Automatically compiles the dex file to an odex or oat file.
+    <argument name="dexfile" type="device-path">
+      Name of the dex file to run.
+    </argument>
+    <argument name="classname">
+      Name of the class file to run.
+    </argument>
+    <argument name="args" repeat="yes" optional="yes" type="device-path">
+      Arguments to send to <i>dexfile</i>.
+    </argument>
+    <optgroup-reference name="adb"/>
+    <optgroup-reference name="transport" />
+    <optgroup-reference name="user"/>
+    <optgroup-reference name="cwd"/>
+    <optgroup-reference name="shex"/>
+  </command>
   <command names="ps-json">
     Output the machine's process list in JSON.
     <?ifdef FBADB_MAIN?>

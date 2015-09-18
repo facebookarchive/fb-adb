@@ -1482,7 +1482,9 @@ clowny_output_line_p(const char* line)
 void
 rtrim(char* string, size_t* stringsz_inout, const char* set)
 {
-    size_t stringsz = stringsz_inout ? *stringsz_inout : strlen(string);
+    size_t stringsz = stringsz_inout
+        ? *stringsz_inout
+        : strlen(string);
     while (stringsz > 0 && strchr(set, string[stringsz - 1]))
         stringsz--;
     string[stringsz] = '\0';

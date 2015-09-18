@@ -339,6 +339,9 @@ void become_daemon(void (*daemon_setup)(void* setup_data),
 
 bool clowny_output_line_p(const char* line);
 
+// Destructively remove characters in SET from the end of STRING.
+// If STRINGSZ_INOUT is non-NULL, it is in bytes the length of STRING
+// in bytes, not including the terminating NUL.
 void rtrim(char* string, size_t* stringsz_inout, const char* set);
 
 // struct growable_buffer users should zero-initialize instances.
