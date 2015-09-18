@@ -88,7 +88,7 @@ set_ansi_mode(FILE* out, unsigned mode, const struct caps* caps)
             emit = caps->bold;
         } else if (mode >= 30) {
             if (caps->setaf)
-                emit = tiparm(caps->setaf, (int) mode - 30);
+                emit = tparm(caps->setaf, (long) mode - 30);
             else if (caps->smul)
                 emit = caps->smul;
         }

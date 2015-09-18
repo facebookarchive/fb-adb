@@ -996,12 +996,14 @@ xrename(const char* old, const char* new)
 void
 hint_sequential_access(int fd)
 {
-    int advice = POSIX_FADV_SEQUENTIAL;
 #if defined(HAVE_POSIX_FADVISE)
+    int advice = POSIX_FADV_SEQUENTIAL;
     (void) posix_fadvise(fd, 0, 0, advice);
 #elif defined(__linux__) && defined(__NR_arm_fadvise64_64)
+    int advice = POSIX_FADV_SEQUENTIAL;
     (void) syscall(__NR_arm_fadvise64_64, fd, advice, 0, 0, 0, 0);
 #elif defined(__linux__) && defined(__NR_fadvise64)
+    int advice = POSIX_FADV_SEQUENTIAL;
     (void) syscall(__NR_fadvise64, fd, 0, 0, 0, 0, advice);
 #endif
 }

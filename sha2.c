@@ -33,7 +33,13 @@
 
 #include <string.h>	/* memcpy()/memset() or bcopy()/bzero() */
 #include <assert.h>	/* assert() */
-#include <endian.h>
+#if defined(HAVE_MACHINE_ENDIAN_H)
+# include <machine/endian.h>
+#elif defined(HAVE_ENDIAN_H)
+# include <endian.h>
+#else
+# error "No endian header available"
+#endif
 #include "sha2.h"
 
 /*

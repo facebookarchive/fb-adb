@@ -21,7 +21,9 @@
 #include <unistd.h>
 #include <setjmp.h>
 #include <stdlib.h>
-#include <features.h>
+#ifdef HAVE_FEATURES_H
+# include <features.h>
+#endif
 #include <signal.h>
 #include <sys/wait.h>
 #include <sys/syscall.h>

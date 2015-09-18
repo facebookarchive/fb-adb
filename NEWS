@@ -50,6 +50,7 @@ Incompatible changes:
    Gingerbread compatibility, and we'll take patches that fix Gingerbread,
    but we don't use Gingerbread ourselves anymore and don't test fb-adb
    with it.
+ * No longer fall back to adb commands
 
 Version 1.5.1
 -------------

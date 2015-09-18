@@ -90,6 +90,8 @@ AC_PROG_CC
 AC_SYS_LARGEFILE
 AC_CHECK_SIZEOF([off_t])
 
+AC_CHECK_HEADERS([machine/endian.h endian.h features.h])
+
 AC_PROG_SED
 AC_CHECK_TOOLS(RANLIB, [gcc-ranlib ranlib])
 AC_CHECK_TOOLS(AR, [gcc-ar ar])
@@ -205,13 +207,24 @@ dnl and so warns that the call to free(3) below might be trying to
 dnl free stack memory.
 
 warning_sup=
+
 old_CFLAGS="$CFLAGS"
-CFLAGS="$CFLAGS -Wno-free-nonheap-object"
+CFLAGS="$CFLAGS -Wno-free-nonheap-object -Werror"
 AC_MSG_CHECKING([compiler accepts -Wno-free-nonheap-object])
 AC_COMPILE_IFELSE(
   [AC_LANG_PROGRAM([],[])],
   [AC_MSG_RESULT([yes])
    warning_sup="$warning_sup -Wno-free-nonheap-object"],
+  [AC_MSG_RESULT([no])])
+CFLAGS=$old_CFLAGS
+
+old_CFLAGS="$CFLAGS"
+CFLAGS="$CFLAGS -Wno-initializer-overrides -Werror"
+AC_MSG_CHECKING([compiler accepts -Wno-initializer-overrides])
+AC_COMPILE_IFELSE(
+  [AC_LANG_PROGRAM([],[])],
+  [AC_MSG_RESULT([yes])
+   warning_sup="$warning_sup -Wno-initializer-overrides"],
   [AC_MSG_RESULT([no])])
 CFLAGS=$old_CFLAGS
 
