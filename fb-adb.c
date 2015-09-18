@@ -115,7 +115,5 @@ real_main(int argc, char** argv)
         return cmd->main(argc - 1, (const char**) argv);
     }
 
-    sigprocmask(SIG_SETMASK, &orig_sigmask, NULL);
-    execvp("adb", argv);
-    die(EINVAL, "could not exec adb: %s", strerror(errno));
+    die(EINVAL, "unknown command %s", prgarg);
 }

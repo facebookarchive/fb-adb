@@ -12,8 +12,9 @@ code, and bash completion file.
   </section>
 
   <section name="Description">
-    <b>fb-adb</b> wraps <b>adb</b> to provide enhanced shell and
-    command execution functionality.
+    <b>fb-adb</b> wraps <b>adb</b> to provide enhanced shell, command
+    execution, file transfer, system diagnostic, and
+    other functionality.
     <vspace/>
     <b>fb-adb shell</b> (which can also be spelled <b>fb-adb sh</b>
     and <b>fb-adb shellx</b>) runs <i>command</i> and its arguments
@@ -28,10 +29,15 @@ code, and bash completion file.
     directly without invoking the shell and does not have a
     zero-argument form that starts an interactive shell.
     <vspace/>
+    <b>fb-adb rdex</b> does everything necessary to execute a jar file
+    already on device as its own program.
+    <vspace/>
     <b>fb-adb help</b> displays this documentation.
     <vspace/>
-    All other commands are forwarded to <b>adb</b>, making it feasible
-    to use <b>fb-adb</b> in place of <b>adb</b> for most tasks.
+    See below for other useful commands, such as <b>fb-adb finfo</b>
+    for describing the filesystem in JSON, <b>fb-adb logcat-json</b>
+    for machine-readable logcat, <b>fb-adb ps-json</b>, and <b>fb-adb
+    bash-completion</b>.
     <vspace/>
     <b>adb</b> must be on PATH.
   </section>
@@ -300,7 +306,7 @@ code, and bash completion file.
     Run a dex file using the remote machine's VM.
     Automatically compiles the dex file to an odex or oat file.
     <argument name="dexfile" type="device-path">
-      Name of the dex file to run.
+      Name of the dex-containing jar file file to run.
     </argument>
     <argument name="classname">
       Name of the class file to run.
