@@ -25,6 +25,15 @@
 # endif
 #endif
 
+__attribute__((unused))
+static void
+xshutdown_if_not_broken(int socket, int how)
+{
+#ifndef __APPLE__
+    xshutdown(socket, how);
+#endif
+}
+
 struct fdrecorder {
     struct reslist* owner_rl;
     struct growable_buffer buffer;
@@ -37,7 +46,7 @@ static void
 fdrecorder_close_read_fd(struct fdrecorder* fdr)
 {
 #if !FDRECORDER_USE_PIPE
-    xshutdown(fdr->pipe[0], SHUT_RD);
+    xshutdown_if_not_broken(fdr->pipe[0], SHUT_RD);
 #endif
     xclose(fdr->pipe[0]);
     fdr->pipe[0] = -1;
@@ -111,8 +120,8 @@ fdrecorder_new(void)
         die_errno("pipe2");
 #else
     xsocketpairnc(AF_UNIX, SOCK_STREAM, 0, fdr->pipe);
-    xshutdown(fdr->pipe[0], SHUT_WR);
-    xshutdown(fdr->pipe[1], SHUT_RD);
+    xshutdown_if_not_broken(fdr->pipe[0], SHUT_WR);
+    xshutdown_if_not_broken(fdr->pipe[1], SHUT_RD);
 #endif
     fdr->sigio_cookie = sigio_register(fdrecorder_sigio_callback, fdr);
     xF_SETFL(fdr->pipe[0], xF_GETFL(fdr->pipe[0]) | O_ASYNC | O_NONBLOCK);
