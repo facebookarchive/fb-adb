@@ -1,0 +1,5 @@
+body { font-size: 10pt; }
+#index { position: fixed; top: 0; left:0; width: 30em; }
+#main { margin-left: 30em; }
+#name, #synopsis { display: none }
+#index a { color: #34f; text-decoration: none; font-weight: bold; }

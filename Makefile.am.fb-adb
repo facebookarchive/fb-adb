@@ -89,7 +89,19 @@ man_MANS = fb-adb.1
 CLEANFILES += fb-adb.pod
 fb-adb.pod: $(COMMANDS_XML) $(srcdir)/cmdsproc.py
 	$(CMDSPROC) pod $(COMMANDS_XML) > $@
-	podchecker -warnings -warnings $@
+#	podchecker -warnings -warnings $@
+
+CLEANFILES += fb-adb.html.pod
+fb-adb.html.pod: $(COMMANDS_XML) $(srcdir)/cmdsproc.py
+	$(CMDSPROC) -DHTML pod $(COMMANDS_XML) > $@
+
+CLEANFILES += htmldoc.css
+htmldoc.css: $(srcdir)/htmldoc.css.in
+	cat $< > $@
+
+CLEANFILES += index.html
+index.html: fb-adb.html.pod $(srcdir)/fixhtmldoc.sed htmldoc.css
+	pod2html $< | ( cd $(srcdir) && sed -f fixhtmldoc.sed ) > $@
 
 CLEANFILES += fb-adb.1
 fb-adb.1: fb-adb.pod

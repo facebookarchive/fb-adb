@@ -951,9 +951,10 @@ class PodGeneratingReader(UsageFileReader):
     self.command("=head3 %s", self.quote(title % args))
 
   def on_usage_start(self, *, program, summary):
-    self.on_section_start(name="Name")
-    self.on_cdata("%s - %s" % (program, summary))
-    self.on_section_end()
+    if "HTML" not in self.defs:
+      self.on_section_start(name="Name")
+      self.on_cdata("%s - %s" % (program, summary))
+      self.on_section_end()
 
   def on_usage_end(self):
     self.flush_paragraph()

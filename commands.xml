@@ -6,10 +6,12 @@ the fb-adb man page, in-program usage, option-processing
 code, and bash completion file.
 -->
 <usage program="fb-adb" summary="Improved Android Debug Bridge">
+  <?ifndef HTML?>
   <section name="Synopsis">
     <!-- Automatically generated -->
     <synopsis/>
   </section>
+  <?endif?>
 
   <section name="Description">
     <b>fb-adb</b> wraps <b>adb</b> to provide enhanced shell, command
@@ -42,11 +44,13 @@ code, and bash completion file.
     <b>adb</b> must be on PATH.
   </section>
 
-  <section name="Differences Between FB-ADB and ADB">
-    Differences between <b>adb</b> and <b>fb-adb</b> are that
+  <section name="We beat ADB">
     <b>fb-adb</b>
     <ul>
+      <li>provides bash tab completion functions for everything</li>
+      <li>is very fast: an AF_UNIX daemon allows us to start at interactive speeds</li>
       <li>is binary clean (no LF -> CRLF mangling),</li>
+      <li>supports a variety of useful utility commands for running native and Java code on device</li>
       <li>transmits and updates terminal window size via
       SIGWINCH,</li>
       <li>distinguishes standard output and standard error,</li>
