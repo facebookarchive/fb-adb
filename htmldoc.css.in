@@ -1,5 +1,8 @@
 body { font-size: 10pt; }
-#index { position: fixed; top: 0; left:0; width: 30em; }
-#main { margin-left: 30em; }
+#index { display: none; }
 #name, #synopsis { display: none }
 #index a { color: #34f; text-decoration: none; font-weight: bold; }
+@media (min-width: 40em) {
+  #index { display: block; position: fixed; top: 0; left:0; width: 25em; }
+  #main { margin-left: 25em; }
+}
