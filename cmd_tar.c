@@ -100,6 +100,7 @@ struct ctar_ctx {
     uint8_t* buf;
     size_t bufsz;
     bool force;
+    bool promised_file;
     STAILQ_HEAD(, pattern) patterns;
 };
 
@@ -368,13 +369,18 @@ write_ctar_file_2(struct ctar_ctx* ctx, const char* path)
     }
 
     bool include_in_archive = should_include_in_archive(ctx, path);
-    if (include_in_archive)
+    int file = -1;
+    if (S_ISREG(st.st_mode) && include_in_archive)
+        file = xopen(path, O_RDONLY, 0);
+    if (include_in_archive) {
+        ctx->promised_file = true;
         write_ctar_header(ctx, path, &st);
-
-    if (S_ISREG(st.st_mode) && include_in_archive) {
-        int file = xopen(path, O_RDONLY, 0);
-        tar_copy_bytes_padded(ctx, file, st.st_size, path);
     }
+
+    if (file != -1)
+        tar_copy_bytes_padded(ctx, file, st.st_size, path);
+
+    ctx->promised_file = false;
 
     if (S_ISDIR(st.st_mode)) {
         DIR* dir = xopendir(path);
@@ -407,15 +413,26 @@ write_ctar_file_1(void* data)
 void
 write_ctar_file(struct ctar_ctx* ctx, const char* path)
 {
+    assert(ctx->promised_file == false);
     if (ctx->force) {
         struct write_ctar_file_ctx wctx = {
             .ctx = ctx,
             .path = path
         };
-        (void) catch_error(write_ctar_file_1, &wctx, NULL);
+        struct errinfo ei = {
+            .want_msg = true
+        };
+        if (catch_error(write_ctar_file_1, &wctx, &ei)) {
+            if (ctx->promised_file == true)
+                die_rethrow(&ei);
+            xprintf(xstderr, "WARNING: could not archive %s: %s\n",
+                    path, ei.msg);
+            ctx->promised_file = false;
+        }
     } else {
         write_ctar_file_2(ctx, path);
     }
+    assert(ctx->promised_file == false);
 }
 
 int
