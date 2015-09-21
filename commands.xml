@@ -44,7 +44,7 @@ code, and bash completion file.
     <b>adb</b> must be on PATH.
   </section>
 
-  <section name="We beat ADB">
+  <section name="Advantages over ADB">
     <b>fb-adb</b>
     <ul>
       <li>provides bash tab completion functions for everything</li>
