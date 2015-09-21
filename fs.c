@@ -842,7 +842,7 @@ xreadlink(const char* path)
     } while (rc > 0 && rc == bufsz);
 
     if (rc < 0)
-        die(errno, "%s", strerror(errno));
+        die(errno, "readlink(\"%s\"): %s", path, strerror(errno));
 
     buf[rc] = '\0';
     return buf;

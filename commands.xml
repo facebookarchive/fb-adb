@@ -292,6 +292,56 @@ code, and bash completion file.
     <optgroup-reference name="user"/>
     <?endif?>
   </command>
+  <command names="ctar">
+    The <b>fb-adb ctar</b> command produces a tar file from the given
+    <i>path</i> arguments.
+    <argument name="paths" type="device-path" optional="yes" repeat="yes">
+      Names of a file or directories to include in the tar archive.
+    </argument>
+    <optgroup name="ctar">
+      <option short="f"
+              long="ignore-errors">
+        The <b>--ignore-errors</b> option tells <b>fb-adb ctar</b> to
+        silently omit from the archive files that could not be opened.
+      </option>
+      <option long="exclude" arg="glob-pattern" accumulate="excludes">
+        Exclude from the archive any file whose basename matches
+        <i>glob-pattern</i>, a shell-style glob pattern.
+        Multiple <b>--exclude</b>, <b>--exclude-regex</b>,
+        <b>--include</b>, and <b>--include-regex</b> options may
+        be given.
+      </option>
+      <option long="exclude-regex" arg="eregex" accumulate="excludes">
+        Exclude from the archive any file whose full path (as
+        constructed from an entry in <i>paths</i> matches
+        <i>exclude-regex</i>, a POSIX-style regular expression.
+        Multiple <b>--exclude</b>, <b>--exclude-regex</b>,
+        <b>--include</b>, and <b>--include-regex</b> options may
+        be given.
+      </option>
+      <option long="include" arg="glob-pattern" accumulate="excludes">
+        Include in the archive only files whose basenames matches
+        <i>glob-pattern</i>, a shell-style glob pattern.
+        Multiple <b>--exclude</b>, <b>--exclude-regex</b>,
+        <b>--include</b>, and <b>--include-regex</b> options may
+        be given.
+      </option>
+      <option long="include-regex" arg="eregex" accumulate="excludes">
+        Include in the archive only files whose full path (as
+        constructed from an entry in <i>paths</i>) matches
+        <i>exclude-regex</i>, a POSIX-style regular expression.
+        Multiple <b>--exclude</b>, <b>--exclude-regex</b>,
+        <b>--include</b>, and <b>--include-regex</b> options may
+        be given.
+      </option>
+    </optgroup>
+    <?ifdef FBADB_MAIN?>
+    <optgroup-reference name="adb"/>
+    <optgroup-reference name="transport" />
+    <optgroup-reference name="user"/>
+    <optgroup-reference name="cwd"/>
+    <?endif?>
+  </command>
   <command names="readlink">
     Read the target of a symbolic link on device.  This command is
     useful when a device lacks the readlink(1) command.
@@ -304,6 +354,7 @@ code, and bash completion file.
     <optgroup-reference name="adb"/>
     <optgroup-reference name="transport" />
     <optgroup-reference name="user"/>
+    <optgroup-reference name="cwd"/>
     <?endif?>
   </command>
   <command names="rdex">
@@ -444,7 +495,11 @@ code, and bash completion file.
   </command>
   <?ifdef FBADB_MAIN?>
   <command names="fget">
-    Retrieve a file from device.
+    Retrieve a file from device.  Note that there is no recursive
+    option: to retrieve multiple files, use the <b>fb-adb ctar</b>
+    command to stream a tar file containing the files you want; you
+    can pipe the output of <b>fb-adb ctar</b> to your favorite
+    <b>tar</b> program for unpacking.
     <argument name="remote" type="device-path">
       Name of the file on device.
     </argument>
@@ -716,26 +771,37 @@ code, and bash completion file.
       <dd>
         <pre>
           <![CDATA[
-          fb-adb rcmd screencap -p > screenshot-$(timestamp).png
+  fb-adb rcmd screencap -p > screenshot-$(timestamp).png
           ]]>
         </pre>
       </dd>
-      <dt>Dump database.db of the com.bar.foo app</dt>
+      <dt>Dump database.db of the com.example.foo app</dt>
       <dd>
         <pre>
           <![CDATA[
-          fb-adb rcmd -u com.bar.foo sqlite3 databases/database.db .d
+  fb-adb rcmd -u com.example.foo sqlite3 databases/database.db .d
           ]]>
         </pre>
       </dd>
-      <dt>Open remote shell as the user com.bar.foo</dt>
+      <dt>Open remote shell as the user com.example.foo</dt>
       <dd>
         <pre>
           <![CDATA[
-          fb-adb shell -u com.bar.foo
+  fb-adb shell -u com.example.foo
           ]]>
         </pre>
       </dd>
+      <dt>Retrieve all PNG files in your application's data directory</dt>
+      <dd>
+        <pre>
+          <![CDATA[
+  # The default directory with --user is the data directory
+  # pv provides a pretty progress indicator
+  fb-adb ctar -u com.example.foo --include=*.png . | pv -W > pngs.tar
+          ]]>
+        </pre>
+      </dd>
+
     </dl>
   </section>
   <section name="See Also">

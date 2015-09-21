@@ -3,6 +3,7 @@ Version 2.0.0
 
 New features:
 
+ * ctar command for generating tar files from device files
  * rdex command for running dex files, automatically performing
    usual arcane runtime invocations needed
  * ps-json command

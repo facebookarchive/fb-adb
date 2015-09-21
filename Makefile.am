@@ -35,6 +35,7 @@ CMD_SOURCES = \
 	cmd_readlink.c \
 	cmd_start_daemon.c \
 	cmd_stop_daemon.c \
+	cmd_tar.c \
 	fb-adb.c \
 	xfer.c \
 	xfer.h \

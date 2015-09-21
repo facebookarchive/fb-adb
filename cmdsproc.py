@@ -890,12 +890,13 @@ class PodGeneratingReader(UsageFileReader):
   def flush_paragraph(self):
     text = "".join(self.paragraph)
     self.paragraph.clear()
-    text = re.sub(self.WSRUNS, " ", text)
-    text = text.strip()
+    if self.pre_depth == 0:
+      text = re.sub(self.WSRUNS, " ", text)
+      text = text.strip()
     if text and text != "Z<>":
       if self.pre_depth > 0:
-        self.out.write(" ")
-      self.out.write(text.strip())
+        self.out.write("  ")
+      self.out.write(text)
       self.out.write("\n\n")
 
   def __escape_repl(self, m):
@@ -910,10 +911,13 @@ class PodGeneratingReader(UsageFileReader):
     self.paragraph.append(part)
 
   def on_cdata(self, cdata):
+    log.debug("got cdata %r", cdata)
     cdata = self.quote(cdata)
-    cdata = re.sub(self.WSRUNS, " ", cdata)
+    if self.pre_depth == 0:
+      cdata = re.sub(self.WSRUNS, " ", cdata)
     if not self.paragraph:
-      cdata = cdata.lstrip()
+      if self.pre_depth == 0:
+        cdata = cdata.lstrip()
       if not cdata:
         return
       if self.pre_depth == 0:

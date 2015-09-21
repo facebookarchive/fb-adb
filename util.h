@@ -20,6 +20,7 @@
 #include <time.h>
 #include <errno.h>
 #include <signal.h>
+#include <regex.h>
 #include "dbg.h"
 
 #ifndef ECOMM
@@ -354,6 +355,9 @@ struct growable_buffer {
 
 void resize_buffer(struct growable_buffer* gb, size_t new_size);
 void grow_buffer_dwim(struct growable_buffer* gb);
+
+regex_t* xregcomp(const char* regex, int cflags);
+char* xregerror(int errcode, const regex_t* preg);
 
 // Plain stdio operations on standard stream FILE* don't unblock
 // signals around IO.  We can't portably replace the stdio streams,

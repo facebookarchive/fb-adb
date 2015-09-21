@@ -1520,3 +1520,39 @@ grow_buffer_dwim(struct growable_buffer* gb)
         die_oom();
     resize_buffer(gb, bufsz);
 }
+
+static void
+cleanup_regfree(void* data)
+{
+    regfree(data);
+}
+
+regex_t*
+xregcomp(const char* regex, int cflags)
+{
+    regex_t* reg = xcalloc(sizeof (*reg));
+    struct cleanup* cl = cleanup_allocate();
+    int err = regcomp(reg, regex, cflags);
+    if (err != 0)
+        die(EINVAL, "bad regular expression: %s", xregerror(err, reg));
+    cleanup_commit(cl, cleanup_regfree, reg);
+    return reg;
+}
+
+
+char*
+xregerror(int errcode, const regex_t* preg)
+{
+    SCOPED_RESLIST(rl);
+    struct growable_buffer gb = { 0 };
+    grow_buffer_dwim(&gb);
+    for (;;) {
+        size_t needed = regerror(errcode, preg, (char*) gb.buf, gb.bufsz);
+        if (needed <= gb.bufsz)
+            break;
+        resize_buffer(&gb, needed);
+    }
+
+    reslist_xfer(rl->parent, rl);
+    return (char*) gb.buf;
+}
