@@ -11,6 +11,18 @@ if [[ -z $_fb_adb_print_messages ]]; then
     _fb_adb_print_messages=no
 fi
 
+if ! type -p jq >/dev/null 2>&1; then
+    printf >&2 'WARNING: jq not found\n'
+    printf >&2 'fb-adb completion relies on the jq utility\n'
+fi
+
+: ${_fb_adb:=fb-adb}
+
+if ! type -p "$_fb_adb" >/dev/null 2>&1; then
+    printf >&2 'WARNING: fb-adb not found\n'
+    printf >&2 'fb-adb completion requires fb-adb be on $PATH\n'
+fi
+
 _fb_adb_msg_need_newline=no
 _fb_adb_msg() {
     if [[ $_fb_adb_print_messages = yes ]]; then
@@ -187,7 +199,8 @@ _fb_adb_split() {
 # Internal helper for _fb_adb_device_ls.  Run only in a subshell.
 _fb_adb_device_ls_1() {
     set -o pipefail
-    fb-adb finfo "${slurped_adb_options[@]}" -i "ls:$1" "${@:2}" \
+    "$_fb_adb" \
+        finfo "${slurped_adb_options[@]}" -i "ls:$1" "${@:2}" \
            2>/dev/null | \
            jq -r -e '(.[].ls.result[]?)|(.d_name,.d_type,.execp.result)|@sh'
 }
@@ -244,7 +257,7 @@ _fb_adb_device_ls() {
 # Helper for _fb_adb_device_properties; run in subshell only.
 _fb_adb_device_properties_1() {
     set -o pipefail
-    fb-adb getprop "${slurped_adb_options[@]}" \
+    "$_fb_adb" getprop "${slurped_adb_options[@]}" \
            2>/dev/null | \
            jq -r -e '.|keys|@sh'
 }
@@ -552,14 +565,14 @@ _fb_adb_complete_device_path() {
             return 1
         fi
     else
-        local device_path=$(fb-adb shell \
+        local device_path=$("$_fb_adb" shell \
                             "${slurped_adb_options[@]}" \
                             'echo $PATH' 2>/dev/null)
         if (($?!=0)); then
             _fb_adb_msg 'cannot get PATH'
             return 1
         fi
-        _fb_adb_split ':' "$remote_path"
+        _fb_adb_split ':' "$device_path"
         if ! _fb_adb_device_ls -e -- "${aresult[@]}"; then
             return 1
         fi
