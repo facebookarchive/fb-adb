@@ -188,7 +188,7 @@ code, and bash completion file.
     </option>
     <option short="T" long="disable-tty" accumulate="termops">
       Never give the child ttys for standard input, standard output,
-      or standard error.  Use pipes instead, even if <b>ad-adb</b>
+      or standard error.  Use pipes instead, even if <b>fb-adb</b>
       itself is connected to a tty.
     </option>
     <option short="E" long="exename" arg="exename">
