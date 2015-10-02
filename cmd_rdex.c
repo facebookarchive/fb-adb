@@ -118,6 +118,9 @@ rdex_main(const struct cmd_rdex_info* info)
     if (setenv("CLASSPATH", dex_file_name, 1) == -1)
         die_errno("setenv");
 
+    if (info->classname[0] == '-')
+        die(EINVAL, "class name cannot begin with '-'");
+
     execvp("app_process",
            (char* const*)
            ARGV_CONCAT(
