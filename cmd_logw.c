@@ -53,7 +53,7 @@ tolower_inplace(char* s)
 int
 logw_main(const struct cmd_logw_info* info)
 {
-    const char* tag = "fb-adb-logw";
+    const char* tag = info->logw.tag ?: "fb-adb-logw";
     int priority = ANDROID_LOG_INFO;
 
     if (info->logw.priority) {
