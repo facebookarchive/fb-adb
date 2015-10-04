@@ -202,7 +202,7 @@ _fb_adb_device_ls_1() {
     "$_fb_adb" \
         finfo "${slurped_adb_options[@]}" -i "ls:$1" "${@:2}" \
            2>/dev/null | \
-           jq -r -e '(.[].ls.result[]?)|(.d_name,.d_type,.execp.result)|@sh'
+           jq -r '(.[].ls.result[]?)|(.d_name,.stat.result.modes[0:1],.execp.result)|@sh'
 }
 
 _fb_adb_getopts_default() {
@@ -225,16 +225,16 @@ _fb_adb_getopts_default() {
 #    Query using access(2) whether each file can be executed.
 #
 # Positional arguments are paths to list.  Results are in $aresult on
-# success and are triples of d_name, d_type, and execp results.
+# success and are triples of d_name, ftype, and execp results.
 _fb_adb_device_ls() {
     local OPTIND=1
     local OPTARG=
-    local ls_opts=
+    local ls_opts=stat
 
     while getopts ":e" c; do
         case "$c" in
             'e')
-                ls_opts=execp
+                ls_opts+=+execp
                 ;;
             *)
                 _fb_adb_getopts_default "$c"
@@ -561,7 +561,11 @@ _fb_adb_complete_device_path() {
         local dprefix=${word%"$basename"}
         _fb_adb_msg 'basename:[%s] dprefix:[%s]' \
                     "$basename" "$dprefix"
-        if ! _fb_adb_device_ls -- "${dprefix:-.}"; then
+        local -a ls_opts=()
+        if ((exe_only)); then
+            ls_opts+=('-e')
+        fi
+        if ! _fb_adb_device_ls "${ls_opts[@]}" -- "${dprefix:-.}"; then
             return 1
         fi
     else
@@ -581,21 +585,29 @@ _fb_adb_complete_device_path() {
     local -a candidates=()
     for ((i=0; i < ${#aresult[@]}; i+=3)); do
         local d_name=${aresult[((i+0))]}
-        local d_type=${aresult[((i+1))]}
+        local ftype=${aresult[((i+1))]}
         local execp=${aresult[((i+2))]}
 
-        _fb_adb_msg 'd_name:[%s] d_type:[%s] execp:[%s]' \
-                    "$d_name" "$d_type" "$execp"
+        _fb_adb_msg 'd_name:[%s] ftype:[%s] execp:[%s]' \
+                    "$d_name" "$ftype" "$execp"
 
-        if ((path_search)) && [[ $d_type = "DT_DIR" ]]; then
+        if ((path_search)) && [[ $ftype = 'd' ]]; then
+            _fb_adb_msg 'skipping directory in path-search mode'
             continue
         fi
 
-        if ((exe_only)) && [[ $execp != "true" ]]; then
-            continue
+        if ((exe_only)) && [[ $execp != 'true' ]]; then
+            if [[ $ftype = '-' ]] && [[ $execp = 'true' ]]; then
+                true
+            elif [[ $ftype = 'd' ]]; then
+                true
+            else
+                _fb_adb_msg 'skipping non-executable in exe_only mode'
+                continue
+            fi
         fi
 
-        if [[ $d_type = "DT_DIR" ]]; then
+        if [[ $ftype = 'd' ]]; then
             candidates+=("N$dprefix$d_name/")
         else
             candidates+=("F$dprefix$d_name")
