@@ -520,7 +520,7 @@ code, and bash completion file.
   <?endif?>
   <?ifdef FBADB_MAIN?>
   <command names="fput">
-    Retrieve a file from device.
+    Store a file on device.
     <argument name="local" type="host-path">
       Name of the file on host.  If <tt>-</tt> (a single dash)
       read from standard input.
