@@ -18,7 +18,7 @@
 #include "net.h"
 
 #ifndef FDRECORDER_USE_PIPE
-# if defined(__linux__)
+# ifdef HAVE_PIPE2
 #  define FDRECORDER_USE_PIPE 1
 # else
 #  define FDRECORDER_USE_PIPE 0
@@ -29,7 +29,7 @@ __attribute__((unused))
 static void
 xshutdown_if_not_broken(int socket, int how)
 {
-#ifndef __APPLE__
+#if FDRECORDER_USE_PIPE
     xshutdown(socket, how);
 #endif
 }
