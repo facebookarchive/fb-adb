@@ -98,6 +98,11 @@ AC_CHECK_TOOLS(AR, [gcc-ar ar])
 AC_CHECK_TOOLS(STRIP, [strip])
 AM_PROG_AR
 
+AC_CHECK_PROGS(BASH, [bash zsh], [
+  AC_MSG_ERROR([bash or zsh required for building])
+])
+export BASH # for AC_CONFIG_SUBDIRS
+
 AC_CHECK_PROGS(PYTHON3, [python3], [
   AC_MSG_ERROR([python3 required for building])
 ])

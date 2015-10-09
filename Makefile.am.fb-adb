@@ -48,7 +48,7 @@ $(STUB_BINARIES:/stub=/.update-lib):
 nodist_fb_adb_SOURCES += stubs.c
 CLEANFILES += stubs.c
 stubs.c: $(srcdir)/mkstubsc.sh update-all-stubs
-	XXD="$(XXD)" $(srcdir)/mkstubsc.sh $(STUB_BINARIES) > $@.tmp
+	XXD="$(XXD)" $(BASH) $(srcdir)/mkstubsc.sh $(STUB_BINARIES) > $@.tmp
 	cmp 2>/dev/null $@ $@.tmp || mv -f $@.tmp $@
 
 EXTRA_DIST += mk-fingerprint.py arpy.py
