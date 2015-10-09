@@ -1414,7 +1414,14 @@ maybe_my_exe(const char* exename)
 const char*
 my_exe(void)
 {
-    return maybe_my_exe("/proc/self/exe");
+    const char* my_exe_filename = "/proc/self/exe";
+#ifndef __linux__
+    // A missing /proc on Linux is simply broken.  A missing /proc
+    // elsewhere is just evidence of a lesser system.
+    if (access(my_exe_filename, F_OK) != 0)
+        my_exe_filename = orig_argv0;
+#endif
+    return maybe_my_exe(my_exe_filename);
 }
 
 static void
