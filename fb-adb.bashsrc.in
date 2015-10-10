@@ -7,12 +7,6 @@
 # additional grant of patent rights can be found in the PATENTS file
 # in the same directory.
 
-if [[  -n "$BASH_VERSINFO" && "$BASH_VERSINFO" -lt 4 ]]; then
-  echo Completion not supported prior to Bash 4.
-  echo If you are on Mac, see http://apple.stackexchange.com/a/24635 for how to upgrade Bash.
-  # This is evaluated, so don't exit as that would exit the user's shell
-fi
-
 if [[ -z $_fb_adb_print_messages ]]; then
     _fb_adb_print_messages=no
 fi
@@ -1049,7 +1043,13 @@ _fb_adb_complete() {
     fi
 }
 
-complete -F _fb_adb_complete fb-adb
+if [[  -n "$BASH_VERSINFO" && "$BASH_VERSINFO" -lt 4 ]]; then
+  echo Completion not supported prior to Bash 4.
+  echo If you are on Mac, see http://apple.stackexchange.com/a/24635 for how to upgrade Bash.
+  # This is evaluated, so don't exit as that would exit the user's shell
+else
+  complete -F _fb_adb_complete fb-adb
+fi
 
 ##############################
 # GENERATED CODE BEGINS HERE #
