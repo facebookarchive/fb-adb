@@ -11,11 +11,6 @@ if [[ -z $_fb_adb_print_messages ]]; then
     _fb_adb_print_messages=no
 fi
 
-if ! type -p jq >/dev/null 2>&1; then
-    printf >&2 'WARNING: jq not found\n'
-    printf >&2 'fb-adb completion relies on the jq utility\n'
-fi
-
 : ${_fb_adb:=fb-adb}
 
 if ! type -p "$_fb_adb" >/dev/null 2>&1; then
@@ -1043,7 +1038,18 @@ _fb_adb_complete() {
     fi
 }
 
-complete -F _fb_adb_complete fb-adb
+# This is evaluated, so don't exit on error as that would exit the user's shell
+if [[  -n "$BASH_VERSINFO" && "$BASH_VERSINFO" -lt 4 ]]; then
+    printf >&2 'Completion not supported prior to Bash 4.\n'
+    printf >&2 'If you are on Mac, see http://apple.stackexchange.com/a/24635 for how to upgrade Bash.\n'
+elif ! type -p jq >/dev/null 2>&1; then
+    printf >&2 'ERROR: jq not found\n'
+    printf >&2 'fb-adb completion relies on the jq utility\n'
+    printf >&2 'if you are on Mac and use homebrew: brew install jq\n'
+else
+    # All good, install completion function
+    complete -F _fb_adb_complete fb-adb
+fi
 
 ##############################
 # GENERATED CODE BEGINS HERE #
