@@ -265,17 +265,17 @@ code, and bash completion file.
     Use like this: <pre>eval "$(fb-adb bash-completion)"</pre>
   </command>
   <?endif?>
-  <command names="logw">
+  <command names="logwrite,logw">
     Write to logcat on device.
     <argument name="message-parts" repeat="yes">
       The log message to write.  All message arguments are joined with
       a single space character between them.  The combined message is
       then logged.
     </argument>
-    <optgroup name="logw">
+    <optgroup name="logwrite">
       <option short="t" long="tag" arg="tag">
         Log mesage with the given tag instead of the default,
-        "fb-adb-logw".
+        "fb-adb-logwrite".
       </option>
       <option short="x"
               long="priority"

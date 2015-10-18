@@ -18,12 +18,12 @@
 
 #if FBADB_MAIN
 
-FORWARD(logw);
+FORWARD(logwrite);
 
 #elif !defined(__ANDROID__)
 
 int
-logw_main(const struct cmd_logw_info* info)
+logwrite_main(const struct cmd_logwrite_info* info)
 {
     die(ENOSYS, "Android logcat not supported on this system");
 }
@@ -51,14 +51,14 @@ tolower_inplace(char* s)
 }
 
 int
-logw_main(const struct cmd_logw_info* info)
+logwrite_main(const struct cmd_logwrite_info* info)
 {
-    const char* tag = info->logw.tag ?: "fb-adb-logw";
+    const char* tag = info->logwrite.tag ?: "fb-adb-logwrite";
     int priority = ANDROID_LOG_INFO;
 
-    if (info->logw.priority) {
+    if (info->logwrite.priority) {
         priority = -1;
-        char* xprio = xstrdup(info->logw.priority);
+        char* xprio = xstrdup(info->logwrite.priority);
         tolower_inplace(xprio);
         size_t xprio_len = strlen(xprio);
         for (unsigned i = 0; i < ARRAYSIZE(log_levels) - 1; ++i) {
@@ -70,7 +70,7 @@ logw_main(const struct cmd_logw_info* info)
 
         if (priority == -1)
             usage_error("unknown priority \"%s\"",
-                        info->logw.priority);
+                        info->logwrite.priority);
     }
 
     const char* const* p;

@@ -29,7 +29,7 @@ CMD_SOURCES = \
 	cmd_finfo.c \
 	cmd_getprop.c \
 	cmd_help.c \
-	cmd_logw.c \
+	cmd_logwrite.c \
 	cmd_ps_json.c \
 	cmd_rdex.c \
 	cmd_readlink.c \
