@@ -31,7 +31,9 @@ fb_adb_service_connect(const char* package, int timeout_ms)
 {
     SCOPED_RESLIST(rl);
 
+#ifdef SO_PEERCRED
     uid_t expected_uid = xstat(xaprintf("/data/data/%s", package)).st_uid;
+#endif
 
     const char* service_sockname =
         xaprintf("fb-adb-service-%s",
@@ -87,6 +89,7 @@ fb_adb_service_connect(const char* package, int timeout_ms)
                    "timeout waiting for service callback");
     WITH_CURRENT_RESLIST(rl->parent);
     int connection = xaccept(service_listen_fd);
+#ifdef SO_PEERCRED
     uid_t connection_uid = get_peer_credentials(connection).uid;
     if (connection_uid != expected_uid)
         die(ECOMM, "expected uid %d for package [%s] "
@@ -94,6 +97,7 @@ fb_adb_service_connect(const char* package, int timeout_ms)
             (int) expected_uid,
             package,
             (int) connection_uid);
+#endif
     return connection;
 }
 
