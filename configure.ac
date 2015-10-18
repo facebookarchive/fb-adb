@@ -74,6 +74,7 @@ else
       fi
      echo "Configuring native NDK toolchain for $platform/$toolchain_cpu"
 
+     ${ANDROID_NDK_SHELL} \
      "$andk"/build/tools/make-standalone-toolchain.sh \
        --install-dir=toolchain --platform=$platform \
        --arch=$toolchain_cpu
