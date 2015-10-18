@@ -14,6 +14,7 @@
 #include <limits.h>
 #include <fcntl.h>
 #include <sys/syscall.h>
+#include <sys/wait.h>
 #include "util.h"
 #include "autocmd.h"
 #include "xfer.h"
