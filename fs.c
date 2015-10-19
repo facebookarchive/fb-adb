@@ -868,10 +868,6 @@ xbasename(const char* path)
     return xstrdup(ret);
 }
 
-#ifdef HAVE_XFALLOCATE
-# undef HAVE_FUNOPEN
-#endif
-
 #if !defined(HAVE_FALLOCATE) &&                 \
     defined(__linux__) &&                       \
     defined(__NR_fallocate) && (                \
