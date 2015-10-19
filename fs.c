@@ -919,7 +919,7 @@ fallocate_if_supported(int fd, uint64_t size)
     if (size > max_size)
         die(EINVAL, "file size too large");
 
-#if HAVE_FALLOCATE && SIZEOF_OFF_T==4
+#if HAVE_XFALLOCATE && SIZEOF_OFF_T==4
     ret = xfallocate(fd, 0, 0, size);
 #elif defined(HAVE_POSIX_FALLOCATE) && !defined(__GLIBC__)
     // Use the Linux system call directly instead of posix_fallocate
