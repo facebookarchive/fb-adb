@@ -270,8 +270,9 @@ do_xfer_recv(const struct xfer_opts xfer_opts,
     if (atomic) {
         rename_to = filename;
         filename =
-            xaprintf("%s.fb-adb-%s",
-                     filename,
+            xaprintf("%s/.%s.fb-adb-%s",
+                     xdirname(filename),
+                     xbasename(filename),
                      gen_hex_random(ENOUGH_ENTROPY));
         dest_fd = try_xopen(
             filename,
