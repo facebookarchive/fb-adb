@@ -83,6 +83,7 @@ FILE* xstderr;
 
 sigset_t signals_unblock_for_io;
 sigset_t orig_sigmask;
+sigset_t orig_sig_ignored;
 int signal_quit_in_progress;
 bool hack_die_on_quit;
 
@@ -612,6 +613,13 @@ make_line_buffered(FILE* stream)
         die_errno("setvbuf");
 }
 
+__attribute__((unused))
+static const char*
+xsigname(int signo)
+{
+    return xaprintf("signal %d (%s)", signo, strsignal(signo) ?: "?");
+}
+
 void
 main1(void* arg)
 {
@@ -639,6 +647,13 @@ main1(void* arg)
     // regions have full access to the heap, the cleanup list, and
     // other process-wide facilities.
 
+#ifndef NDEBUG
+    for (int sig = 1; sig < NSIG; ++sig)
+        if (sigismember(&orig_sig_ignored, sig))
+            dbg("signal %s ignored at startup: will ignore in children",
+                xsigname(sig));
+#endif
+
     int quit_signals[] = {
         SIGHUP, SIGINT, SIGQUIT, SIGTERM
     };
@@ -663,13 +678,24 @@ main1(void* arg)
     VERIFY(sigfillset(&all_signals_mask) == 0);
 
     for (int i = 0; i < ARRAYSIZE(quit_signals); ++i) {
+        int sig = quit_signals[i];
         struct sigaction sa;
         memset(&sa, 0, sizeof (sa));
         sa.sa_sigaction = quit_signal_sigaction;
         sa.sa_mask = all_signals_mask;
         sa.sa_flags = SA_RESETHAND | SA_SIGINFO;
-        VERIFY(sigaction(quit_signals[i], &sa, NULL) == 0);
-        sigaddset(&signals_unblock_for_io, quit_signals[i]);
+        VERIFY(sigaction(sig, &sa, NULL) == 0);
+        // Only unblock signals that were unblocked when we started
+        if (sigismember(&orig_sigmask, sig)) {
+            dbg("will not unblocking %s during IO: "
+                "blocked on startup",
+                xsigname(sig));
+        } else if (sigismember(&orig_sig_ignored, sig)) {
+            dbg("will not be unblocking %s duirng IO: ignord on startup",
+                xsigname(sig));
+        } else {
+            sigaddset(&signals_unblock_for_io, sig);
+        }
     }
 
     for (int i = 0; i < ARRAYSIZE(job_control_signals); ++i) {
@@ -718,6 +744,16 @@ try_flush_xstream(void* data)
 int
 main(int argc, char** argv)
 {
+    for (int i = 1; i < NSIG; ++i) {
+        struct sigaction orig_sa;
+        if (sigaction(i, NULL, &orig_sa) == 0 &&
+            (orig_sa.sa_flags & SA_SIGINFO) == 0 &&
+            orig_sa.sa_handler == SIG_IGN)
+        {
+            sigaddset(&orig_sig_ignored, i);
+        }
+    }
+
     VERIFY(signal(SIGPIPE, SIG_IGN) != SIG_ERR);
     sigemptyset(&signals_unblock_for_io);
 

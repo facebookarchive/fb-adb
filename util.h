@@ -279,6 +279,7 @@ double xclock_gettime(clockid_t clk_id);
 
 extern sigset_t signals_unblock_for_io;
 extern sigset_t orig_sigmask;
+extern sigset_t orig_sig_ignored;
 extern int signal_quit_in_progress;
 
 void _unblock_io_unblocked_signals(sigset_t* saved);

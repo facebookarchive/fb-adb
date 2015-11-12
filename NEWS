@@ -43,6 +43,7 @@ Bug fixes:
    now deterministic.
  * Standard error output from adb subprocesses is now correctly
    filtered and processed, eliminating duplicate error messages.
+ * Respect signal mask for SIGINT, SIGQUIT in place at program startup
 
 Incompatible changes:
 

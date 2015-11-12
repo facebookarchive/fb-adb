@@ -81,11 +81,11 @@ static void
 child_child(struct internal_child_info* ci)
 {
     for (int i = 0; i < NSIG; ++i)
-        signal(i, SIG_DFL);
+        signal(i, ( sigismember(&orig_sig_ignored, i)
+                    ? SIG_IGN
+                    : SIG_DFL));
 
-    sigset_t no_signals;
-    VERIFY(sigemptyset(&no_signals) == 0);
-    VERIFY(sigprocmask(SIG_SETMASK, &no_signals, NULL) == 0);
+    VERIFY(sigprocmask(SIG_SETMASK, &orig_sigmask, NULL) == 0);
 
     struct errinfo ei = { 0 };
     ei.want_msg = true;
