@@ -468,6 +468,11 @@ re_exec_as_user(const char* username, bool shell_thunk)
     should_send_error_packet = false; // Peer expects text
     (void) shell_thunk;
 #ifdef __ANDROID__
+    for (int signo = 1; signo < NSIG; ++signo) {
+        bool ignore = sigismember(&orig_sig_ignored, signo);
+        (void) signal(signo, ignore ? SIG_IGN : SIG_DFL);
+    }
+    (void) sigprocmask(SIG_SETMASK, &orig_sigmask, NULL);
     if (!shell_thunk) {
         execlp("run-as", "run-as", username, orig_argv0, "stub", NULL);
     } else {

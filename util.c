@@ -606,6 +606,7 @@ handle_sigchld(int signo)
     // Noop: we just need any handler
 }
 
+__attribute__((unused))
 static void
 make_line_buffered(FILE* stream)
 {
@@ -620,25 +621,11 @@ xsigname(int signo)
     return xaprintf("signal %d (%s)", signo, strsignal(signo) ?: "?");
 }
 
-void
-main1(void* arg)
+#define INIT_SIGNALS_RESET (1<<0)
+
+static void
+init_signals(int flags)
 {
-    struct main_info* mi = arg;
-
-#ifdef DISABLE_SAFE_STDIO
-    (void) make_line_buffered
-#else
-    {
-        WITH_CURRENT_RESLIST(&reslist_top);
-        xstdin = xfdopen(STDIN_FILENO, "r");
-        xstdout = xfdopen(STDOUT_FILENO, "w");
-        xstderr = xfdopen(STDERR_FILENO, "w");
-        if (isatty(STDOUT_FILENO))
-            make_line_buffered(xstdout);
-        make_line_buffered(xstderr);
-    }
-#endif
-
     // Give us a chance to do any critical cleanups before terminating
     // due to a fatal signal.  The handlers run only in
     // WITH_IO_SIGNALS_ALLOWED regions.  These regions can contain
@@ -646,13 +633,6 @@ main1(void* arg)
     // locks held (because we say so), so handlers run in these
     // regions have full access to the heap, the cleanup list, and
     // other process-wide facilities.
-
-#ifndef NDEBUG
-    for (int sig = 1; sig < NSIG; ++sig)
-        if (sigismember(&orig_sig_ignored, sig))
-            dbg("signal %s ignored at startup: will ignore in children",
-                xsigname(sig));
-#endif
 
     int quit_signals[] = {
         SIGHUP, SIGINT, SIGQUIT, SIGTERM
@@ -668,11 +648,20 @@ main1(void* arg)
         sigaddset(&to_block_mask, job_control_signals[i]);
     sigaddset(&to_block_mask, SIGIO);
 
-    // See comment in child.c.
+    // See the big comment in child.c's child_wait.
     VERIFY(signal(SIGCHLD, handle_sigchld) != SIG_ERR);
     sigaddset(&to_block_mask, SIGCHLD);
 
-    VERIFY(sigprocmask(SIG_BLOCK, &to_block_mask, &orig_sigmask) == 0);
+    if (flags & INIT_SIGNALS_RESET) {
+        sigemptyset(&orig_sigmask);
+        VERIFY(sigprocmask(SIG_SETMASK, &to_block_mask, NULL) == 0);
+        for (int signo = 1; signo < NSIG; ++signo)
+            if (sigismember(&orig_sig_ignored, signo))
+                VERIFY(signal(signo, SIG_DFL) != SIG_ERR);
+        sigemptyset(&orig_sig_ignored);
+    } else {
+        VERIFY(sigprocmask(SIG_BLOCK, &to_block_mask, &orig_sigmask) == 0);
+    }
 
     sigset_t all_signals_mask;
     VERIFY(sigfillset(&all_signals_mask) == 0);
@@ -691,7 +680,7 @@ main1(void* arg)
                 "blocked on startup",
                 xsigname(sig));
         } else if (sigismember(&orig_sig_ignored, sig)) {
-            dbg("will not be unblocking %s duirng IO: ignord on startup",
+            dbg("will not be unblocking %s during IO: ignored on startup",
                 xsigname(sig));
         } else {
             sigaddset(&signals_unblock_for_io, sig);
@@ -716,7 +705,33 @@ main1(void* arg)
         VERIFY(sigaction(SIGIO, &sa, NULL) == 0);
         sigaddset(&signals_unblock_for_io, SIGIO);
     }
+}
 
+void
+main1(void* arg)
+{
+    struct main_info* mi = arg;
+
+#ifndef DISABLE_SAFE_STDIO
+    {
+        WITH_CURRENT_RESLIST(&reslist_top);
+        xstdin = xfdopen(STDIN_FILENO, "r");
+        xstdout = xfdopen(STDOUT_FILENO, "w");
+        xstderr = xfdopen(STDERR_FILENO, "w");
+        if (isatty(STDOUT_FILENO))
+            make_line_buffered(xstdout);
+        make_line_buffered(xstderr);
+    }
+#endif
+
+#ifndef NDEBUG
+    for (int sig = 1; sig < NSIG; ++sig)
+        if (sigismember(&orig_sig_ignored, sig))
+            dbg("signal %s ignored at startup: will ignore in children",
+                xsigname(sig));
+#endif
+
+    init_signals(0);
     _fs_on_init();
     mi->ret = real_main(mi->argc, mi->argv);
 
@@ -755,7 +770,6 @@ main(int argc, char** argv)
     }
 
     VERIFY(signal(SIGPIPE, SIG_IGN) != SIG_ERR);
-    sigemptyset(&signals_unblock_for_io);
 
     xstdin = stdin;
     xstdout = stdout;
@@ -1498,11 +1512,15 @@ become_daemon(void (*daemon_setup)(void* setup_data),
     xclose(status_pipe[0]);
     status_pipe[0] = -1;
 
-    (void) signal(SIGHUP, SIG_IGN);
-    (void) signal(SIGTTOU, SIG_IGN);
-
     if (setsid() == (pid_t) -1)
         die_errno("setsid");
+
+    dbg("resetting signals in daemon");
+    init_signals(INIT_SIGNALS_RESET);
+
+    VERIFY(signal(SIGHUP, SIG_IGN) != SIG_ERR);
+    VERIFY(signal(SIGTTIN, SIG_IGN) != SIG_ERR);
+    VERIFY(signal(SIGTTOU, SIG_IGN) != SIG_ERR);
 
     int devnull = xopen("/dev/null", O_RDWR, 0);
 

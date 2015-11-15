@@ -17,6 +17,7 @@
 #include <signal.h>
 #include <unistd.h>
 #include <stdint.h>
+#include <stdbool.h>
 #include <sys/socket.h>
 #include <sys/un.h>
 #include <sys/types.h>
@@ -34,6 +35,8 @@ struct internal_child_info {
     const struct child_start_info* csi;
     int* childfd;
     int pty_slave;
+    sigset_t signals_to_ignore;
+    sigset_t signals_to_block;
 };
 
 __attribute__((noreturn))
@@ -41,6 +44,12 @@ static void
 child_child_1(void* arg)
 {
     struct internal_child_info* ci = arg;
+
+    for (int i = 0; i < NSIG; ++i) {
+        bool ignore = sigismember(&ci->signals_to_ignore, i);
+        signal(i, ignore  ? SIG_IGN : SIG_DFL);
+    }
+    sigprocmask(SIG_SETMASK, &ci->signals_to_block, NULL);
 
     /* Resets O_CLOEXEC */
     for (int i = 0; i < 3; ++i)
@@ -80,13 +89,6 @@ __attribute__((noreturn))
 static void
 child_child(struct internal_child_info* ci)
 {
-    for (int i = 0; i < NSIG; ++i)
-        signal(i, ( sigismember(&orig_sig_ignored, i)
-                    ? SIG_IGN
-                    : SIG_DFL));
-
-    VERIFY(sigprocmask(SIG_SETMASK, &orig_sigmask, NULL) == 0);
-
     struct errinfo ei = { 0 };
     ei.want_msg = true;
     if (!catch_error(child_child_1, ci, &ei)) {
@@ -251,6 +253,21 @@ child_start(const struct child_start_info* csi)
             .pty_slave = pty_slave,
             .childfd = childfd,
         };
+
+        if ((flags & CHILD_SETSID)) {
+            // If we own the child's session, we own its signal
+            // disposition too, so don't let inherit anything
+            // about signals.
+            sigemptyset(&ci.signals_to_ignore);
+            sigemptyset(&ci.signals_to_block);
+        } else {
+            memcpy(&ci.signals_to_ignore,
+                   &orig_sig_ignored,
+                   sizeof (sigset_t));
+            memcpy(&ci.signals_to_block,
+                   &orig_sigmask,
+                   sizeof (sigset_t));
+        }
 
         child_child(&ci); // Never returns
     }
