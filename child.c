@@ -188,7 +188,17 @@ child_start(const struct child_start_info* csi)
 #endif
 
     for (unsigned i = 0; i < 3; ++i) {
-        switch (csi->io[i]) {
+        enum child_io_mode io_mode = csi->io[i];
+        // If we want a pty for both of the child's standard streams,
+        // make sure that we attempt to read output from only one of
+        // those streams, otherwise the child will appear from the
+        // parent's point of view to randomly interleave writes to
+        // standard output and standard error depending on the order
+        // in which we poll the parent-side FDs.
+        if (i == 2 && io_mode == CHILD_IO_PTY && csi->io[1] == CHILD_IO_PTY)
+            io_mode = CHILD_IO_DUP_TO_STDOUT;
+
+        switch (io_mode) {
             case CHILD_IO_DEV_NULL:
                 childfd[i] = xopen("/dev/null", O_WRONLY, 0);
                 parentfd[i] = xopen("/dev/null", O_RDONLY, 0);
@@ -217,7 +227,7 @@ child_start(const struct child_start_info* csi)
             case CHILD_IO_DUP_TO_STDOUT:
                 if (i != 2) die(EINVAL, "can dup only stderr to stdout");
                 childfd[i] = xdup(childfd[1]);
-                parentfd[i] = xdup(parentfd[1]);
+                parentfd[i] = dummy_parent_fd(i);
                 break;
         }
     }
