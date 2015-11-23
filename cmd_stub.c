@@ -46,6 +46,7 @@
 #include "fs.h"
 #include "stubdaemon.h"
 #include "androidmsg.h"
+#include "argv.h"
 
 static bool should_send_error_packet = false;
 
@@ -458,8 +459,7 @@ static void __attribute__((noreturn))
 re_exec_as_root()
 {
     should_send_error_packet = false; // Peer expects text
-    execlp("su", "su", "-c", orig_argv0, "stub", NULL);
-    die_errno("execlp of su");
+    xexecvp("su", ARGV("su", "-c", orig_argv0, "stub"));
 }
 
 static void __attribute__((noreturn))
@@ -468,13 +468,8 @@ re_exec_as_user(const char* username, bool shell_thunk)
     should_send_error_packet = false; // Peer expects text
     (void) shell_thunk;
 #ifdef __ANDROID__
-    for (int signo = 1; signo < NSIG; ++signo) {
-        bool ignore = sigismember(&orig_sig_ignored, signo);
-        (void) signal(signo, ignore ? SIG_IGN : SIG_DFL);
-    }
-    (void) sigprocmask(SIG_SETMASK, &orig_sigmask, NULL);
     if (!shell_thunk) {
-        execlp("run-as", "run-as", username, orig_argv0, "stub", NULL);
+        xexecvp("run-as", ARGV("run-as", username, orig_argv0, "stub"));
     } else {
         // Work around brain-damaged SELinux-based security theater
         // that prohibits execution of binaries directly from
@@ -491,17 +486,15 @@ re_exec_as_user(const char* username, bool shell_thunk)
             "  || { cp -f \"$1\" fb-adb.tmp.$$ && mv -f fb-adb.tmp.$$ fb-adb; }"
             " } && shift && exec ./fb-adb \"$@\"";
 
-        execlp("run-as", "run-as", username,
-               "/system/bin/sh",
-               "-c",
-               selinux_workaround,
-               "selinux_workaround",
-               orig_argv0,
-               "stub",
-               NULL);
+        xexecvp("run-as",
+                ARGV("run-as", username,
+                     "/system/bin/sh",
+                     "-c",
+                     selinux_workaround,
+                     "selinux_workaround",
+                     orig_argv0,
+                     "stub"));
     }
-
-    die_errno("execlp of run-as");
 #else
     die(ENOSYS, "re_exec_as_user works only under Android");
 #endif

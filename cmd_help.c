@@ -14,6 +14,7 @@
 #include <limits.h>
 #include "util.h"
 #include "autocmd.h"
+#include "argv.h"
 
 int
 help_main(const struct cmd_help_info* info)
@@ -28,9 +29,7 @@ help_main(const struct cmd_help_info* info)
 
         if (cmd->main == NULL)
             die(EINVAL, "no command \"%s\"", info->for_command);
-
-        execl(orig_argv0, orig_argv0, info->for_command, "--help", NULL);
-        die_errno("execl");
+        xexecvp(orig_argv0, ARGV(orig_argv0, info->for_command, "--help"));
     } else {
         show_help(full_usage);
     }

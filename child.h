@@ -60,3 +60,6 @@ int child_status_to_exit_code(int status);
 char* massage_output(const void* buf, size_t nr_bytes);
 char* massage_output_buf(struct growable_buffer errbuf);
 void install_child_error_converter(struct child* child);
+
+// Like system, but using fb-adb infrastructure.
+int xsystem(const char* cmd);

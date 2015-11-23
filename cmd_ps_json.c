@@ -114,12 +114,12 @@ pid_emit_environ(struct json_writer* writer, uint32_t pid)
     int environ_file =
         xopen(xaprintf("/proc/%u/environ", pid), O_RDONLY, 0);
     size_t environsz;
-    char* environ = slurp_fd(environ_file, &environsz);
-    char* environ_end = environ + environsz;
+    char* environ_pos = slurp_fd(environ_file, &environsz);
+    char* environ_end = environ_pos + environsz;
     json_begin_array(writer);
-    while (environ < environ_end) {
-        json_emit_string(writer, environ);
-        environ += strlen(environ) + 1;
+    while (environ_pos < environ_end) {
+        json_emit_string(writer, environ_pos);
+        environ_pos += strlen(environ_pos) + 1;
     }
     json_end_array(writer);
 }

@@ -294,11 +294,17 @@ void save_signals_unblock_for_io(void);
 void sigaction_restore_as_cleanup(int signo, struct sigaction* sa);
 
 // Like execvpe, but actually works on bionic.  Die on error.
-// Not async-signal-safe.
+// Not async-signal-safe.  Signal handlers and dispositions are reset
+// to their original (as defined by orig_sigmask and orig_sig_ignored)
+// values before the exec and restored before dieing if the
+// exec fails.
 __attribute__((noreturn))
 void xexecvpe(const char* file,
               const char* const* argv,
               const char* const* envp);
+
+__attribute__((noreturn))
+void xexecvp(const char* file, const char* const* argv);
 
 struct sigtstp_cookie;
 enum sigtstp_mode {
@@ -395,3 +401,4 @@ extern FILE* xstdin;
 extern FILE* xstdout;
 extern FILE* xstderr;
 
+extern char** environ;

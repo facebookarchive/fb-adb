@@ -21,6 +21,7 @@
 #include "autocmd.h"
 #include "strutil.h"
 #include "fs.h"
+#include "child.h"
 
 void
 usage_error(const char* fmt, ...)
@@ -179,8 +180,10 @@ show_help_1(const char* help, bool allow_pager)
     bool pager_supports_color = false;
 
     if (allow_pager) {
-        pager = getenv("PAGER") ?: "less";
+        const char* maybe_less = "type -p less >/dev/null 2>&1 && less";
+        pager = getenv("PAGER") ?: maybe_less;
         if (!strcmp(pager, "less") ||
+            !strcmp(pager, maybe_less) ||
             string_starts_with_p(pager, "less "))
         {
             pager = xaprintf("%s -R", pager);
@@ -201,7 +204,7 @@ show_help_1(const char* help, bool allow_pager)
     fputs_translate_ansi(out, help, color_override > 0);
     fflush(out);
     if (tmpf_name) {
-        if (system(xaprintf("%s %s", pager, xshellquote(tmpf_name))) != 0)
+        if (xsystem(xaprintf("%s %s", pager, xshellquote(tmpf_name))) != 0)
             show_help_1(help, false);
     }
 }

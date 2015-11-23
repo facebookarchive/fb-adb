@@ -27,8 +27,8 @@
 #include "net.h"
 #include "fs.h"
 #include "fdrecorder.h"
-
-extern char** environ;
+#include "constants.h"
+#include "argv.h"
 
 struct internal_child_info {
     int flags;
@@ -45,11 +45,8 @@ child_child_1(void* arg)
 {
     struct internal_child_info* ci = arg;
 
-    for (int i = 0; i < NSIG; ++i) {
-        bool ignore = sigismember(&ci->signals_to_ignore, i);
-        signal(i, ignore  ? SIG_IGN : SIG_DFL);
-    }
-    sigprocmask(SIG_SETMASK, &ci->signals_to_block, NULL);
+    memcpy(&orig_sigmask, &ci->signals_to_block, sizeof (sigset_t));
+    memcpy(&orig_sig_ignored, &ci->signals_to_ignore, sizeof (sigset_t));
 
     /* Resets O_CLOEXEC */
     for (int i = 0; i < 3; ++i)
@@ -460,4 +457,18 @@ install_child_error_converter(struct child* child)
 {
     assert(child->recorder[STDERR_FILENO] != NULL);
     install_error_converter(child_error_converter, child);
+}
+
+int
+xsystem(const char* cmd)
+{
+    struct child_start_info csi = {
+        .exename = DEFAULT_SHELL,
+        .argv = ARGV("sh", "-c", cmd),
+        .io[0] = CHILD_IO_INHERIT,
+        .io[1] = CHILD_IO_INHERIT,
+        .io[2] = CHILD_IO_INHERIT,
+    };
+
+    return child_status_to_exit_code(child_wait(child_start(&csi)));
 }

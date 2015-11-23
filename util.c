@@ -1025,7 +1025,51 @@ sigaction_restore_as_cleanup(int signo, struct sigaction* sa)
     cleanup_commit(cl, cleanup_restore_sighandler, cs);
 }
 
+struct saved_signal_context {
+    struct sigaction saved_handlers[NSIG];
+    sigset_t saved_sigmask;
+    sigset_t saved_signals;
+};
 
+static void
+reset_orig_signal_context(struct saved_signal_context* ssc)
+{
+    memset(ssc, 0, sizeof (*ssc));
+    sigemptyset(&ssc->saved_sigmask);
+    sigemptyset(&ssc->saved_signals);
+
+    for (int signo = 1; signo < NSIG; ++signo) {
+        bool ignore = sigismember(&orig_sig_ignored, signo);
+        struct sigaction newsa;
+        memset(&newsa, 0, sizeof (newsa));
+        newsa.sa_handler = ignore ? SIG_IGN : SIG_DFL;
+        if (sigaction(signo, &newsa, &ssc->saved_handlers[signo]) == 0)
+            sigaddset(&ssc->saved_signals, signo);
+        else
+            dbg("failed to save signal %d: %s", signo, strerror(errno));
+    }
+    (void) sigprocmask(SIG_SETMASK, &orig_sigmask, &ssc->saved_sigmask);
+}
+
+static void
+restore_saved_signal_context(struct saved_signal_context* ssc)
+{
+    sigset_t all_signals;
+    sigfillset(&all_signals);
+    (void) sigprocmask(SIG_SETMASK, &all_signals, NULL);
+
+    for (int signo = 1; signo < NSIG; ++signo) {
+        if (!sigismember(&ssc->saved_signals, signo)) {
+            dbg("signal %d was not saved; ignoring", signo);
+            continue;
+        }
+
+        if (sigaction(signo, &ssc->saved_handlers[signo], NULL) != 0)
+            abort();
+    }
+
+    (void) sigprocmask(SIG_SETMASK, &ssc->saved_sigmask, NULL);
+}
 
 #ifdef HAVE_EXECVPE
 void
@@ -1033,9 +1077,12 @@ xexecvpe(const char* file,
          const char* const* argv,
          const char* const* envp)
 {
+    struct saved_signal_context ssc;
+    reset_orig_signal_context(&ssc);
     execvpe(file,
             (char* const*) argv,
             (char* const*) envp);
+    restore_saved_signal_context(&ssc);
     die_errno("execvpe(\"%s\")", file);
 }
 #else
@@ -1044,7 +1091,10 @@ call_execve(const char* file,
             const char* const* argv,
             const char* const* envp)
 {
+    struct saved_signal_context ssc;
+    reset_orig_signal_context(&ssc);
     (void) execve(file, (char* const*) argv, (char* const*) envp);
+    restore_saved_signal_context(&ssc);
 }
 
 static void
@@ -1144,6 +1194,11 @@ xexecvpe(const char* file,
 }
 #endif
 
+void
+xexecvp(const char* file, const char* const* argv)
+{
+    xexecvpe(file, argv, (const char*const*) environ);
+}
 
 struct sigtstp_cookie {
     LIST_ENTRY(sigtstp_cookie) link;
@@ -1617,3 +1672,4 @@ xregerror(int errcode, const regex_t* preg)
     reslist_xfer(rl->parent, rl);
     return (char*) gb.buf;
 }
+

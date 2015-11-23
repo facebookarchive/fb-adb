@@ -13,8 +13,6 @@
 #include "util.h"
 #include "xenviron.h"
 
-extern char** environ;
-
 struct xenviron {
     char** env;
 };
