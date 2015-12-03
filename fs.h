@@ -100,9 +100,11 @@ int dup3(int oldfd, int newfd, int flags);
 
 #if defined(__linux__)
 # define XPPOLL XPPOLL_LINUX_SYSCALL
+#elif defined(HAVE_PPOLL) && !defined(__GLIBC__)
+# define XPPOLL XPPOLL_SYSTEM
 #elif defined(HAVE_KQUEUE)
 # define XPPOLL XPPOLL_KQUEUE
-#elif defined(HAVE_PPOLL)
+#elif defined(HAVE_PPOLL) && defined(__GLIBC__)
 # define XPPOLL XPPOLL_SYSTEM
 # define XPPOLL_BROKEN 1
 #else
