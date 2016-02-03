@@ -884,6 +884,12 @@ xfallocate(int fd, int mode, uint64_t offset, uint64_t length)
                    (uint32_t)(length >> 0),
                    (uint32_t)(length >> 32));
 # else
+#  ifdef __ANDROID__
+    if (api_level() <= 16) {
+        errno = EOPNOTSUPP; // Buggy syscall function
+        return -1;
+    }
+#   endif
     return syscall(__NR_fallocate, fd, mode, offset, length);
 # endif
 }

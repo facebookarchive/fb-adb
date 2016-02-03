@@ -67,6 +67,7 @@ void
 adb_rename_file(const char* old_name,
                 const char* new_name,
                 unsigned api_level,
+                unsigned rename_flags,
                 const char* const* adb_args)
 {
     SCOPED_RESLIST(rl);
@@ -107,8 +108,23 @@ adb_rename_file(const char* old_name,
                        "yes"));
 
     const char* output = com.output;
-    if (!child_status_success_p(com.status) || strcmp(output, "yes") != 0)
+    if (!child_status_success_p(com.status) || strcmp(output, "yes") != 0) {
+        if (string_ends_with_p(output, ": Permission denied") &&
+            (rename_flags & ADB_RENAME_FALL_BACK_TO_CAT))
+        {
+            dbg("device has screwed up SELinux policy; falling back to copying");
+            char* cmd = xaprintf("cat %s > %s && chmod 755 %s && rm -f %s",
+                                 old_name,
+                                 new_name,
+                                 new_name,
+                                 old_name);
+            struct adb_communication catcom = run_adb(adb_args, ARGV("shell", cmd));
+            if (child_status_success_p(catcom.status)) {
+                return;
+            }
+        }
         die(ECOMM, "moving fb-adb to final location failed: %s", output);
+    }
 }
 
 void

@@ -392,6 +392,7 @@ start_stub_adb(const char* const* adb_args,
         adb_rename_file(tmp_adb,
                         FB_ADB_REMOTE_FILENAME,
                         api_level,
+                        ADB_RENAME_FALL_BACK_TO_CAT,
                         adb_args);
         child = try_adb_stub(&csi, FB_ADB_REMOTE_FILENAME, chello, &err);
         if (!child)
