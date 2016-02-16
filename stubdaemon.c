@@ -405,14 +405,6 @@ run_stub_daemon(struct stub_daemon_info info)
 {
     SCOPED_RESLIST(rl);
 
-    struct sigaction sa = {
-        .sa_sigaction = daemon_sigchild_sigaction,
-        .sa_flags = SA_SIGINFO,
-    };
-    sigaction_restore_as_cleanup(SIGCHLD, &sa);
-    save_signals_unblock_for_io();
-    sigaddset(&signals_unblock_for_io, SIGCHLD);
-
     // By default, we reuse running daemons when possible instead of
     // replacing them.  To tell whether we can reuse a currently
     // running daemon, we connect to its control socket and ask it to
@@ -488,6 +480,14 @@ run_stub_daemon(struct stub_daemon_info info)
         stub_daemon_setup((void*) socket_name);
 
     dbg("accepting connections");
+
+    struct sigaction sa = {
+        .sa_sigaction = daemon_sigchild_sigaction,
+        .sa_flags = SA_SIGINFO,
+    };
+    sigaction_restore_as_cleanup(SIGCHLD, &sa);
+    save_signals_unblock_for_io();
+    sigaddset(&signals_unblock_for_io, SIGCHLD);
 
     for (;;) {
         SCOPED_RESLIST(rl_accept);
