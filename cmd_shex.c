@@ -2303,6 +2303,23 @@ shex_main_common(const struct shex_common_info* info)
     io_loop_init(sh);
     dbg("starting main loop");
 
+    // At this point, we read _our_ stdin unconditionally, at least
+    // until our input buffer fills up, whether or not the remote
+    // process is reading _its_ standard input.  This behavior
+    // interacts badly with SIGTTIN, which stops a background process
+    // when it reads from the terminal.  That "feature" results in a
+    // background fb-adb being stopped all the time on some systems,
+    // so turn it off.
+    //
+    // (We ignore the signal instead of blocking it because we never
+    // want it to become pending in the first place.)
+    //
+
+    struct sigaction sigttin_action = {
+        .sa_handler = SIG_IGN,
+    };
+    sigaction_restore_as_cleanup(SIGTTIN, &sigttin_action);
+
     resume_loop:
 
     PUMP_WHILE(sh, (!saw_sigwinch &&

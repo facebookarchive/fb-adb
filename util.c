@@ -638,7 +638,7 @@ init_signals(int flags)
         SIGHUP, SIGINT, SIGQUIT, SIGTERM
     };
 
-    int job_control_signals[] = { SIGCONT, SIGTSTP };
+    int job_control_signals[] = { SIGCONT, SIGTSTP, SIGTTIN, SIGTTOU };
 
     sigset_t to_block_mask;
     sigemptyset(&to_block_mask);
@@ -1242,7 +1242,7 @@ job_control_signal_sigaction(int signum,
     struct sigtstp_cookie* cookie;
     struct sigtstp_cookie* cookie_next;
 
-    if (signum == SIGTSTP) {
+    if (signum == SIGTSTP || signum == SIGTTIN || signum == SIGTTOU) {
         LIST_FOREACH_SAFE(cookie, &sigtstp_handlers, link, cookie_next)
             cookie->cb(SIGTSTP_BEFORE_SUSPEND, cookie->cbdata);
 
