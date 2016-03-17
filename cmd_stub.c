@@ -459,7 +459,7 @@ static void __attribute__((noreturn))
 re_exec_as_root()
 {
     should_send_error_packet = false; // Peer expects text
-    xexecvp("su", ARGV("su", "-c", orig_argv0, "stub"));
+    xexecvp("su", ARGV("su", "0", orig_argv0, "stub"));
 }
 
 static void __attribute__((noreturn))
