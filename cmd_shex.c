@@ -818,6 +818,13 @@ re_exec_error_package_unknown_p(const struct errinfo* ei)
             string_ends_with_p(ei->msg, "' is unknown"));
 }
 
+static bool
+re_exec_error_not_permitted_p(const struct errinfo* ei)
+{
+    return (ei->err == ECOMM &&
+            string_ends_with_p(ei->msg, ": Operation not permitted"));
+}
+
 static void
 send_chdir(const struct childcom* tc,
            const char* child_chdir)
@@ -1939,7 +1946,9 @@ tc_connect_user_attempt(const struct adb_info* ai,
         {
             dbg("run-as permission denied: trying shell thunk");
             state->shell_thunk = true;
-        } else if (re_exec_error_package_unknown_p(&ei)) {
+        } else if (re_exec_error_package_unknown_p(&ei) ||
+                   re_exec_error_not_permitted_p(&ei))
+        {
             dbg("run-as could not find package: did we hit the "
                 "package list size overflow bug?  Trying the"
                 "service mechanism instead.");
