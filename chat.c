@@ -67,7 +67,7 @@ chat_expect_maybe(struct chat* cc, char expected)
     return true;
 }
 
-void
+static void
 chat_swallow_prompt(struct chat* cc)
 {
     /* 100% reliable prompt detection */
@@ -132,8 +132,11 @@ chat_swallow_prompt(struct chat* cc)
 }
 
 void
-chat_talk_at(struct chat* cc, const char* what)
+chat_talk_at(struct chat* cc, const char* what, int flags)
 {
+    if (flags & CHAT_SWALLOW_PROMPT)
+        chat_swallow_prompt(cc);
+
     if (fputs(what, cc->to) == EOF)
         chat_die();
 
@@ -147,7 +150,9 @@ chat_talk_at(struct chat* cc, const char* what)
      * send us ESC"[6n" immediately after the prompt if its input
      * buffer is empty.  There is no need to respond; busybox just
      * sleeps for 20ms and then continues. */
-    if (*what && !chat_expect_maybe(cc, *what++)) {
+    if ((flags & CHAT_SWALLOW_PROMPT) && *what &&
+        !chat_expect_maybe(cc, *what++))
+    {
         what--;
         if (chat_expect_maybe(cc, '\033')) {
             chat_expect(cc, '[');

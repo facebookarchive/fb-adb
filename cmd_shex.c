@@ -244,7 +244,6 @@ try_adb_stub(const struct child_start_info* csi,
     struct chat* cc = chat_new(
         child->fd[STDIN_FILENO]->fd,
         child->fd[STDOUT_FILENO]->fd);
-    chat_swallow_prompt(cc);
 
     *err = NULL;
 
@@ -278,11 +277,11 @@ try_adb_stub(const struct child_start_info* csi,
         // The extra round trip sucks, but if we don't do this, mksh's
         // helpful line editing will screw up our echo detection.
         unsigned long total_promptw = promptw + strlen(cmd);
-        chat_talk_at(cc, xaprintf("COLUMNS=%lu", total_promptw));
-        chat_swallow_prompt(cc);
+        chat_talk_at(cc, xaprintf("COLUMNS=%lu", total_promptw),
+                     CHAT_SWALLOW_PROMPT);
     }
 
-    chat_talk_at(cc, cmd);
+    chat_talk_at(cc, cmd, CHAT_SWALLOW_PROMPT);
     char* resp = chat_read_line(cc);
     dbg("stub resp: [%s]", resp);
 
