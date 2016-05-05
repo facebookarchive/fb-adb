@@ -7,7 +7,7 @@ dnl  additional grant of patent rights can be found in the PATENTS file
 dnl in the same directory.
 dnl
 
-AC_INIT([fb-adb], [1.99.99-4], [dancol@fb.com])
+AC_INIT([fb-adb], [1.99.99-5], [dancol@fb.com])
 if test "$srcdir" = "."; then
    dnl We configure this directory multiple times, once for each stub
    dnl architecture, but we can only do that if we're out of tree for
@@ -17,6 +17,32 @@ if test "$srcdir" = "."; then
 fi
 AC_CANONICAL_BUILD
 AC_CANONICAL_HOST
+
+AC_ARG_WITH([android-sdk],
+            AS_HELP_STRING([--with-android-sdk=SDK],
+            [Android SDK location (defaults to $ANDROID_SDK)]))
+if test -z "$with_android_sdk" && test -n "$ANDROID_SDK"; then
+  with_android_sdk=$ANDROID_SDK
+fi
+
+if test -z "$with_android_sdk"; then
+   AC_MSG_ERROR([Android SDK location not given])
+fi
+
+sdk=$with_android_sdk
+if ! test -d "$sdk/build-tools"; then
+   AC_MSG_ERROR([Android SDK not in "$sdk"])
+fi
+
+latest_tools_version=$(ls -r1 "$sdk/build-tools" | head -n1)
+ANDROID_SDK_TOOLS_DIRECTORY=$sdk/build-tools/$latest_tools_version
+if ! test -f "$ANDROID_SDK_TOOLS_DIRECTORY/dx"; then
+   AC_MSG_ERROR([dx not in SDK tools directory $ANDROID_SDK_TOOLS_DIRECTORY])
+fi
+AC_SUBST([ANDROID_SDK_TOOLS_DIRECTORY])
+
+ANDROID_SDK_DIRECTORY=$sdk
+AC_SUBST([ANDROID_SDK_DIRECTORY])
 
 platform=
 AC_ARG_WITH([android-ndk],
@@ -113,6 +139,11 @@ AC_CHECK_PROGS(POD2MAN, [pod2man], [
 ])
 
 if test -z "$BUILD_STUB"; then
+
+  AC_CHECK_PROGS(JAVAC, [javac], [
+    AC_MSG_ERROR([javac required for building])
+  ])
+
   AC_PATH_PROG([XXD], [xxd])
   if test -z "$XXD"; then
     AC_MSG_ERROR([xxd is required to build])

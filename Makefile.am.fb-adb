@@ -17,8 +17,10 @@ CMD_SOURCES += \
 	cmd_fput.c \
 	cmd_logcat_json.c \
 	cmd_shex.c \
+	cmd_jdwp.c \
 	peer.c \
 	peer.h \
+	agent.h \
 	$(EMPTY)
 
 SUBDIRS = $(STUB_SUBDIRS)
@@ -50,6 +52,25 @@ CLEANFILES += stubs.c
 stubs.c: $(srcdir)/mkstubsc.sh update-all-stubs
 	XXD="$(XXD)" $(BASH) $(srcdir)/mkstubsc.sh $(STUB_BINARIES) > $@.tmp
 	cmp 2>/dev/null $@ $@.tmp || mv -f $@.tmp $@
+
+nodist_fb_adb_SOURCES += agent.c
+CLEANFILES += agent.c
+agent.c: agent.dex $(srcdir)/mkagentc.py
+	XXD="$(XXD)" $(PYTHON3) $(srcdir)/mkagentc.py $< > $@.tmp
+	cmp 2>/dev/null $@ $@.tmp || mv -f $@.tmp $@
+
+ANDROID_SDK_PLATFORM=$(ANDROID_SDK_DIRECTORY)/platforms/android-19
+
+Agent.class: $(srcdir)/Agent.java
+	cp -f $< Agent.java
+	$(JAVAC) -g -source 7 -target 7 -implicit:none -classpath \
+	"$(ANDROID_SDK_PLATFORM)/android.jar" Agent.java
+CLEANFILES += Agent.class Agent.java
+EXTRA_DIST += mkagentc.py Agent.java
+
+agent.dex: Agent.class
+	$(ANDROID_SDK_TOOLS_DIRECTORY)/dx --no-strict --output=$@ --dex $^
+CLEANFILES += agent.dex
 
 EXTRA_DIST += mk-fingerprint.py arpy.py
 CLEANFILES += fingerprint

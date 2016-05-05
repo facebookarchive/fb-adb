@@ -24,7 +24,7 @@
 #include "argv.h"
 #include "fs.h"
 
-FORWARD(finfo);
+FORWARD(finfo_json);
 
 #if !FBADB_MAIN
 
@@ -413,7 +413,7 @@ parse_oplist(const char* spec,
 }
 
 int
-finfo_main(const struct cmd_finfo_info* info)
+finfo_json_main(const struct cmd_finfo_json_info* info)
 {
     const struct finfo_op* ops = available_ops;
     if (info->finfo.info) {

@@ -1,5 +1,6 @@
 #include <sys/un.h>
 #include <sys/socket.h>
+#include <arpa/inet.h>
 #include <netinet/in.h>
 #include <netinet/tcp.h>
 #include <string.h>
@@ -20,6 +21,50 @@
 # define SUN_LEN(ptr) ((size_t) (((struct sockaddr_un *) 0)->sun_path)  \
                        + strlen ((ptr)->sun_path))
 #endif
+
+char*
+describe_addr(const struct addr* a)
+{
+    sa_family_t family = a->addr.sa_family;
+    char* ret;
+    switch (family) {
+        case AF_INET: {
+            char buf[INET_ADDRSTRLEN];
+            if (!inet_ntop(family, &a->addr_in.sin_addr, buf, sizeof (buf)))
+                die_errno("inet_ntop");
+            ret = xaprintf("[%s:%hu]", buf, ntohs(a->addr_in.sin_port));
+            break;
+        }
+        case AF_INET6: {
+            char buf[INET6_ADDRSTRLEN];
+            if (!inet_ntop(family, &a->addr_in6.sin6_addr, buf, sizeof (buf)))
+                die_errno("inet_ntop");
+            ret = xaprintf("[%s:%hu]", buf, ntohs(a->addr_in6.sin6_port));
+            break;
+        }
+        case AF_UNIX: {
+            const char* kind;
+            const char* path = &a->addr_un.sun_path[0];
+            size_t path_offset = offsetof(struct addr, addr_un.sun_path);
+            if (path_offset > a->size)
+                die(EINVAL, "illegal AF_UNIX addr");
+            size_t pathlen = a->size - path_offset;
+            if (pathlen > INT_MAX)
+                pathlen = INT_MAX;
+            if (path[0] == '\0') {
+                kind = "abstract";
+                path++;
+            } else {
+                kind = "filesystem";
+            }
+            ret = xaprintf("[unix%s:[%.*s]]", kind, (int) pathlen, path);
+            break;
+        }
+        default:
+            ret = xaprintf("[unknown address family %d]", (int) family);
+    }
+    return ret;
+}
 
 struct addr*
 make_addr_unix_filesystem(const char* filename)

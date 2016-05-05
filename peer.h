@@ -10,6 +10,7 @@
  */
 #pragma once
 
+#include <stdbool.h>
 #include "autocmd.h"
 #include "child.h"
 
@@ -18,8 +19,19 @@ struct start_peer_info {
     const struct adb_opts adb;
     const struct transport_opts transport;
     const struct user_opts user;
+    bool specified_io;
+    enum child_io_mode io[2];
 };
 
 struct child* start_peer(
     const struct start_peer_info* spi,
     struct strlist* stub_arguments);
+
+void
+send_file_to_device(
+    const struct adb_opts* adb,
+    const struct transport_opts* transport,
+    const struct user_opts* user,
+    int fd,
+    const char* device_file_name,
+    mode_t mode);

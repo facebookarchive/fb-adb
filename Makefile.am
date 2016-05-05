@@ -32,10 +32,12 @@ CMD_SOURCES = \
 	cmd_logwrite.c \
 	cmd_ps_json.c \
 	cmd_rdex.c \
+	cmd_xdex.c \
 	cmd_readlink.c \
 	cmd_start_daemon.c \
 	cmd_stop_daemon.c \
 	cmd_tar.c \
+	cmd_pidof.c \
 	fb-adb.c \
 	xfer.c \
 	xfer.h \
@@ -59,6 +61,8 @@ libfb_adb_a_SOURCES = \
 	constants.h \
 	core.c \
 	core.h \
+	dex.h \
+	dex.c \
 	dbg.c \
 	dbg.h \
 	elfid.c \

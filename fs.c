@@ -425,7 +425,7 @@ void
 write_all(int fd, const void* buf, size_t sz)
 {
     size_t nr_written = 0;
-    int ret;
+    ssize_t ret;
     const char* pos = buf;
 
     while (nr_written < sz) {
@@ -438,6 +438,40 @@ write_all(int fd, const void* buf, size_t sz)
             die_errno("write(%d)", fd);
 
         nr_written += ret;
+    }
+}
+
+void
+write_all_v(int fd, const struct iovec* iov_in, int iovcnt)
+{
+    ssize_t ret;
+    struct iovec iov_copy[iovcnt];
+    memcpy(iov_copy, iov_in, iovcnt * sizeof (struct iovec));
+    struct iovec* iov = &iov_copy[0];
+    struct iovec* iov_end = iov + iovcnt;
+
+    while (iov < iov_end) {
+        do {
+            WITH_IO_SIGNALS_ALLOWED();
+            ret = writev(fd, iov, iov_end - iov);
+        } while (ret == -1 && errno == EINTR);
+
+        if (ret < 0)
+            die_errno("writev(%d)", fd);
+
+
+
+        while (ret > 0) {
+            size_t chunk = XMIN(ret, iov->iov_len);
+            iov->iov_len -= chunk;
+            if (iov->iov_len == 0) {
+                iov++;
+            }
+            ret -= chunk;
+        }
+
+        while (iov < iov_end && iov->iov_len == 0)
+            ++iov;
     }
 }
 

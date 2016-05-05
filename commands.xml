@@ -243,7 +243,7 @@ code, and bash completion file.
     </option>
     <option short="p" long="preserve">
       Preserve modification times and UGO permission bits.  (We don't
-      try to preserve ownership, this UIDs aren't the same across
+      try to preserve ownership: UIDs aren't the same across
       different systems.)
     </option>
     <option long="mode" arg="octal-ugo">
@@ -369,11 +369,77 @@ code, and bash completion file.
     <argument name="args" repeat="yes" optional="yes" type="device-path">
       Arguments to send to <i>dexfile</i>.
     </argument>
+    <optgroup name="rdex">
+      <option long="no-compile">
+        If set, do not attempt to compile the given dex file.
+        Execute it as-is.
+      </option>
+    </optgroup>
     <optgroup-reference name="adb"/>
     <optgroup-reference name="transport" />
     <optgroup-reference name="user"/>
     <optgroup-reference name="cwd"/>
     <optgroup-reference name="shex"/>
+  </command>
+  <command names="xdex" env="main">
+    Run a local dex.jar file on the remote machine, automatically
+    taking care of copying the dex file (if needed) to the remote
+    machine, compiling it there to an odex or oat file, and so on.
+    xdex is to rdex as xcmd is to rcmd.  xdex's interface is
+    considerably simpler, however, since .dex.jar files are
+    architecture-neutral.
+    <argument name="program" type="host-path">
+      Name of the program to run.  If it contains a slash, we try to
+      run that file exactly and no other.  Otherwise, look up the dex
+      file to run on the dex path, which is the value of the
+      <b>--path</b> argument, or if that is unset, the
+      <b>FB_ADB_XDEX_PATH</b> environment variable, or if that is
+      unset, the current directory.
+      <vspace/>
+      To find the dex file to run on device, we look in each path
+      location for 1) a file called exactly <i>program</i>, and 2) a
+      file called <i>program</i>.dex.jar.  If we find a matching file,
+      we use it as if it had been specified explicitly, with slashes.
+      Otherwise, we move on to the next path entry.  If we consult all
+      path entries and don't find the file, we fail.
+    </argument>
+    <argument name="classname">
+      Name of the class inside the dex file to run.  The class must
+      provide a conventional Java <tt>public static void main(String[]
+      args)</tt> method.
+    </argument>
+    <argument name="args" repeat="yes" optional="yes" type="device-path">
+      Arguments to send to the <i>program</i>.
+    </argument>
+    <optgroup name="xdex">
+      <option long="path">
+        Colon-separated list of paths to search for xdex binaries; if
+        supplied, overrides the value of the <b>FB_ADB_XDEX_PATH</b>
+        environment variable.
+      </option>
+    </optgroup>
+    <optgroup-reference name="adb"/>
+    <optgroup-reference name="transport" />
+    <optgroup-reference name="user"/>
+    <optgroup-reference name="cwd"/>
+    <optgroup-reference name="shex"/>
+  </command>
+  <command names="xdex-stub" internal="true" env="stub">
+    Internal command for implementing the device side of xdex processing.
+    <argument name="name">
+      Base filename of dex jar file
+    </argument>
+  </command>
+  <command names="agent" env="main">
+    Directly run the built-in device-side Java agent, which has its
+    own command line syntax.  Run <tt>fb-adb agent -- -h</tt>
+    for details.
+    <argument name="args" repeat="yes" optional="yes" type="device-path">
+      Arguments to send to the agent.
+    </argument>
+    <optgroup-reference name="adb"/>
+    <optgroup-reference name="transport" />
+    <optgroup-reference name="user"/>
   </command>
   <command names="ps-json">
     Output the machine's process list in JSON.
@@ -443,7 +509,7 @@ code, and bash completion file.
     <optgroup-reference name="user"/>
   </command>
   <?endif?>
-  <command names="finfo">
+  <command names="finfo-json">
     Print information in JSON format about paths on device.
     The output is a JSON array with one entry for each of the
     given paths.
@@ -697,6 +763,52 @@ code, and bash completion file.
       </option>
     </optgroup>
   </command>
+  <command names="jdwp" env="main">
+    Set up a JDWP proxy that connects to a remote process
+    <optgroup name="jdwp">
+      <option short="p" long="jdwp-listen-port" arg="port" type="string">
+        TCP port on which to listen (on the local machine, not the remote)
+        for a JDWP connection.
+      </option>
+      <option short="q" long="quiet">
+        Do not emit non-error messages about the debugging session on
+        standard error.
+      </option>
+      <option long="suspend">
+        Suspend the VM upon connection.
+      </option>
+      <option short="m" long="mode" arg="mode" type="enum:auto;rewrite;dumb">
+        Control transformations we apply to the JDWP protocol. In
+        <b>auto</b> mode, automatically select <b>rewrite</b> or
+        <b>dumb</b> depending on the detected VM.  In <b>dumb</b>
+        mode, proxy debugger traffic literally.  In <b>rewrite</b>
+        mode, perform protocol transformations that make it possible
+        to debug large applications under ART.
+      </option>
+    </optgroup>
+    <optgroup-reference name="adb"/>
+    <optgroup-reference name="transport" />
+    <argument name="to-what">
+      Process to which to establish a JDWP debugging connection; if
+      all digits, interpreted as a PID.  If a name, match as a
+      process name.
+    </argument>
+  </command>
+  <command names="pidof">
+    Print the PID of the process with name <b>name</b>.  Fail if there
+    is no process with that name or if multiple processes match.
+    <optgroup name="pidof">
+      <option short="0" long="zero">
+        Do not terminate output with trailing newline; if multiple
+        outputs, separate with NUL, not whitespace.
+      </option>
+    </optgroup>
+    <argument name="name">
+      Name of the process to look up.
+    </argument>
+    <optgroup-reference name="adb"/>
+    <optgroup-reference name="transport" />
+  </command>
   <section name="Environment Variables">
     <dl>
       <?ifdef FBADB_MAIN?>
@@ -704,6 +816,11 @@ code, and bash completion file.
       <dd>Colon-separated list of directories in which to search for
       xcmd commands; see the discussion of <b>fb-adb xcmd</b>
       above.</dd>
+      <?endif?>
+      <?ifdef FBADB_MAIN?>
+      <dt>FB_ADB_XDEX_PATH</dt>
+      <dd>Like <b>FB_ADB_XCMD_PATH</b>, but for <b>.dex</b> or
+      <b>.dex.jar</b> files instead of native binaries.</dd>
       <?endif?>
       <dt>ADB_SHELL_OLD_BEHAVIOR</dt>
       <dd>When set, <b>fb-adb</b> does not override any <b>adb</b>

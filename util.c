@@ -267,6 +267,15 @@ reslist_xfer(struct reslist* recipient, struct reslist* donor)
     }
 }
 
+void
+reslist_reparent(struct reslist* rl)
+{
+    assert(rl->r.type == RES_RESLIST_ONHEAP);
+    assert_not_parent(rl, _reslist_current);
+    reslist_remove(&rl->r);
+    reslist_insert_head(_reslist_current, &rl->r);
+}
+
 struct cleanup*
 cleanup_allocate(void)
 {
@@ -950,6 +959,14 @@ xclock_gettime(clockid_t clk_id)
 }
 #endif
 
+double
+seconds_since_epoch(void)
+{
+    struct timeval tv;
+    VERIFY(gettimeofday(&tv, NULL) == 0);
+    return (double) tv.tv_sec + tv.tv_usec / 1e6;
+}
+
 void
 str2gaiargs(const char* inp, char** node, char** service)
 {
@@ -1039,6 +1056,12 @@ reset_orig_signal_context(struct saved_signal_context* ssc)
     sigemptyset(&ssc->saved_signals);
 
     for (int signo = 1; signo < NSIG; ++signo) {
+        if (signo == SIGKILL || signo == SIGSTOP)
+            continue; // Unblockable
+#ifdef __linux__
+        if (signo > SIGSYS && signo < SIGRTMIN)
+            continue; // Internal to libc
+#endif
         bool ignore = sigismember(&orig_sig_ignored, signo);
         struct sigaction newsa;
         memset(&newsa, 0, sizeof (newsa));
@@ -1622,6 +1645,13 @@ resize_buffer(struct growable_buffer* gb, size_t new_size)
     gb->buf = new_buf;
     gb->cl = new_cl;
     gb->bufsz = new_size;
+}
+
+void
+grow_buffer(struct growable_buffer* gb, size_t min)
+{
+    if (gb->bufsz < min)
+        resize_buffer(gb, min);
 }
 
 void

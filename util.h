@@ -90,13 +90,19 @@ void reslist_destroy(struct reslist* rl);
 // cleaned up, and then all of RECIPIENT's.
 void reslist_xfer(struct reslist* recipient, struct reslist* donor);
 
+// Detach reslist RL from its current parent and move it to the
+// current reslist.  reslist RL must be a heap-allocated reslist, as
+// stack-allocated reslists (i.e., SCOPED_RESLIST) cannot be moved.
+void reslist_reparent(struct reslist* rl);
+
 void _reslist_scoped_push(struct reslist* rl);
 void _reslist_scoped_pop(struct reslist* rl);
 
 void _reslist_guard_push(struct reslist** saved_rl, struct reslist* rl);
 void _reslist_guard_pop(struct reslist** saved_rl);
 
-#define PASTE(a,b) a##b
+#define PASTE0(a,b) a##b
+#define PASTE(a,b) PASTE0(a, b)
 #define GENSYM(sym) PASTE(sym, __LINE__)
 
 #define SCOPED_RESLIST(varname)                                 \
@@ -277,6 +283,8 @@ bool string_ends_with_p(const char* string, const char* suffix);
 double xclock_gettime(clockid_t clk_id);
 #endif
 
+double seconds_since_epoch(void);
+
 extern sigset_t signals_unblock_for_io;
 extern sigset_t orig_sigmask;
 extern sigset_t orig_sig_ignored;
@@ -361,6 +369,7 @@ struct growable_buffer {
 };
 
 void resize_buffer(struct growable_buffer* gb, size_t new_size);
+void grow_buffer(struct growable_buffer* gb, size_t min);
 void grow_buffer_dwim(struct growable_buffer* gb);
 
 regex_t* xregcomp(const char* regex, int cflags);

@@ -33,6 +33,8 @@ struct addr* make_addr_unix_filesystem(const char* pathname);
 struct addr* make_addr_unix_abstract(const void* bytes, size_t nr);
 struct addr* make_addr_unix_abstract_s(const char* name);
 
+char* describe_addr(const struct addr* addr);
+
 // N.B. IO signals not unmasked during this call.
 // Use xgetaddrinfo_interruptible to make a getaddrinfo call that we
 // can reliably interrupt.

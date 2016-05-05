@@ -408,19 +408,7 @@ xfer_handle_command(
     };
 
     do_xfer(&ctx);
-    int status = child_wait(peer);
-    if (!child_status_success_p(status)) {
-        if (WIFEXITED(status))
-            die(ECOMM,
-                "child died with status %d",
-                (int) WEXITSTATUS(status));
-        if (WIFSIGNALED(status))
-            die(ECOMM,
-                "child died with signal %d",
-                (int) WTERMSIG(status));
-        abort();
-    }
-
+    child_wait_die_on_error(peer);
     return 0;
 }
 #endif

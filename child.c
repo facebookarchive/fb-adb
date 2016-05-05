@@ -377,6 +377,23 @@ child_wait(struct child* child)
 }
 
 void
+child_wait_die_on_error(struct child* c)
+{
+    int status = child_wait(c);
+    if (!child_status_success_p(status)) {
+        if (WIFEXITED(status))
+            die(ECOMM,
+                "child died with status %d",
+                (int) WEXITSTATUS(status));
+        if (WIFSIGNALED(status))
+            die(ECOMM,
+                "child died with signal %d",
+                (int) WTERMSIG(status));
+        abort();
+    }
+}
+
+void
 child_kill(struct child* child, int signo)
 {
     if (!child->dead && kill(child->pid, signo) == -1)

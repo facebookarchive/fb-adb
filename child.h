@@ -53,6 +53,7 @@ struct child {
 
 struct child* child_start(const struct child_start_info* csi);
 int child_wait(struct child* c);
+void child_wait_die_on_error(struct child* c);
 bool child_poll_death(struct child* c);
 void child_kill(struct child* c, int signo);
 bool child_status_success_p(int status);

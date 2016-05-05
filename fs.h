@@ -14,6 +14,7 @@
 #include <stddef.h>
 #include <stdint.h>
 #include <sys/stat.h>
+#include <sys/uio.h>
 #include <fcntl.h>
 #include <sys/time.h>
 #include <dirent.h>
@@ -88,6 +89,7 @@ size_t read_all(int fd, void* buf, size_t sz);
 
 // Write SZ bytes to FD, retrying on EINTR.
 void write_all(int fd, const void* buf, size_t sz);
+void write_all_v(int fd, const struct iovec* iov, int iovcnt);
 
 #ifndef HAVE_DUP3
 int dup3(int oldfd, int newfd, int flags);
