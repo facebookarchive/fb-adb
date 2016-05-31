@@ -195,7 +195,7 @@ _fb_adb_split() {
 _fb_adb_device_ls_1() {
     set -o pipefail
     "$_fb_adb" \
-        finfo "${slurped_adb_options[@]}" -i "ls:$1" "${@:2}" \
+        finfo-json "${slurped_adb_options[@]}" -i "ls:$1" "${@:2}" \
            2>/dev/null | \
            jq -r '(.[].ls.result[]?)|(.d_name,.stat.result.modes[0:1],.execp.result)|@sh'
 }
