@@ -56,15 +56,18 @@ chat_expect(struct chat* cc, char expected)
     }
 }
 
-void
+bool
 chat_expect_maybe(struct chat* cc, char expected)
 {
     char c = chat_getc(cc);
-    if (c != expected)
+    if (c != expected) {
         ungetc(c, cc->from);
+        return false;
+    }
+    return true;
 }
 
-void
+static void
 chat_swallow_prompt(struct chat* cc)
 {
     /* 100% reliable prompt detection */
@@ -129,8 +132,11 @@ chat_swallow_prompt(struct chat* cc)
 }
 
 void
-chat_talk_at(struct chat* cc, const char* what)
+chat_talk_at(struct chat* cc, const char* what, int flags)
 {
+    if (flags & CHAT_SWALLOW_PROMPT)
+        chat_swallow_prompt(cc);
+
     if (fputs(what, cc->to) == EOF)
         chat_die();
 
@@ -139,6 +145,21 @@ chat_talk_at(struct chat* cc, const char* what)
 
     if (fflush(cc->to) == EOF)
         chat_die();
+
+    /* When busybox is built with FEATURE_EDITING_ASK_TERMINAL, it may
+     * send us ESC"[6n" immediately after the prompt if its input
+     * buffer is empty.  There is no need to respond; busybox just
+     * sleeps for 20ms and then continues. */
+    if ((flags & CHAT_SWALLOW_PROMPT) && *what &&
+        !chat_expect_maybe(cc, *what++))
+    {
+        what--;
+        if (chat_expect_maybe(cc, '\033')) {
+            chat_expect(cc, '[');
+            chat_expect(cc, '6');
+            chat_expect(cc, 'n');
+        }
+    }
 
     /* We expect the child to echo us, so read back the echoed
      * characters.  */
