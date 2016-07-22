@@ -3,6 +3,8 @@ test:
     - ./autogen.sh
     - mkdir build
     - ../configure:
-      pwd: build
+        pwd: 
+          build
     - make:
-      pwd: build
+        pwd: 
+          build
