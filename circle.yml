@@ -5,7 +5,7 @@ dependencies:
 
 test:
   pre:
-    - ls $ANDROID_NDK
+    - export ANDROID_NDK=/usr/local/android-ndk
     - ls $ANDROID_HOME
   override:
     - ./autogen.sh
