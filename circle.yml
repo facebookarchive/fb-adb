@@ -1,5 +1,5 @@
 machine:
-  environmnt:
+  environment:
     ANDROID_NDK: /usr/local/android-ndk/
 dependencies:
   pre:
