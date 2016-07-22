@@ -2,9 +2,6 @@ test:
   override:
     - ./autogen.sh
     - mkdir build
-    - ../configure:
-        pwd: 
-          build
-    - make:
+    - ../configure && make:
         pwd: 
           build
