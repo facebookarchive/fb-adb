@@ -1,6 +1,6 @@
 machine:
   environment:
-    ANDROID_NDK: /usr/local/android-ndk/
+    ANDROID_NDK: /usr/local/android-ndk
 dependencies:
   pre:
     - wget https://github.com/tcnksm/ghr/releases/download/v0.4.0/ghr_v0.4.0_linux_amd64.zip
