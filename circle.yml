@@ -1,12 +1,10 @@
 test:
   pre:
     - ls $ANDROID_NDK
-    - echo $ANDROID_SDK
-    # This looks like source code
-    - ls $ANDROID_SDK
+    - ls $ANDROID_HOME
   override:
     - ./autogen.sh
     - mkdir build
-    - ../configure && make:
+    - ../configure --with-android-sdk=$ANDROID_HOME && make:
         pwd: 
           build
