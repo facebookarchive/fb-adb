@@ -8,4 +8,4 @@ test:
     - ../configure --with-android-sdk=$ANDROID_HOME && make:
         pwd: 
           build
-    - ls build
+    - cp -r build/fb-adb $CIRCLE_ARTIFACTS
