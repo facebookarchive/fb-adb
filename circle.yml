@@ -8,8 +8,7 @@ dependencies:
 
 test:
   pre:
-    - ls $ANDROID_NDK
-    - ls $ANDROID_HOME
+    - ls /usr/local/
   override:
     - ./autogen.sh
     - mkdir build
