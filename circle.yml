@@ -5,5 +5,7 @@ test:
     - ./autogen.sh
     - mkdir build
     - ../configure && make:
+        environment:
+          ANDROID_NDK: $ANDROID_NDK
         pwd: 
           build
