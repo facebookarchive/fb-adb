@@ -1,11 +1,9 @@
 test:
   pre:
-    - echo $ANDROID_NDK
+    - ls $ANDROID_NDK
   override:
     - ./autogen.sh
     - mkdir build
-    - ../configure --with-android-ndk=/usr/local/android-ndk && make:
-        environment:
-          ANDROID_NDK: /usr/local/android-ndk
+    - ../configure && make:
         pwd: 
           build
