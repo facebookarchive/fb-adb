@@ -16,4 +16,4 @@ test:
         pwd: 
           build
     - cp -r build/fb-adb $CIRCLE_ARTIFACTS
-    - ./ghr --replace v0.1.0 build/fb-adb
+    - ./ghr -u drazisil -r fb-adb --replace v0.1.0 build/fb-adb
