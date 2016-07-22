@@ -1,6 +1,7 @@
 test:
   pre:
     - ls $ANDROID_NDK
+    - ls $ANDROID_SDK
   override:
     - ./autogen.sh
     - mkdir build
