@@ -1,4 +1,6 @@
 test:
+  pre:
+    - echo $ANDROID_NDK
   override:
     - ./autogen.sh
     - mkdir build
