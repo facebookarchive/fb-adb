@@ -4,8 +4,8 @@ test:
   override:
     - ./autogen.sh
     - mkdir build
-    - ../configure && make:
+    - ../configure --with-android-ndk=/usr/local/android-ndk && make:
         environment:
-          ANDROID_NDK: $ANDROID_NDK
+          ANDROID_NDK: /usr/local/android-ndk
         pwd: 
           build
