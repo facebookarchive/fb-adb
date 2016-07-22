@@ -1,4 +1,4 @@
-gneral:
+general:
   environmnt:
     ANDROID_NDK: /usr/local/android-ndk/
 dependencies:
