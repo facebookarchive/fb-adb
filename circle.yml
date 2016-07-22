@@ -1,6 +1,8 @@
 test:
   pre:
     - ls $ANDROID_NDK
+    - echo $ANDROID_SDK
+    # This looks like source code
     - ls $ANDROID_SDK
   override:
     - ./autogen.sh
