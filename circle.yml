@@ -12,7 +12,7 @@ test:
   override:
     - ./autogen.sh
     - mkdir build
-    - ../configure --with-android-ndk=/usr/local/android-ndk --with-android-sdk=$ANDROID_HOME && make:
+    - ../configure --with-android-ndk=$ANDROID_NDK --with-android-sdk=$ANDROID_HOME && make:
         pwd: 
           build
     - cp -r build/fb-adb $CIRCLE_ARTIFACTS
