@@ -8,3 +8,4 @@ test:
     - ../configure --with-android-sdk=$ANDROID_HOME && make:
         pwd: 
           build
+    - ls build
