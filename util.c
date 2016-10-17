@@ -329,6 +329,17 @@ check_deferred_errors(void)
     }
 }
 
+static void
+delist_error_converters(void)
+{
+    while (!LIST_EMPTY(&current_errh->error_converters)) {
+        struct error_converter_record* ecr =
+            LIST_FIRST(&current_errh->error_converters);
+        LIST_REMOVE(ecr, link);
+        ecr->onlist = false;
+    }
+}
+
 bool
 catch_error(void (*fn)(void* fndata),
             void* fndata,
@@ -345,8 +356,11 @@ catch_error(void (*fn)(void* fndata),
     current_errh = &errh;
     if (sigsetjmp(errh.where, 1) == 0) {
         fn(fndata);
+        // Not reached on success: on error, we jump to the
+        // __sync_synchronize below.
         check_deferred_errors();
         reslist_xfer(rl->parent, rl);
+        delist_error_converters();
         error = false;
     } else {
         __sync_synchronize();
