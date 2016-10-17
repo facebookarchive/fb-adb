@@ -34,6 +34,10 @@ if ! test -d "$sdk/build-tools"; then
    AC_MSG_ERROR([Android SDK not in "$sdk"])
 fi
 
+if ! test -f "$sdk/platforms/android-19/android.jar"; then
+   AC_MSG_ERROR([Android SDK does not include API 19 SDK: please download API 19 SDK])
+fi
+
 latest_tools_version=$(ls -r1 "$sdk/build-tools" | head -n1)
 ANDROID_SDK_TOOLS_DIRECTORY=$sdk/build-tools/$latest_tools_version
 if ! test -f "$ANDROID_SDK_TOOLS_DIRECTORY/dx"; then
@@ -92,14 +96,12 @@ if test "$platform" = "system"; then
 else
   if test -n "$BUILD_STUB" && test -z "$STUB_LOCAL"; then
      rm -rf toolchain
-     mkdir -p toolchain
      if test $host_cpu = i686; then
         toolchain_cpu=x86
       else
         toolchain_cpu=arm
       fi
      echo "Configuring native NDK toolchain for $platform/$toolchain_cpu"
-
      ${ANDROID_NDK_SHELL} \
      "$andk"/build/tools/make-standalone-toolchain.sh \
        --install-dir=toolchain --platform=$platform \
