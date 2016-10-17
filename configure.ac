@@ -92,14 +92,12 @@ if test "$platform" = "system"; then
 else
   if test -n "$BUILD_STUB" && test -z "$STUB_LOCAL"; then
      rm -rf toolchain
-     mkdir -p toolchain
      if test $host_cpu = i686; then
         toolchain_cpu=x86
       else
         toolchain_cpu=arm
       fi
      echo "Configuring native NDK toolchain for $platform/$toolchain_cpu"
-
      ${ANDROID_NDK_SHELL} \
      "$andk"/build/tools/make-standalone-toolchain.sh \
        --install-dir=toolchain --platform=$platform \
