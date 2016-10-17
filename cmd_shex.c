@@ -232,10 +232,10 @@ send_stub(const void* data,
 
 
 static struct child*
-try_adb_stub(const struct child_start_info* csi,
-             const char* adb_name,
-             struct child_hello* chello,
-             char** err)
+try_adb_stub_2(const struct child_start_info* csi,
+               const char* adb_name,
+               struct child_hello* chello,
+               char** err)
 {
     SCOPED_RESLIST(rl);
     struct child* child = child_start(csi);
@@ -301,6 +301,104 @@ try_adb_stub(const struct child_start_info* csi,
     return NULL;
 }
 
+struct try_adb_stub_internal_info {
+    struct child* ret;
+    const struct child_start_info* csi;
+    const char* adb_name;
+    struct child_hello* chello;
+    char** err;
+};
+
+static void
+try_adb_stub_1(void* arg)
+{
+    struct try_adb_stub_internal_info* info = arg;
+    info->ret = try_adb_stub_2(
+        info->csi, info->adb_name, info->chello, info->err);
+}
+
+struct try_adb_stub_memory {
+    bool old_adb_detected;
+};
+
+static struct child*
+try_adb_stub(struct try_adb_stub_memory* tasm,
+             const char* const* adb_args,
+             const char* adb_name,
+             struct child_hello* chello,
+             char** err)
+{
+    const struct child_start_info csi = {
+        .io[STDIN_FILENO] = CHILD_IO_PIPE,
+        .io[STDOUT_FILENO] = CHILD_IO_PIPE,
+        .io[STDERR_FILENO] = CHILD_IO_RECORD,
+        .exename = "adb",
+        .argv = ARGV_CONCAT(ARGV("adb"),
+                            adb_args,
+                            tasm->old_adb_detected
+                            ? ARGV("shell")
+                            : ARGV("shell", "-t", "-t")),
+    };
+
+    struct try_adb_stub_internal_info info = {
+        .csi = &csi,
+        .adb_name = adb_name,
+        .chello = chello,
+        .err = err,
+    };
+
+    struct errinfo ei = { .want_msg = true };
+    if (catch_error(try_adb_stub_1, &info, &ei)) {
+        if (ei.err == ECOMM &&
+            ei.msg &&
+            (string_ends_with_p(
+                ei.msg, "-t: unknown option" /* E1 */) ||
+             string_ends_with_p(
+                 ei.msg,
+                 "target doesn't support PTY args -Tt" /* E2 */ )))
+        {
+            /*
+
+            Here's what happens under various combinations of tool and
+            device versions when stdin is a pipe, not a tty.
+
+            Why doesn't "-t -t" just succeed when running a new ADB
+            against an older device, where we'll get a tty anyway?
+            Because the universe is malevolent.  See the following
+            outcome table.  E1 and E2 refer to the messages
+            just above.
+
+                         Pre-N device  | Post-N device
+                       + --------------+----------------
+            Pre-N ADB  | E1            | E1
+            -t -t      |               |
+            -----------+---------------+----------------
+            Pre-N ADB  | Get a TTY     | Get a TTY
+            no options |               |
+            -----------+---------------+----------------
+            Post-N ADB | E2            | Get a TTY
+            -t -t      |               |
+            -----------+---------------+----------------
+            Post-N ADB | Get a TTY     | Get a pipe (and hang)
+            no options |
+
+            If we react to _either_ E1 or E2 by re-invoking without -t
+            -t, we get a TTY.  The downside of this approach is that
+            we need a second "adb shell" invocation when we have a new
+            adb connecting to an old device, but hopefully, users will
+            just rely on the daemon and avoid having to talk to "adb
+            shell" frequently.
+
+             */
+
+            tasm->old_adb_detected = true;
+            return try_adb_stub(tasm, adb_args, adb_name, chello, err);
+        }
+        die_rethrow(&ei);
+    }
+    return info.ret;
+}
+
 struct delete_device_tmpfile {
     const char** adb_args;
     char* device_filename;
@@ -351,17 +449,12 @@ static struct child*
 start_stub_adb(const char* const* adb_args,
                struct child_hello* chello)
 {
-    const struct child_start_info csi = {
-        .io[STDIN_FILENO] = CHILD_IO_PIPE,
-        .io[STDOUT_FILENO] = CHILD_IO_PIPE,
-        .io[STDERR_FILENO] = CHILD_IO_RECORD,
-        .exename = "adb",
-        .argv = ARGV_CONCAT(ARGV("adb"), adb_args, ARGV("shell")),
-    };
+    struct try_adb_stub_memory tasm = { };
 
     struct child* child = NULL;
     char* err = NULL;
-    child = try_adb_stub(&csi, FB_ADB_REMOTE_FILENAME, chello, &err);
+    child = try_adb_stub(
+        &tasm, adb_args, FB_ADB_REMOTE_FILENAME, chello, &err);
 
     if (child == NULL) {
         char* tmp_adb = xaprintf(
@@ -378,7 +471,7 @@ start_stub_adb(const char* const* adb_args,
 #endif
         for (unsigned i = first_stub; i < ns && !child; ++i) {
             send_stub(stubs[i].data, stubs[i].size, adb_args, tmp_adb);
-            child = try_adb_stub(&csi, tmp_adb, chello, &err);
+            child = try_adb_stub(&tasm, adb_args, tmp_adb, chello, &err);
         }
 
         if (!child)
@@ -393,7 +486,8 @@ start_stub_adb(const char* const* adb_args,
                         api_level,
                         ADB_RENAME_FALL_BACK_TO_CAT,
                         adb_args);
-        child = try_adb_stub(&csi, FB_ADB_REMOTE_FILENAME, chello, &err);
+        child = try_adb_stub(&tasm, adb_args,
+                             FB_ADB_REMOTE_FILENAME, chello, &err);
         if (!child)
             die(ECOMM, "trouble starting adb stub: %s", err);
     }

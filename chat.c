@@ -70,12 +70,22 @@ chat_expect_maybe(struct chat* cc, char expected)
 static void
 chat_swallow_prompt(struct chat* cc)
 {
+    SCOPED_RESLIST(rl);
+
     /* 100% reliable prompt detection */
     unsigned csi_arg = 0;
     enum { S_NORMAL, S_AFTER_ESC, S_AFTER_CSI } state = S_NORMAL;
+    struct growable_string pre_prompt = {};
 
     for (;;) {
-        char c = chat_getc(cc);
+        int char_read = getc(cc->from);
+        if (char_read == EOF) {
+            growable_string_trim_trailing_whitespace(&pre_prompt);
+            if (pre_prompt.strlen == 0)
+                chat_die();
+            die(ECOMM, "%s", growable_string_c_str(&pre_prompt));
+        }
+        char c = char_read;
         if (c == '#' || c == '$')
             break;
 
@@ -93,6 +103,8 @@ chat_swallow_prompt(struct chat* cc)
             case S_NORMAL:
                 if (c == '\033')
                     state = S_AFTER_ESC;
+                else
+                    growable_string_append_c(&pre_prompt, c);
                 break;
 
             case S_AFTER_ESC:

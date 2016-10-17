@@ -372,6 +372,18 @@ void resize_buffer(struct growable_buffer* gb, size_t new_size);
 void grow_buffer(struct growable_buffer* gb, size_t min);
 void grow_buffer_dwim(struct growable_buffer* gb);
 
+// Like growable_buffer, but deals in characters and automatically
+// NUL-terminates
+
+struct growable_string {
+    struct growable_buffer gb;
+    size_t strlen;
+};
+
+void growable_string_append_c(struct growable_string* gs, char c);
+const char* growable_string_c_str(struct growable_string* gs);
+void growable_string_trim_trailing_whitespace(struct growable_string* gs);
+
 regex_t* xregcomp(const char* regex, int cflags);
 char* xregerror(int errcode, const regex_t* preg);
 

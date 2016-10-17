@@ -1681,6 +1681,35 @@ grow_buffer_dwim(struct growable_buffer* gb)
     resize_buffer(gb, bufsz);
 }
 
+void
+growable_string_append_c(struct growable_string* gs, char c)
+{
+    assert(gs->strlen <= gs->gb.bufsz);
+    if (gs->strlen == gs->gb.bufsz)
+        grow_buffer_dwim(&gs->gb);
+    assert(gs->strlen < gs->gb.bufsz);
+    gs->gb.buf[gs->strlen++] = c;
+}
+
+void
+growable_string_trim_trailing_whitespace(struct growable_string* gs)
+{
+    while (gs->strlen > 0 && strchr(" \t\r\n\v", gs->gb.buf[gs->strlen - 1]))
+        gs->strlen--;
+}
+
+const char*
+growable_string_c_str(struct growable_string* gs)
+{
+    assert(gs->strlen <= gs->gb.bufsz);
+    if (gs->strlen == gs->gb.bufsz) {
+        grow_buffer_dwim(&gs->gb);
+    }
+    assert(gs->strlen < gs->gb.bufsz);
+    gs->gb.buf[gs->strlen] = '\0';
+    return (const char*) &gs->gb.buf[0];
+}
+
 static void
 cleanup_regfree(void* data)
 {
