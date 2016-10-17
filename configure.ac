@@ -34,6 +34,10 @@ if ! test -d "$sdk/build-tools"; then
    AC_MSG_ERROR([Android SDK not in "$sdk"])
 fi
 
+if ! test -f "$sdk/platforms/android-19/android.jar"; then
+   AC_MSG_ERROR([Android SDK does not include API 19 SDK: please download API 19 SDK])
+fi
+
 latest_tools_version=$(ls -r1 "$sdk/build-tools" | head -n1)
 ANDROID_SDK_TOOLS_DIRECTORY=$sdk/build-tools/$latest_tools_version
 if ! test -f "$ANDROID_SDK_TOOLS_DIRECTORY/dx"; then
