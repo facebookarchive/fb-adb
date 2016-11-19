@@ -7,26 +7,29 @@
 //
 
 package com.facebook.fbadb.agent;
-import java.lang.reflect.Constructor;
-import java.lang.reflect.Method;
+
 import android.app.ActivityManager;
+import android.content.ComponentName;
 import android.content.Context;
-import android.os.Handler;
-import android.util.JsonWriter;
-import java.io.OutputStreamWriter;
-import java.io.BufferedWriter;
-import android.content.pm.PackageInfo;
-import android.content.pm.PackageManager;
-import android.content.pm.ApplicationInfo;
-import android.content.pm.ActivityInfo;
-import java.util.List;
-import java.util.ArrayList;
-import android.os.Process;
-import android.os.Build;
 import android.content.Intent;
 import android.content.IntentFilter;
+import android.content.pm.ActivityInfo;
+import android.content.pm.ApplicationInfo;
+import android.content.pm.PackageInfo;
+import android.content.pm.PackageManager;
 import android.content.pm.ResolveInfo;
-import android.content.ComponentName;
+import android.os.Build;
+import android.os.Handler;
+import android.os.Process;
+import android.util.JsonWriter;
+
+import java.io.BufferedWriter;
+import java.io.OutputStreamWriter;
+import java.lang.reflect.Constructor;
+import java.lang.reflect.Method;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
 
 public class Agent {
 
@@ -313,8 +316,16 @@ public class Agent {
             int.class,
             int.class);
 
-    return (List<ResolveInfo>) queryIntentActivities
+    Object activities = queryIntentActivities
         .invoke(getIPackageManager(), intent, null, 0, USER_OWNER);
+    if (activities == null) {
+        return Collections.emptyList();
+    } else if (!(activities instanceof List)) {
+        Method getList = activities.getClass().getMethod("getList");
+        activities = getList.invoke(activities);
+    }
+
+    return (List<ResolveInfo>) activities;
   }
 
   private static Intent getLaunchIntentForPackage(String packageName)
