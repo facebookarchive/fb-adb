@@ -61,14 +61,17 @@ agent.c: agent.dex $(srcdir)/mkagentc.py
 
 ANDROID_SDK_PLATFORM=$(ANDROID_SDK_DIRECTORY)/platforms/android-19
 
-Agent.class: $(srcdir)/Agent.java
-	cp -f $< Agent.java
-	$(JAVAC) -g -source 7 -target 7 -implicit:none -classpath \
-	"$(ANDROID_SDK_PLATFORM)/android.jar" Agent.java
-CLEANFILES += Agent.class Agent.java
-EXTRA_DIST += mkagentc.py Agent.java
+$(abs_builddir)/Agent.java $(abs_builddir)/AgentFakeContext.java: $(abs_builddir)/%.java: $(abs_srcdir)/%.java
+	cp -f $< $@
+CLEANFILES += Agent.java AgentFakeContext.java
 
-agent.dex: Agent.class
+Agent.class AgentFakeContext.class: $(abs_builddir)/Agent.java $(abs_builddir)/AgentFakeContext.java
+	$(JAVAC) -g -source 7 -target 7 -implicit:none \
+	    -classpath "$(ANDROID_SDK_PLATFORM)/android.jar" $^
+CLEANFILES += Agent.class AgentFakeContext.class
+EXTRA_DIST += mkagentc.py
+
+agent.dex: Agent.class AgentFakeContext.class
 	$(ANDROID_SDK_TOOLS_DIRECTORY)/dx --no-strict --output=$@ --dex $^
 CLEANFILES += agent.dex
 

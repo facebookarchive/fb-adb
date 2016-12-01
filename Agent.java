@@ -46,9 +46,11 @@ public class Agent {
     Constructor amConstructor = ActivityManager.class.getDeclaredConstructor(
         Context.class, Handler.class);
     amConstructor.setAccessible(true);
-    // We can pass null here because ActivityManager doesn't actually use these values for the
-    // specific methods we want to call, all of which just punt to IActivityManager.
-    return (ActivityManager) amConstructor.newInstance(null, null);
+    // Normally, ActivityManager doesn't actually touch its constructor parameters for anything
+    // that we use it for. However, on certain Samsung devices, ActivityManager tries to fetch
+    // a system service immediately upon construction. Because, Samsung. So, give it a stubbed
+    // out Context object.
+    return (ActivityManager) amConstructor.newInstance(new AgentFakeContext(), null);
   }
 
   private static void writeSingleAppProcessInfo(
