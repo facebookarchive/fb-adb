@@ -42,9 +42,24 @@ getprop_main(const struct cmd_getprop_info* info)
 // become inefficient when Android 4.4 switched to a
 // trie implementation.
 
+static void* libc;
 static int (*property_foreach)(
         void (*propfn)(const prop_info *pi, void *cookie),
         void *cookie);
+static const prop_info* (*property_find_nth)(unsigned n);
+
+static void find_symbol_in_libc(const char* name, void* fnptr_v)
+{
+    void** fnptrptr = fnptr_v;
+    if (*fnptrptr == NULL) {
+        if (!libc) {
+            libc = dlopen("libc.so", RTLD_LAZY);
+            if (libc == NULL)
+                die(ENOENT, "could not open libc.so: %s", dlerror());
+        }
+        *fnptrptr = dlsym(libc, name);
+    }
+}
 
 struct property_vector {
     size_t size;
@@ -188,9 +203,14 @@ compat_property_foreach(
     void (*propfn)(const prop_info *pi, void *cookie),
     void *cookie)
 {
+    find_symbol_in_libc("__system_property_find_nth",
+                        &property_find_nth);
+    if (property_find_nth == NULL)
+        die(EINVAL, "no property-enumeration functions available");
+
     unsigned propno = 0;
     for (;;) {
-        const prop_info* pi = __system_property_find_nth(propno++);
+        const prop_info* pi = property_find_nth(propno++);
         if (pi == NULL)
             break;
         propfn(pi, cookie);
@@ -254,12 +274,8 @@ getprop_main(const struct cmd_getprop_info* info)
         usage_error("must supply --format or "
                     "--format-not-found or both if using -0");
 
-    if (property_foreach == NULL) {
-        void* libc = dlopen("libc.so", RTLD_LAZY);
-        if (libc != NULL)
-            property_foreach = dlsym(libc, "__system_property_foreach");
-    }
-
+    find_symbol_in_libc("__system_property_foreach",
+                        &property_foreach);
     if (property_foreach == NULL)
         property_foreach = compat_property_foreach;
 
