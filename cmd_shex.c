@@ -71,6 +71,7 @@ struct childcom {
     struct fdh* to_child;
     struct fdh* from_child;
     writer_function writer;
+    bool old_adb_detected;
 };
 
 struct adb_info {
@@ -337,7 +338,7 @@ try_adb_stub(struct try_adb_stub_memory* tasm,
                             adb_args,
                             tasm->old_adb_detected
                             ? ARGV("shell")
-                            : ARGV("shell", "-t", "-t")),
+                            : ARGV("shell", "-t", "-t", "-e", "none")),
     };
 
     struct try_adb_stub_internal_info info = {
@@ -447,7 +448,8 @@ add_cleanup_delete_device_tmpfile(const char* device_filename,
 
 static struct child*
 start_stub_adb(const char* const* adb_args,
-               struct child_hello* chello)
+               struct child_hello* chello,
+               bool* old_adb_detected)
 {
     struct try_adb_stub_memory tasm = { };
 
@@ -492,6 +494,7 @@ start_stub_adb(const char* const* adb_args,
             die(ECOMM, "trouble starting adb stub: %s", err);
     }
 
+    *old_adb_detected = tasm.old_adb_detected;
     return child;
 }
 
@@ -540,9 +543,7 @@ struct tty_flags {
 };
 
 struct msg_shex_hello*
-make_hello_msg(size_t max_cmdsz,
-               size_t stdio_ringbufsz,
-               size_t command_ringbufsz,
+make_hello_msg(size_t stdio_ringbufsz,
                size_t nr_argv,
                struct tty_flags tty_flags[3])
 {
@@ -551,9 +552,6 @@ make_hello_msg(size_t max_cmdsz,
     m = xcalloc(sz);
     m->msg.type = MSG_SHEX_HELLO;
     m->nr_argv = nr_argv;
-    m->maxmsg = XMIN(max_cmdsz, MSG_MAX_SIZE);
-    m->stub_send_bufsz = command_ringbufsz;
-    m->stub_recv_bufsz = command_ringbufsz;
     for (int i = 0; i < 3; ++i) {
         m->si[i].bufsz = stdio_ringbufsz;
         m->si[i].pty_p = tty_flags[i].want_pty_p;
@@ -1707,12 +1705,15 @@ check_sane_user_name(const char* want_user)
 }
 
 static struct childcom*
-tc_for_child(struct child* child, writer_function writer)
+tc_for_child(struct child* child,
+             writer_function writer,
+             bool old_adb_detected)
 {
     struct childcom* tc = xcalloc(sizeof (*tc));
     tc->to_child = child->fd[STDIN_FILENO];
     tc->from_child = child->fd[STDOUT_FILENO];
     tc->writer = writer;
+    tc->old_adb_detected = old_adb_detected;
     return tc;
 }
 
@@ -1945,7 +1946,8 @@ tc_connect_user_attempt(const struct adb_info* ai,
 {
     SCOPED_RESLIST(rl);
     const char* const* adb_args = ai->adb_args;
-    struct child* adb = start_stub_adb(adb_args, chello);
+    bool old_adb_detected;
+    struct child* adb = start_stub_adb(adb_args, chello, &old_adb_detected);
 
     if (state->shell_thunk == false && chello->api_level >= 21) {
         // See the comments in re_exec_as_root over in cmd_stub.c
@@ -1958,7 +1960,10 @@ tc_connect_user_attempt(const struct adb_info* ai,
         state->shell_thunk = true;
     }
 
-    struct childcom* tc = tc_for_child(adb, write_all_adb_encoded);
+    struct childcom* tc = tc_for_child(
+        adb,
+        write_all_adb_encoded,
+        old_adb_detected);
 
     // Prefer to upgrade connection before user switch so that
     // accounts without NETWORK access can use network fb-adb
@@ -2042,8 +2047,12 @@ tc_connect_normal(const char* const* adb_args,
                   struct transport transport,
                   struct child_hello* chello)
 {
-    struct child* adb = start_stub_adb(adb_args, chello);
-    struct childcom* tc = tc_for_child(adb, write_all_adb_encoded);
+    bool old_adb_detected;
+    struct child* adb = start_stub_adb(adb_args, chello, &old_adb_detected);
+    struct childcom* tc = tc_for_child(
+        adb,
+        write_all_adb_encoded,
+        old_adb_detected);
 
     if (want_root && chello->uid != 0)
         command_re_exec_as_root(tc);
@@ -2081,7 +2090,9 @@ tc_connect(const struct shex_common_info* info,
             die(EINVAL,
                 "%s not supported with local transport",
                 unsupported_thing);
-        return tc_for_child(start_stub_local(chello), write_all);
+        return tc_for_child(start_stub_local(chello),
+                            write_all,
+                            false /* old_adb_detected */);
     }
 #endif
 
@@ -2206,7 +2217,10 @@ shex_main_common(const struct shex_common_info* info)
     dbg("remote API level is %u", chello.api_level);
     dbg("remote ABI support: %s", describe_abi_mask(chello.abi_mask));
 
-    if (tc->writer != write_all_adb_encoded)
+    bool use_adb_encoding_hack =
+        tc->writer == write_all_adb_encoded && tc->old_adb_detected;
+
+    if (!use_adb_encoding_hack)
         max_cmdsz = DEFAULT_MAX_CMDSZ_SOCKET;
 
     // Here, we want to arrange for SIGWINCH to be delivered only
@@ -2222,14 +2236,17 @@ shex_main_common(const struct shex_common_info* info)
     size_t command_ringbufsz = 1024 * 1024;
     size_t stdio_ringbufsz = 1024 * 1024;
     struct msg_shex_hello* hello_msg =
-        make_hello_msg(max_cmdsz,
-                       stdio_ringbufsz,
-                       command_ringbufsz,
-                       2 + argv_count(argv),
-                       tty_flags);
+        make_hello_msg(stdio_ringbufsz, command_ringbufsz, tty_flags);
+    hello_msg->maxmsg = XMIN(max_cmdsz, MSG_MAX_SIZE);
+    hello_msg->stub_send_bufsz = command_ringbufsz;
+    hello_msg->stub_recv_bufsz = command_ringbufsz;
+    hello_msg->nr_argv = 2 + argv_count(argv);
 
     if (info->shex.no_ctty == 0)
         hello_msg->ctty_p = 1;
+
+    if (use_adb_encoding_hack)
+        hello_msg->adb_encoding_hack = true;
 
     tc_sendmsg(tc, &hello_msg->msg);
 
@@ -2285,8 +2302,9 @@ shex_main_common(const struct shex_common_info* info)
     ch[TO_PEER] = channel_new(tc->to_child,
                               command_ringbufsz,
                               CHANNEL_TO_FD);
-    ch[TO_PEER]->adb_encoding_hack =
-        (tc->writer == write_all_adb_encoded);
+    ch[TO_PEER]->adb_encoding_hack = use_adb_encoding_hack;
+
+    dbg("using adb encoding hack: %s", use_adb_encoding_hack ? "yes" : "no");
 
     // Here, we turn off the optimization that lets us writev(2)
     // directly to TO_PEER when TO_PEER's ring buffer is empty.

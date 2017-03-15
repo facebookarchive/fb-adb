@@ -765,7 +765,10 @@ stub_main_1(const struct cmd_stub_info* info)
                                 CHANNEL_FROM_FD);
 
     ch[FROM_PEER]->window = UINT32_MAX;
-    ch[FROM_PEER]->adb_encoding_hack = !!(rdr == read_all_adb_encoded);
+    ch[FROM_PEER]->adb_encoding_hack = shex_hello->adb_encoding_hack;
+
+    dbg("using adb encoding hack: %s",
+        shex_hello->adb_encoding_hack ? "yes" : "no");
 
     ch[TO_PEER] = channel_new(fdh_dup(STDOUT_FILENO),
                               shex_hello->stub_send_bufsz,

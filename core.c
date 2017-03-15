@@ -371,6 +371,8 @@ xmit_data_lz4(struct channel* c,
         consumed_size + sizeof (struct msg_channel_data);
 
     if (out_size + sizeof (m) >= equiv_uncompressed) {
+        dbg("sending uncompressed: compression would have wasted %u bytes",
+            (unsigned)((out_size + sizeof (m)) - equiv_uncompressed));
         return xmit_data_uncompressed(
             c, chno, dst, consumed_size, maxoutmsg);
     }
