@@ -2219,8 +2219,8 @@ shex_main_common(const struct shex_common_info* info)
     block_signal(SIGWINCH);
     signal(SIGWINCH, handle_sigwinch);
 
-    size_t command_ringbufsz = max_cmdsz * 4;
-    size_t stdio_ringbufsz = max_cmdsz * 2;
+    size_t command_ringbufsz = 1024 * 1024;
+    size_t stdio_ringbufsz = 1024 * 1024;
     struct msg_shex_hello* hello_msg =
         make_hello_msg(max_cmdsz,
                        stdio_ringbufsz,

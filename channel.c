@@ -220,6 +220,7 @@ channel_write(struct channel* c, const struct iovec* iov, unsigned nio)
         return; // If the stream is closed, just discard
 
     bool try_direct = !c->always_buffer && ringbuf_size(c->rb) == 0;
+    try_direct = false; // XXX
     size_t directwrsz = 0;
     size_t totalsz;
 
