@@ -83,6 +83,10 @@ enum blocking_mode fd_set_blocking_mode(int fd, enum blocking_mode mode);
 
 void hack_reopen_tty(int fd);
 
+// Read up to SZ bytes from FD into BUF.  May return on short read
+// even without EOF.  Return zero to indicate EOF.
+size_t xread(int fd, void* buf, size_t sz);
+
 // Read SZ bytes from FD into BUF, retrying on EINTR.
 // May return short read on EOF.
 size_t read_all(int fd, void* buf, size_t sz);

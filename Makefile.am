@@ -30,6 +30,7 @@ CMD_SOURCES = \
 	cmd_getprop.c \
 	cmd_help.c \
 	cmd_logwrite.c \
+	cmd_ping.c \
 	cmd_ps_json.c \
 	cmd_rdex.c \
 	cmd_xdex.c \

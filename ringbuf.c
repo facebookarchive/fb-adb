@@ -110,6 +110,10 @@ ringbuf_note_removed(struct ringbuf* rb, size_t nr)
 {
     assert(nr <= ringbuf_size(rb));
     rb->nr_removed += nr;
+    if (ringbuf_size(rb) == 0) {
+        rb->nr_added = 0;
+        rb->nr_removed = 0;
+    }
     return nr;
 }
 

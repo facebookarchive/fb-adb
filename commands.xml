@@ -608,6 +608,14 @@ code, and bash completion file.
     <optgroup-reference name="xfer" />
   </command>
   <?endif?>
+  <command names="ping" env="main">
+    Measure round trip time to device.
+    <optgroup-reference name="adb"/>
+    <optgroup-reference name="transport" />
+  </command>
+  <command names="_echo" internal="yes" env="stub">
+    Internal command that echoes the input.
+  </command>
   <?ifdef FBADB_MAIN?>
   <command names="shell,shellx,sh">
     Run a command on device.  If <i>command</i> is not supplied, run

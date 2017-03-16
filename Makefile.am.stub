@@ -24,6 +24,7 @@ libfb_adb_a_SOURCES += \
 CMD_SOURCES += \
 	cmd_stub.c \
 	cmd_stub_package_hack.c \
+	cmd_echo.c \
 	$(EMPTY)
 
 check_PROGRAMS = fb-adb

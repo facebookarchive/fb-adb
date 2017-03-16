@@ -29,13 +29,13 @@ struct channel {
     struct ttysave* saved_term_state;
     uint32_t bytes_written;
     uint32_t window;
+    uint8_t adb_hack_state;
     unsigned sent_eof : 1;
     unsigned pending_close : 1;
     unsigned always_buffer : 1;
     unsigned track_bytes_written : 1;
     unsigned track_window : 1;
     unsigned adb_encoding_hack : 1;
-    unsigned leftover_escape : 2;
     unsigned compress : 1;
 #ifdef FBADB_CHANNEL_NONBLOCK_HACK
     unsigned nonblock_hack : 1;

@@ -25,13 +25,13 @@ static const char adb_escape1 = '!';
 static const char adb_escape2 = '@';
 
 void
-adb_encode(unsigned* inout_state,
+adb_encode(uint8_t* inout_state,
            char** inout_enc,
            char* encend,
            const char** inout_in,
            const char* inend)
 {
-    unsigned state = *inout_state;
+    uint8_t state = *inout_state;
     char* enc = *inout_enc;
     const char* in = *inout_in;
 
@@ -63,13 +63,13 @@ adb_encode(unsigned* inout_state,
 }
 
 void
-adb_decode(unsigned* inout_state,
+adb_decode(uint8_t* inout_state,
            char** inout_dec,
            char* decend,
            const char** inout_in,
            const char* inend)
 {
-    unsigned state = *inout_state;
+    uint8_t state = *inout_state;
     char* dec = *inout_dec;
     const char* in = *inout_in;
 
@@ -99,7 +99,7 @@ size_t
 read_all_adb_encoded(int fd, void* buf, size_t sz)
 {
     char encbuf[4096];
-    unsigned state = 0;
+    uint8_t state = 0;
     char* dec = buf;
     char* decend = dec + sz;
     ssize_t ret;
@@ -131,7 +131,7 @@ void
 write_all_adb_encoded(int fd, const void* buf, size_t sz)
 {
     char encbuf[4096];
-    unsigned state = 0;
+    uint8_t state = 0;
     const char* in = buf;
     const char* inend = in + sz;
     size_t nr_written = 0;

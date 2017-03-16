@@ -397,10 +397,23 @@ hack_reopen_tty(int fd)
 }
 
 size_t
+xread(int fd, void* buf, size_t sz)
+{
+    ssize_t ret;
+    {
+        WITH_IO_SIGNALS_ALLOWED();
+        ret = read(fd, buf, sz);
+    }
+    if (ret < 0)
+        die_errno("read(%d)", fd);
+    return ret;
+}
+
+size_t
 read_all(int fd, void* buf, size_t sz)
 {
     size_t nr_read = 0;
-    int ret;
+    ssize_t ret;
     char* pos = buf;
 
     while (nr_read < sz) {

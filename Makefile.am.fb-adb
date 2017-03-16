@@ -17,6 +17,7 @@ CMD_SOURCES += \
 	cmd_fput.c \
 	cmd_logcat_json.c \
 	cmd_shex.c \
+	cmd_ping.c \
 	cmd_jdwp.c \
 	peer.c \
 	peer.h \

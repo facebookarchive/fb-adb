@@ -64,7 +64,10 @@ channel_wanted_writesz(struct channel* c)
     if (c->fdh == NULL)
         return 0;
 
-    return XMIN(ringbuf_size(c->rb), UINT32_MAX - c->bytes_written);
+    // If c->adb_hack_state is non-zero, we need to write the second
+    // half of an adb-escaped character pair.
+    return XMIN(ringbuf_size(c->rb), UINT32_MAX - c->bytes_written)
+        + !!(c->adb_hack_state);
 }
 
 static size_t
@@ -105,7 +108,6 @@ channel_read_adb_hack(struct channel* c, size_t sz)
 
         struct iovec iov[2];
         ringbuf_writable_iov(c->rb, iov, chunksz);
-        unsigned state = c->leftover_escape;
         const char* in = buf;
         const char* inend = in + chunksz;
         size_t np = 0;
@@ -113,7 +115,7 @@ channel_read_adb_hack(struct channel* c, size_t sz)
             char* decstart = iov[i].iov_base;
             char* dec = decstart;
             char* decend = dec + iov[i].iov_len;
-            adb_decode(&state, &dec, decend, &in, inend);
+            adb_decode(&c->adb_hack_state, &dec, decend, &in, inend);
             np += (dec - decstart);
         }
 
@@ -124,77 +126,67 @@ channel_read_adb_hack(struct channel* c, size_t sz)
     return nr_added;
 }
 
-static ssize_t
-write_skip(int fd, const void* buf, size_t sz, size_t skip)
-{
-    assert(skip <= sz);
-    buf = (const char*) buf + skip;
-    sz -= skip;
-    WITH_IO_SIGNALS_ALLOWED();
-    ssize_t nr_written = write(fd, buf, sz);
-    if (nr_written >= 0)
-        nr_written += skip;
-
-    return nr_written;
-}
-
 static size_t
 channel_write_adb_hack(struct channel* c, size_t sz)
 {
-    size_t nr_removed = 0;
+    assert(sz > 0);
+    if (c->adb_hack_state)
+        sz -= 1;
 
-    while (nr_removed < sz) {
+    size_t nr_removed = 0;
+    do {
         struct iovec iov[2];
         char encbuf[4096];
         char* enc;
         char* encend;
-        unsigned state;
 
         ringbuf_readable_iov(c->rb, iov, sz - nr_removed);
+        uint8_t pass1_state = c->adb_hack_state;
+
         enc = encbuf;
         encend = enc + sizeof (encbuf);
-        state = c->leftover_escape;
         for (int i = 0; i < ARRAYSIZE(iov); ++i) {
             const char* in = iov[i].iov_base;
             const char* inend = in + iov[i].iov_len;
-            adb_encode(&state, &enc, encend, &in, inend);
+            adb_encode(&pass1_state, &enc, encend, &in, inend);
         }
 
-        // If we left a byte in the ringbuffer, don't actually write
-        // its first half now (since we wrote it before), but pretend
-        // we did.
-        size_t skip = (c->leftover_escape != 0);
-        ssize_t nr_written =
-            write_skip(c->fdh->fd, encbuf, enc - encbuf, skip);
+        size_t nr_encoded = enc - encbuf;
+        ssize_t nr_written;
+        {
+            WITH_IO_SIGNALS_ALLOWED();
+            nr_written = write(c->fdh->fd, encbuf, nr_encoded);
+        }
 
         if (nr_written < 0 && nr_removed == 0)
             die_errno("write");
-        if (nr_written < 0)
+        if (nr_written < 0) {
+            // write didn't actually write anything, so don't write
+            // pass1_state back into c.
             break;
+        }
 
-        size_t nr_encoded = 0;
+        // We wrote nr_written _encoded_ bytes, which may be less than
+        // the number of bytes we wanted to write post-encoding;
+        // the latter number is nr_encoded.  Re-run the encoder
+        // pretending we have only nr_written bytes available for
+        // encoding --- this way, next time, we'll resume exactly
+        // where we left off.
+
+        assert(nr_written <= sizeof (encbuf));
         enc = encbuf;
         encend = enc + nr_written;
-        state = c->leftover_escape;
+        size_t plaintext_consumed = 0;
         for (int i = 0; i < ARRAYSIZE(iov); ++i) {
-            const char* in = iov[i].iov_base;
+            const char* in_start = iov[i].iov_base;
+            const char* in = in_start;
             const char* inend = in + iov[i].iov_len;
-            adb_encode(&state, &enc, encend, &in, inend);
-            nr_encoded += (in - (char*) iov[i].iov_base);
+            adb_encode(&c->adb_hack_state, &enc, encend, &in, inend);
+            plaintext_consumed += (in - in_start);
         }
-
-        // If we wrote a partial encoded byte, leave the plain byte in
-        // the ringbuf so that we know this channel still needs to
-        // write.
-        if (state != 0) {
-            assert(nr_encoded > 0);
-            nr_encoded -= 1;
-        }
-
-        ringbuf_note_removed(c->rb, nr_encoded);
-        nr_removed += nr_encoded;
-        c->leftover_escape = state;
-    }
+        ringbuf_note_removed(c->rb, plaintext_consumed);
+        nr_removed += plaintext_consumed;
+    } while (nr_removed < sz);
 
     return nr_removed;
 }

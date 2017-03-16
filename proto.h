@@ -131,7 +131,8 @@ struct msg_shex_hello {
     struct window_size ws;
     uint8_t have_ws;
     uint8_t posix_vdisable_value;
-    uint8_t ctty_p;
+    uint8_t ctty_p : 1;
+    uint8_t adb_encoding_hack : 1;
     struct stream_information si[3];
     struct term_control tctl[0]; // Must be last
 };

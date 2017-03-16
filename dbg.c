@@ -300,7 +300,7 @@ dbgch(const char* label, struct channel** ch, unsigned nrch)
 
         assert(p.fd == -1 || p.fd == c->fdh->fd);
 
-        dbg("  %-18s size:%-4zu room:%-4zu window:%-4d %s%-2s %p %s",
+        dbg("  %-18s size:%-4zu room:%-4zu window:%-4d %s%-2s %p %s%s",
             xaprintf("ch[%d=%s]", chno, chname(chno)),
             ringbuf_size(c->rb),
             ringbuf_room(c->rb),
@@ -310,7 +310,8 @@ dbgch(const char* label, struct channel** ch, unsigned nrch)
              ? xaprintf("%d", c->fdh->fd)
              : (c->sent_eof ? "!!" : "!?")),
             c,
-            pev);
+            pev,
+            c->adb_hack_state ? " *" : "");
     }
 }
 
