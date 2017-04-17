@@ -283,7 +283,10 @@ try_adb_stub_2(const struct child_start_info* csi,
     }
 
     chat_talk_at(cc, cmd, CHAT_SWALLOW_PROMPT);
-    char* resp = chat_read_line(cc);
+    char* resp;
+    do {
+        resp = chat_read_line(cc);
+    } while (clowny_output_line_p(resp));
     dbg("stub resp: [%s]", resp);
 
     if (parse_child_hello(resp, chello) &&
