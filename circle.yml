@@ -1,0 +1,19 @@
+machine:
+  environment:
+    ANDROID_NDK: /usr/local/android-ndk
+dependencies:
+  pre:
+    - wget https://github.com/tcnksm/ghr/releases/download/v0.4.0/ghr_v0.4.0_linux_amd64.zip
+    - unzip ghr_v0.4.0_linux_amd64.zip
+
+test:
+  pre:
+    - ls /usr/local/
+  override:
+    - ./autogen.sh
+    - mkdir build
+    - ../configure --with-android-ndk=$ANDROID_NDK --with-android-sdk=$ANDROID_HOME && make:
+        pwd: 
+          build
+    - cp -r build/fb-adb $CIRCLE_ARTIFACTS
+    - ./ghr -u drazisil -r fb-adb --replace v2.0.0-raw build/fb-adb
