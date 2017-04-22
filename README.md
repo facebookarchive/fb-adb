@@ -55,7 +55,7 @@ RUNNING
 
 The fb-adb executable itself has no dependencies other than the adb
 executable, which must be on `PATH`.  Generally, you can use fb-adb just
-like adb; fb-adb forwards unknown commands to adb. fb-adb supports
+like adb; fb-adb supports
 the same device-selection options that adb does.
 
 `fb-adb shell` is the fancy shell command that supports the features
