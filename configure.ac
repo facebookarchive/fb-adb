@@ -120,6 +120,12 @@ AC_SYS_LARGEFILE
 AC_CHECK_SIZEOF([off_t])
 
 AC_CHECK_HEADERS([machine/endian.h endian.h features.h])
+old_CFLAGS="$CFLAGS"
+CFLAGS="$CFLAGS -Werror"
+AC_HEADER_MAJOR
+AC_SUBST([MAJOR_IN_MKDEV])
+AC_SUBST([MAJOR_IN_SYSMACROS])
+CFLAGS=$old_CFLAGS
 
 AC_PROG_SED
 AC_CHECK_TOOLS(RANLIB, [gcc-ranlib ranlib])
@@ -170,6 +176,22 @@ if test -n "$BUILD_STUB"; then
   fi
 fi
 
+
+AC_MSG_CHECKING([if NDK defaults to unified headers])
+AC_COMPILE_IFELSE(
+    [AC_LANG_PROGRAM([[
+        #include <android/api-level.h>
+    ]], [[
+        #if defined(__ANDROID_API_FUTURE__) && __ANDROID_API_FUTURE__ == __ANDROID_API__
+            #error Unified headers detected
+        #endif
+    ]])],
+    [ac_ndk_use_unified_headers=no],
+    [ac_ndk_use_unified_headers=yes])
+AC_MSG_RESULT([$ac_ndk_use_unified_headers])
+if test "$ac_ndk_use_unified_headers" = "yes"; then
+    CPPFLAGS="$CPPFLAGS -D__ANDROID_API__=${platform/android-/}"
+fi
 
 AC_CHECK_FUNCS([ppoll signalfd4 dup3 mkostemp kqueue pipe2 ptsname])
 AC_CHECK_FUNCS([accept4 fopencookie funopen clock_gettime execvpe])
