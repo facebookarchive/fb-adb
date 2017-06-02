@@ -17,6 +17,15 @@
 #include <pwd.h>
 #include <grp.h>
 #include <sys/queue.h>
+
+#if defined(MAJOR_IN_MKDEV)
+#include <sys/mkdev.h>
+#elif defined(MAJOR_IN_SYSMACROS)
+#include <sys/sysmacros.h>
+#else
+#include <sys/types.h>
+#endif
+
 #include "util.h"
 #include "autocmd.h"
 #include "fs.h"
