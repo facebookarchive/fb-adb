@@ -1008,7 +1008,7 @@ xfsync(int fd)
 void
 xftruncate(int fd, uint64_t size)
 {
-    size_t max_size;
+    uint64_t max_size;
 
 #if SIZEOF_OFF_T==4 && defined(HAVE_FALLOCATE64)
     max_size = INT64_MAX;
