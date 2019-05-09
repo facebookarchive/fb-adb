@@ -971,7 +971,6 @@ connect_to_device_socket(
     const char* const* adb_args,
     const char* device_socket)
 {
-    SCOPED_RESLIST(rl);
     char* host_socket =
         xaprintf("%s/fb-adb-conn-%s.sock",
                  system_tempdir(),
@@ -990,7 +989,6 @@ connect_to_device_socket(
     int scon = xsocket(AF_UNIX, SOCK_STREAM, 0);
     xconnect(scon, make_addr_unix_filesystem(host_socket));
 
-    WITH_CURRENT_RESLIST(rl->parent);
     struct childcom* ntc = xcalloc(sizeof (*ntc));
     ntc->from_child = fdh_dup(scon);
     ntc->to_child = fdh_dup(scon);
