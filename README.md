@@ -43,10 +43,14 @@ make
 
 If building on Mac, you need `gmake` to build. You can use
 [Homebrew](http://brew.sh/) to get it:
-````
+```
+brew install homebrew/core/make
+```
+on earlier systems this was:
+```
 brew tap homebrew/dupes
 brew install homebrew/dupes/make
-````
+```
 and then use `gmake` instead of `make`.
 
 
