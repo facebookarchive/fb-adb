@@ -29,12 +29,15 @@ An out-of-tree build is required.  You'll need a copy of the
 [Android NDK](https://developer.android.com/tools/sdk/ndk/index.html):
 tell configure about it by setting the `ANDROID_NDK` environment
 variable to your NDK path or by using the `--with-android-ndk` argument
-to the configure script.
+to the configure script.  You'll also need to tell configure where the
+Android SDK is by setting the `ANDROID_SDK` environment variable or
+using the `--with-android-sdk` argument.
 
 For example:
 ````
 ./autogen.sh
 export ANDROID_NDK=/path/to/android-ndk
+export ANDROID_SDK=/path/to/android-sdk
 mkdir build
 cd build
 ../configure
